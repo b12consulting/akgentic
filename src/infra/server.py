@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uvicorn
-
 from akgentic.infra.server.app import create_app
 from akgentic.infra.server.settings import CommunitySettings
 from akgentic.infra.wiring import wire_community
