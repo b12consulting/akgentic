@@ -12,6 +12,8 @@ A comprehensive framework for building intelligent multi-agent systems with LLM 
 | [akgentic-team](https://github.com/b12consulting/akgentic-team) <br> Team lifecycle, event sourcing, YAML/MongoDB persistence | [![CI](https://github.com/b12consulting/akgentic-team/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-team/actions/workflows/ci.yml) | [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/jltournay/708bb547b8679308d083be7beaf4448a/raw/coverage.json)](https://github.com/b12consulting/akgentic-team/actions/workflows/ci.yml) | core |
 | [akgentic-agent](https://github.com/b12consulting/akgentic-agent) <br> LLM-powered agents with typed message routing | [![CI](https://github.com/b12consulting/akgentic-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-agent/actions/workflows/ci.yml) | [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/gpiroux/69ad301e9b6491972aa7324eb8953f8a/raw/coverage.json)](https://github.com/b12consulting/akgentic-agent/actions/workflows/ci.yml) | core, llm, tool |
 | [akgentic-catalog](https://github.com/b12consulting/akgentic-catalog) <br> Configuration registry for teams, YAML/MongoDB persistence | [![CI](https://github.com/b12consulting/akgentic-catalog/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-catalog/actions/workflows/ci.yml) | [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/jltournay/2e867a62d5ce56bff5e5d468e288a08b/raw/coverage.json)](https://github.com/b12consulting/akgentic-catalog/actions/workflows/ci.yml) | core, llm, tool, team |
+| [akgentic-infra](https://github.com/b12consulting/akgentic-infra) <br> Infrastructure backend — protocol abstractions, community/department/enterprise tiers | [![CI](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/jltournay/d0b84268aa19a7460fe186dbf23e500d/raw/coverage.json)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | core, llm, tool, agent, catalog, team |
+| [akgentic-frontend](https://github.com/b12consulting/akgentic-frontend) <br> Angular-based web UI | — | — | — |
 
 ## Quick Start
 
@@ -153,19 +155,21 @@ packages/
   akgentic-agent/       → Collaborative agent patterns (BaseAgent, typed message protocol, HumanProxy)
   akgentic-catalog/     → Configuration registry (YAML-driven CRUD catalogs)
   akgentic-team/        → Team lifecycle management (create/resume/stop/delete, event sourcing)
-  akgentic-infra/       → Infrastructure plugins (Redis, persistence backends) [planned]
+  akgentic-infra/       → Infrastructure backend (three-tier: community, department, enterprise)
+  akgentic-frontend/    → Angular web UI (REST + WebSocket client for akgentic-infra)
 ```
 
 **Dependency graph** (lower layers have no upward dependencies):
 
 ```
-akgentic-infra   ──depends on──>  akgentic-core (+ optional backends: Redis, MongoDB)
-akgentic-catalog ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool + akgentic-team
-akgentic-team    ──depends on──>  akgentic-core (only)
-akgentic-agent   ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool
-akgentic-tool    ──depends on──>  akgentic-core + (pydantic, pydantic-ai, tavily-python, httpx)
-akgentic-llm     ──depends on──>  (pydantic-ai, httpx, tenacity)
-akgentic-core    ──depends on──>  (pydantic, pykka)  ← zero infrastructure deps
+akgentic-frontend ──depends on──>  akgentic-infra (REST + WebSocket API)
+akgentic-infra    ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool + akgentic-agent + akgentic-catalog + akgentic-team
+akgentic-catalog  ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool + akgentic-team
+akgentic-team     ──depends on──>  akgentic-core (only)
+akgentic-agent    ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool
+akgentic-tool     ──depends on──>  akgentic-core + (pydantic, pydantic-ai, tavily-python, httpx)
+akgentic-llm      ──depends on──>  (pydantic-ai, httpx, tenacity)
+akgentic-core     ──depends on──>  (pydantic, pykka)  ← zero infrastructure deps
 ```
 
 ### akgentic-core
@@ -278,17 +282,39 @@ See [packages/akgentic-team/README.md](packages/akgentic-team/README.md) for com
 
 ### akgentic-infra
 
-Infrastructure backend plugins — optional adapters that replace in-memory defaults with production-grade services.
+Infrastructure backend for the Akgentic platform. Provides protocol abstractions that decouple the server and CLI from any specific deployment model, available in three tiers:
+
+| Tier | Target | Key characteristics |
+|---|---|---|
+| **Community** | Single process | `NoAuth`, local placement, YAML event store, local filesystem — zero external dependencies |
+| **Department** | Docker Compose | OAuth2 + API key, Redis-backed cache and channels, MongoDB persistence, HTTP remote workers |
+| **Enterprise** | Kubernetes / Dapr | SSO + RBAC, Dapr service invocation, auto-restore recovery, OTel observability, NFS/EFS storage |
 
 **Features:**
 
-- **Redis backend** — Distributed message broker and shared state store
-- **Persistence adapters** — Pluggable storage backends for event sourcing and team state
-- **Zero impact on core** — Drop-in replacements; core never depends on infra
+- **Protocol abstractions** — Auth, placement, worker lifecycle, team interaction, persistence, and observability are all swappable interfaces
+- **Community tier** — Fully functional single-process deployment with no external services required
+- **Department tier** — Redis-backed channels and state, MongoDB event store, HTTP remote workers for Docker Compose setups
+- **Enterprise tier** — Dapr-native service mesh, auto-restore recovery, zone-aware placement, and full OpenTelemetry integration
 
-> **Status:** Planned — see [Roadmap](#roadmap).
+See [packages/akgentic-infra/README.md](packages/akgentic-infra/README.md) for the full three-tier architecture and deployment guide.
 
-See [packages/akgentic-infra/README.md](packages/akgentic-infra/README.md) for details.
+### akgentic-frontend
+
+Angular single-page application providing real-time visualization and management of multi-agent teams. Connects to `akgentic-infra` via REST and WebSocket.
+
+**Features:**
+
+- **Directed agent graph** — Live ECharts visualization of agents (nodes) and message flows (edges); updates incrementally as events arrive
+- **Real-time message stream** — Color-coded chat panel with per-agent message history and playback controls (play / pause / step-forward / step-back)
+- **Agent inspection** — LLM context viewer and schema-driven state editor per agent
+- **Workspace explorer** — File browser for agent workspaces with upload support
+- **Knowledge graph** — Entity/relation visualization for agents using `KnowledgeGraphTool`
+- **Auth-ready** — API key and OAuth2 authentication with route guards
+
+**Key libraries:** Angular 19, PrimeNG 19, ECharts (ngx-echarts), RxJS, ngx-markdown, Monaco Editor.
+
+See [packages/akgentic-frontend/README.md](packages/akgentic-frontend/README.md) for setup and development instructions.
 
 ## 🛠️ Development
 
@@ -381,7 +407,7 @@ All packages maintain:
 - ✅ Comprehensive unit tests
 - ✅ Integration tests for cross-package features
 
-## 📚 Documentation
+## Documentation
 
 - [akgentic-core README](packages/akgentic-core/README.md) - Core framework documentation
 - [akgentic-core examples](packages/akgentic-core/examples/) - Hands-on tutorials
@@ -399,5 +425,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines, branch naming
 
 ## License
 
-Copyright (c) 2026 Yuma SA. All rights reserved. See [LICENSE](LICENSE) for details.
+This project is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
