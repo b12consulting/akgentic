@@ -1,0 +1,11 @@
+- id: test-team
+  name: Duplicate Team
+  entry_point: human-proxy
+  message_types:
+  - akgentic.core.messages.UserMessage
+  members:
+  - agent_id: human-proxy
+    headcount: 1
+    members: []
+  profiles: []
+  description: ''

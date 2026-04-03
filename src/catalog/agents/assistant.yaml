@@ -1,0 +1,24 @@
+id: assistant
+tool_ids:
+  - web-search
+  - planning
+  - workspace 
+card:
+  role: Assistant
+  description: Helpful assistant providing support
+  skills:
+    - research
+    - writing
+  agent_class: akgentic.agent.BaseAgent
+  config:
+    name: "@Assistant"
+    role: Assistant
+    prompt:
+      template: "@team-prompt"
+      params:
+        role: assistant
+        instructions: Provide clear and accurate information.
+    model_cfg:
+      provider: openai
+      model: gpt-5.2
+      temperature: 0.3

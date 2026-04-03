@@ -1,0 +1,13 @@
+id: planning
+tool_class: akgentic.tool.planning.PlanningTool
+tool:
+  name: Planning
+  description: Planning tool to manage team plans and tasks
+  update_planning:
+    instructions: |-
+      CRITICAL: Always keep the plan updated.
+      Create tasks when your task involves other team members
+      or is complex enough to require multiple steps.
+      Update task status when you make progress.
+      Record outputs when you complete work.
+      Do not finish your turn if the plan is stale.

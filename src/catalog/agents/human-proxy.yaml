@@ -1,0 +1,11 @@
+id: human-proxy
+card:
+  role: Human
+  description: Human user interface
+  skills: []
+  agent_class: akgentic.agent.HumanProxy
+  config:
+    name: "@Human"
+    role: Human
+  routes_to:
+    - "@Manager"

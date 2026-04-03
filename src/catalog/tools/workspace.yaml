@@ -1,0 +1,4 @@
+id: workspace
+tool_class: akgentic.tool.workspace.WorkspaceTool
+tool:
+  workspace_id: cli-catalog

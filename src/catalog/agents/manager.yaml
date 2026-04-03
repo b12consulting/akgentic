@@ -1,0 +1,27 @@
+id: manager
+tool_ids:
+  - web-search
+  - planning
+  - workspace 
+card:
+  role: Manager
+  description: Helpful manager coordinating team work
+  skills:
+    - coordination
+    - delegation
+  agent_class: akgentic.agent.BaseAgent
+  config:
+    name: "@Manager"
+    role: Manager
+    prompt:
+      template: "@team-prompt"
+      params:
+        role: manager
+        instructions: Coordinate the team effectively.
+    model_cfg:
+      provider: openai
+      model: gpt-5.2
+      temperature: 0.3
+  routes_to:
+    - "@Assistant"
+    - "@Expert"

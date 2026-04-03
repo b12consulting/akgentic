@@ -1,0 +1,101 @@
+[project]
+name = "akgentic-quick-start"
+version = "0.1.0"
+description = "Akgentic framework quick start package with example agents and tools"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
+]
+
+dependencies = [
+    "akgentic",
+    "akgentic-llm",
+    "akgentic-agent",
+    "akgentic-tool",
+    "akgentic-catalog",
+    "akgentic-team",
+    "akgentic-infra",
+]
+
+[tool.uv.sources]
+akgentic = { workspace = true }
+akgentic-llm = { workspace = true }
+akgentic-agent = { workspace = true }
+akgentic-tool = { workspace = true }
+akgentic-catalog = { workspace = true }
+akgentic-team = { workspace = true }
+akgentic-infra = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "packages/akgentic-core",
+    "packages/akgentic-llm",
+    "packages/akgentic-agent",
+    "packages/akgentic-tool",
+    "packages/akgentic-catalog",
+    "packages/akgentic-team",
+    "packages/akgentic-infra",
+]
+
+# Python version requirement is set per-package in individual pyproject.toml files
+
+# Shared pytest configuration for all workspace packages
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages/*/tests"]
+python_files = ["test_*.py"]
+addopts = "-v"
+markers = [
+    "integration: tests requiring external services (LLM API keys)",
+]
+
+# Shared coverage configuration
+[tool.coverage.run]
+source = ["packages/*/src"]
+branch = true
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+# Shared mypy configuration
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+# akgentic-tool: pre-existing type errors — exempted to keep CI green.
+# New files in these modules must pass strict mypy before the override is removed.
+[[tool.mypy.overrides]]
+module = [
+    "akgentic.tool.core",
+    "akgentic.tool.event",
+    "akgentic.tool.team.team",
+    "akgentic.tool.planning.planning",
+    "akgentic.tool.planning.planning_actor",
+    "akgentic.tool.knowledge_graph.kg_tool",
+    "akgentic.tool.search.search",
+    "akgentic.tool.mcp.mcp",
+    "akgentic.tool.sandbox.actor",
+    "akgentic.tool.workspace.readers",
+]
+ignore_errors = true
+
+# Shared ruff configuration
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "ANN", "ASYNC", "C901", "PLR0912", "PLR0915"]
+ignore = ["ANN401", "N802"]  # Allow Any in serialization, allow Pykka patterns
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50

@@ -1,0 +1,24 @@
+[submodule "packages/akgentic-core"]
+	path = packages/akgentic-core
+	url = git@github.com:b12consulting/akgentic-core.git
+[submodule "packages/akgentic-llm"]
+	path = packages/akgentic-llm
+	url = git@github.com:b12consulting/akgentic-llm.git
+[submodule "packages/akgentic-template"]
+	path = packages/akgentic-template
+	url = git@github.com:b12consulting/akgentic-template.git
+[submodule "packages/akgentic-tool"]
+	path = packages/akgentic-tool
+	url = git@github.com:b12consulting/akgentic-tool.git
+[submodule "packages/akgentic-agent"]
+	path = packages/akgentic-agent
+	url = git@github.com:b12consulting/akgentic-agent.git
+[submodule "packages/akgentic-catalog"]
+	path = packages/akgentic-catalog
+	url = git@github.com:b12consulting/akgentic-catalog.git
+[submodule "packages/akgentic-team"]
+	path = packages/akgentic-team
+	url = git@github.com:b12consulting/akgentic-team.git
+[submodule "packages/akgentic-infra"]
+	path = packages/akgentic-infra
+	url = git@github.com:b12consulting/akgentic-infra.git

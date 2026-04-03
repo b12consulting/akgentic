@@ -1,0 +1,24 @@
+id: expert
+tool_ids:
+  - web-search
+  - planning
+  - workspace 
+card:
+  role: Expert
+  description: Helpful expert providing specialized knowledge
+  skills:
+    - analysis
+    - problem-solving
+  agent_class: akgentic.agent.BaseAgent
+  config:
+    name: "@Expert"
+    role: Expert
+    prompt:
+      template: "@team-prompt"
+      params:
+        role: expert
+        instructions: Provide deep specialized knowledge.
+    model_cfg:
+      provider: openai
+      model: gpt-5.2
+      temperature: 0.3
