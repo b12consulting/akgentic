@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.json
+htmlcov/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+
+# Linting
+.ruff_cache/
+
+# Virtual environments
+.venv/
+
+# IDE
+.github/
+.vscode/
+.idea/
+.cursor/
+.windsurf/
+.agent/
+.codex/
+.mcp.json
+
+*/settings.local.json
+.env
+
+_bmad-output/presentations/
+workspaces/
+tmp/
+data/
+
+# OS files
+.DS_Store
