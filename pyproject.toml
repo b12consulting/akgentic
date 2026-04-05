@@ -1,6 +1,6 @@
 [project]
-name = "akgentic-quick-start"
-version = "0.1.0"
+name = "akgentic-framework"
+version = "1.0.0"
 description = "Akgentic framework quick start package with example agents and tools"
 readme = "README.md"
 requires-python = ">=3.12"
