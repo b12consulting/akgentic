@@ -34,8 +34,10 @@ htmlcov/
 .codex/
 .mcp.json
 
+
 */settings.local.json
 .env
+.claude
 
 _bmad-output/presentations/
 workspaces/
