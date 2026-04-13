@@ -2,7 +2,8 @@ id: expert
 tool_ids:
   - web-search
   - planning
-  - workspace 
+  - workspace
+  - knowledge-graph
 card:
   role: Expert
   description: Helpful expert providing specialized knowledge

@@ -2,7 +2,8 @@ id: manager
 tool_ids:
   - web-search
   - planning
-  - workspace 
+  - workspace
+  - knowledge-graph
 card:
   role: Manager
   description: Helpful manager coordinating team work

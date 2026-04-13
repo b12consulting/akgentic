@@ -1,15 +1,17 @@
-id: agent-team
-name: Agent Team
-description: Manager coordinating Assistant and Expert agents
-entry_point: human-proxy
-message_types:
-  - akgentic.agent.AgentMessage
-members:
+- id: agent-team
+  name: Agent Team
+  entry_point: human-proxy
+  members:
   - agent_id: human-proxy
   - agent_id: manager
     members:
-      - agent_id: assistant
-      - agent_id: expert
-profiles:
+    - agent_id: expert
+    - agent_id: assistant
+    - agent_id: human-support
+  agent_profiles:
   - expert
   - assistant
+  - human-support
+  message_types:
+  - akgentic.agent.AgentMessage
+  description: Manager coordinating Assistant, Expert and Support Human agents
