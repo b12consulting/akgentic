@@ -2,7 +2,8 @@ id: assistant
 tool_ids:
   - web-search
   - planning
-  - workspace 
+  - workspace
+  - knowledge-graph
 card:
   role: Assistant
   description: Helpful assistant providing support

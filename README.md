@@ -23,8 +23,8 @@ This root package serves as the **quick-start entry point** for the Akgentic fra
 
 ```bash
 # 1. Clone the repository with submodules
-git clone https://github.com/b12consulting/akgentic-quick-start.git
-cd akgentic-quick-start
+git clone https://github.com/b12consulting/akgentic-framework.git
+cd akgentic-framework
 
 # Initialize submodules
 git submodule update --init --recursive
