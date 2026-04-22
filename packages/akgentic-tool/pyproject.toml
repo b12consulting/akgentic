@@ -1,0 +1,65 @@
+[project]
+name = "akgentic-tool"
+version = "0.1.0"
+description = "Tool interface and factory for Akgentic agent systems"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
+]
+keywords = ["agents", "ai", "akgentic"]
+
+dependencies = [
+    "pydantic>=2.0.0",
+    "tavily-python>=0.7.12",
+    "pydantic-ai>=0.1.0",
+    "akgentic",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+vector_search = [
+    "openai>=1.0.0",
+    "numpy>=1.26.0",
+]
+weaviate = ["weaviate-client>=4.9.0"]
+docs = ["markitdown[pdf,docx,xlsx,xls,pptx,outlook]>=0.1"]
+vision = ["Pillow>=10.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
+    "openai>=1.0.0",
+    "numpy>=1.26.0",
+]
+
+
+[tool.uv.sources]
+akgentic = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akgentic"]
+
+# Tool configurations inherit from root workspace pyproject.toml
+# Only override when package-specific behavior is needed
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = []
