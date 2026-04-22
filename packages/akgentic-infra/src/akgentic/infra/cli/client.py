@@ -261,8 +261,8 @@ class ApiClient:
     # -- catalog endpoints --
 
     def list_catalog_teams(self) -> list[CatalogTeamInfo]:
-        """GET /catalog/api/teams/ -> list of CatalogTeamInfo models."""
-        resp = self._request("GET", "/catalog/api/teams/")
+        """GET /admin/catalog/teams → list of CatalogTeamInfo models."""
+        resp = self._request("GET", "/admin/catalog/teams")
         return [CatalogTeamInfo.model_validate(entry) for entry in resp.json()]
 
     # -- team endpoints --

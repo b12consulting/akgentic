@@ -19,8 +19,8 @@ class TestCatalogIntegration:
         self,
         integration_client: TestClient,
     ) -> None:
-        """AC #3: GET /catalog/api/teams returns at least the seeded test-team."""
-        resp = integration_client.get("/catalog/api/teams")
+        """AC #3: GET /admin/catalog/teams returns at least the seeded test-team."""
+        resp = integration_client.get("/admin/catalog/teams")
         assert resp.status_code == 200
         body = resp.json()
         assert isinstance(body, list)
@@ -31,8 +31,8 @@ class TestCatalogIntegration:
         self,
         integration_client: TestClient,
     ) -> None:
-        """AC #3: GET /catalog/api/teams/test-team returns full details."""
-        resp = integration_client.get("/catalog/api/teams/test-team")
+        """AC #3: GET /admin/catalog/teams/test-team returns full details."""
+        resp = integration_client.get("/admin/catalog/teams/test-team")
         assert resp.status_code == 200
         body = resp.json()
         assert body["id"] == "test-team"
@@ -46,7 +46,7 @@ class TestCatalogIntegration:
         self,
         integration_client: TestClient,
     ) -> None:
-        """AC #3: GET /catalog/api/teams/nonexistent returns 404."""
-        resp = integration_client.get("/catalog/api/teams/nonexistent")
+        """AC #3: GET /admin/catalog/teams/nonexistent returns 404."""
+        resp = integration_client.get("/admin/catalog/teams/nonexistent")
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"].lower()

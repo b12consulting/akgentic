@@ -1,6 +1,6 @@
 """Integration tests — catalog CRUD through mounted akgentic-catalog routers.
 
-Validates catalog routers mounted at /catalog from story 6.9.
+Validates admin catalog router mounted at /admin/catalog.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ class TestCatalogTeamCrud:
     """Exercise the mounted akgentic-catalog team router CRUD operations."""
 
     def test_list_teams(self, integration_client: TestClient) -> None:
-        """AC #6: GET /catalog/api/teams returns seeded entries."""
-        resp = integration_client.get("/catalog/api/teams")
+        """AC #6: GET /admin/catalog/teams returns seeded entries."""
+        resp = integration_client.get("/admin/catalog/teams")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -29,8 +29,8 @@ class TestCatalogTeamCrud:
         assert "test-team" in ids
 
     def test_get_team(self, integration_client: TestClient) -> None:
-        """AC #6: GET /catalog/api/teams/{id} returns full entry."""
-        resp = integration_client.get("/catalog/api/teams/test-team")
+        """AC #6: GET /admin/catalog/teams/{id} returns full entry."""
+        resp = integration_client.get("/admin/catalog/teams/test-team")
         assert resp.status_code == 200
         body = resp.json()
         assert body["id"] == "test-team"
@@ -40,7 +40,7 @@ class TestCatalogTeamCrud:
         self,
         integration_client: TestClient,
     ) -> None:
-        """AC #6: POST/PUT/DELETE /catalog/api/teams for full CRUD."""
+        """AC #6: POST/PUT/DELETE /admin/catalog/teams for full CRUD."""
         new_entry = {
             "id": "crud-test-team",
             "name": "CRUD Test Team",
@@ -51,34 +51,34 @@ class TestCatalogTeamCrud:
         }
 
         # Create
-        resp = integration_client.post("/catalog/api/teams/", json=new_entry)
+        resp = integration_client.post("/admin/catalog/teams", json=new_entry)
         assert resp.status_code == 201
         assert resp.json()["id"] == "crud-test-team"
 
         # Read back
-        resp = integration_client.get("/catalog/api/teams/crud-test-team")
+        resp = integration_client.get("/admin/catalog/teams/crud-test-team")
         assert resp.status_code == 200
         assert resp.json()["name"] == "CRUD Test Team"
 
         # Update
         new_entry["name"] = "Updated CRUD Team"
         resp = integration_client.put(
-            "/catalog/api/teams/crud-test-team",
+            "/admin/catalog/teams/crud-test-team",
             json=new_entry,
         )
         assert resp.status_code == 200
         assert resp.json()["name"] == "Updated CRUD Team"
 
         # Delete
-        resp = integration_client.delete("/catalog/api/teams/crud-test-team")
+        resp = integration_client.delete("/admin/catalog/teams/crud-test-team")
         assert resp.status_code == 204
 
     def test_get_nonexistent_team_404(
         self,
         integration_client: TestClient,
     ) -> None:
-        """AC #6: GET /catalog/api/teams/nonexistent returns 404."""
-        resp = integration_client.get("/catalog/api/teams/nonexistent-xyz")
+        """AC #6: GET /admin/catalog/teams/nonexistent returns 404."""
+        resp = integration_client.get("/admin/catalog/teams/nonexistent-xyz")
         assert resp.status_code == 404
 
 
@@ -91,8 +91,8 @@ class TestCatalogAgentCrud:
     """Exercise the mounted akgentic-catalog agent router."""
 
     def test_list_agents(self, integration_client: TestClient) -> None:
-        """AC #6: GET /catalog/api/agents returns seeded entries."""
-        resp = integration_client.get("/catalog/api/agents")
+        """AC #6: GET /admin/catalog/agents returns seeded entries."""
+        resp = integration_client.get("/admin/catalog/agents")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -101,8 +101,8 @@ class TestCatalogAgentCrud:
         assert "manager" in ids
 
     def test_get_agent(self, integration_client: TestClient) -> None:
-        """AC #6: GET /catalog/api/agents/{id} returns entry."""
-        resp = integration_client.get("/catalog/api/agents/manager")
+        """AC #6: GET /admin/catalog/agents/{id} returns entry."""
+        resp = integration_client.get("/admin/catalog/agents/manager")
         assert resp.status_code == 200
         assert resp.json()["id"] == "manager"
 
@@ -110,8 +110,8 @@ class TestCatalogAgentCrud:
         self,
         integration_client: TestClient,
     ) -> None:
-        """AC #6: GET /catalog/api/agents/nonexistent returns 404."""
-        resp = integration_client.get("/catalog/api/agents/nonexistent-xyz")
+        """AC #6: GET /admin/catalog/agents/nonexistent returns 404."""
+        resp = integration_client.get("/admin/catalog/agents/nonexistent-xyz")
         assert resp.status_code == 404
 
 
@@ -124,13 +124,13 @@ class TestCatalogToolsTemplates:
     """Exercise the mounted tool and template catalog routers."""
 
     def test_list_tools(self, integration_client: TestClient) -> None:
-        """AC #6: GET /catalog/api/tools returns 200 (may be empty)."""
-        resp = integration_client.get("/catalog/api/tools")
+        """AC #6: GET /admin/catalog/tools returns 200 (may be empty)."""
+        resp = integration_client.get("/admin/catalog/tools")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
     def test_list_templates(self, integration_client: TestClient) -> None:
-        """AC #6: GET /catalog/api/templates returns 200 (may be empty)."""
-        resp = integration_client.get("/catalog/api/templates")
+        """AC #6: GET /admin/catalog/templates returns 200 (may be empty)."""
+        resp = integration_client.get("/admin/catalog/templates")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)

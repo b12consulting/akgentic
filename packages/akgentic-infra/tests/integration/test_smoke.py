@@ -74,8 +74,8 @@ def _delete_team(client: TestClient, team_id: str) -> None:
 
 
 def test_smoke_list_catalog_teams(smoke_client: TestClient) -> None:
-    """GET /catalog/api/teams/ returns the seeded catalog."""
-    resp = smoke_client.get("/catalog/api/teams/")
+    """GET /admin/catalog/teams returns the seeded catalog."""
+    resp = smoke_client.get("/admin/catalog/teams")
     assert resp.status_code == 200
     teams = resp.json()
     assert isinstance(teams, list)
