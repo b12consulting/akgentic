@@ -1,0 +1,7 @@
+id: vector-store
+tool_class: akgentic.tool.vector_store.VectorStoreTool
+tool:
+  name: VectorStore
+  description: Centralized vector storage and embedding service
+  embedding_model: text-embedding-3-small
+  embedding_provider: openai

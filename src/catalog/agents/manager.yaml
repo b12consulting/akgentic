@@ -3,6 +3,7 @@ tool_ids:
   - web-search
   - planning
   - workspace
+  - vector-store
   - knowledge-graph
 card:
   role: Manager
@@ -21,7 +22,7 @@ card:
         instructions: Coordinate the team effectively.
     model_cfg:
       provider: openai
-      model: gpt-5.2
+      model: gpt-4.1
       temperature: 0.3
   routes_to:
     - "@Assistant"

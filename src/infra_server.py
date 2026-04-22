@@ -9,9 +9,6 @@ import uvicorn
 from akgentic.infra.server.app import create_app
 from akgentic.infra.server.settings import CommunitySettings
 from akgentic.infra.wiring import wire_community
-from dotenv import load_dotenv
-
-load_dotenv()
 
 settings = CommunitySettings(catalog_path=Path("./src/catalog"))
 services = wire_community(settings)
@@ -23,5 +20,4 @@ if __name__ == "__main__":
         app,
         host=settings.host,
         port=settings.port,
-        timeout_graceful_shutdown=1,
     )

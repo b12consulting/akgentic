@@ -40,7 +40,13 @@ DATA_DIR = Path("./data/catalog-team")
 class MessagePrinter(EventSubscriber):
     """Prints messages as they flow through the orchestrator."""
 
+    def set_restoring(self, restoring: bool) -> None:
+        pass
+
     def on_stop(self) -> None:
+        pass
+
+    def on_stop_request(self) -> None:
         pass
 
     def on_message(self, message: Message) -> None:
