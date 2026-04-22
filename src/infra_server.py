@@ -30,4 +30,6 @@ if __name__ == "__main__":
         app,
         host=settings.host,
         port=settings.port,
+        ws="wsproto",
+        timeout_graceful_shutdown=1,
     )

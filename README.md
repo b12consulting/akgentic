@@ -19,7 +19,7 @@ A comprehensive framework for building intelligent multi-agent systems with LLM 
 
 This root package serves as the **quick-start entry point** for the Akgentic framework, providing complete examples that demonstrate the full capabilities of multi-agent team coordination.
 
-### Complete Installation
+### Installation
 
 ```bash
 # 1. Clone the repository with submodules
@@ -34,9 +34,46 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv sync --all-packages --all-extras
 ```
 
+### Running the Server and Frontend
+
+After installation, open two terminals to launch the backend and the web UI:
+
+**Terminal 1 — Start the backend server:**
+
+```bash
+source .venv/bin/activate
+
+# Set your API keys (get them from https://platform.openai.com/api-keys and https://app.tavily.com/)
+export OPENAI_API_KEY="your-openai-api-key"
+export TAVILY_API_KEY="your-tavily-api-key"
+
+# Launch the server (param --logfire enables structured logging, https://logfire-eu.pydantic.dev/)
+python src/infra_server.py
+```
+
+**Terminal 2 — Start the web UI:**
+
+```bash
+cd packages/akgentic-frontend
+npm install
+npm start
+```
+
+Once both are running:
+
+- **Web UI** — [http://localhost:4200](http://localhost:4200) — create and interact with agent teams visually
+- **API docs** — [http://localhost:8000/docs](http://localhost:8000/docs) — interactive OpenAPI (Swagger) interface to explore and test all REST endpoints
+
+By default, the server stores team catalogs in `./data/catalog/` and the event store in `./data/event_store/`. These paths are configurable via the `CommunitySettings` class or environment variables prefixed with `AKGENTIC_`.
+
+![Akgentic Frontend](akgentic_frontend.png)
+![Akgentic OpenAPI](akgentic_openapi.png)
+
+
+
 ### Command line Agent Team Example
 
-The [src/agent_team/main.py](src/agent_team/main.py) example demonstrates a complete multi-agent team system.
+The [src/agent_team/main.py](src/agent_team/main.py) example demonstrates a complete multi-agent team system from a simple python script without the full infrastructure.
 
 **What it demonstrates:**
 
