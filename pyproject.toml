@@ -1,0 +1,90 @@
+[project]
+name = "akgentic-catalog"
+version = "0.1.0"
+description = "Collaborative agent patterns for the Akgentic framework"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
+]
+keywords = ["ai", "catalog", "collaboration", "pydantic"]
+
+dependencies = [
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "akgentic",
+    "akgentic-tool",
+    "akgentic-team",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+]
+cli = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
+mongo = [
+    "pymongo>=4.0.0",
+]
+postgres = [
+    "nagra>=0.5",
+    "psycopg[binary]>=3.1",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
+    "types-PyYAML>=6.0",
+    "mongomock>=4.0.0",
+    "httpx>=0.24.0",
+    "nagra>=0.5",
+    "psycopg[binary]>=3.1",
+    "testcontainers[postgres]>=4.0.0",
+]
+
+[project.scripts]
+ak-catalog = "akgentic.catalog.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akgentic"]
+
+# Explicitly ship non-Python assets needed at runtime (e.g., Nagra schema TOML
+# for the Postgres backend). Without this, hatchling's default heuristics may
+# skip files like *.toml under src/.
+[tool.hatch.build.targets.wheel.force-include]
+"src/akgentic/catalog/repositories/postgres/schema.toml" = "akgentic/catalog/repositories/postgres/schema.toml"
+
+[tool.uv.sources]
+akgentic = { workspace = true }
+akgentic-tool = { workspace = true }
+akgentic-team = { workspace = true }
+
+# Tool configurations inherit from root workspace pyproject.toml
+# Only override when package-specific behavior is needed
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "ANN", "ASYNC"]
+ignore = ["ANN401", "N802"]
