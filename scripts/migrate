@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# Configuration b12consulting
+ORG_URL="git@github.com:b12consulting"
+PARENT_DIR="packages"
+BRANCH="master"
+
+PACKETS=(
+    "akgentic-core"
+    "akgentic-llm"
+    "akgentic-tool"
+    "akgentic-agent"
+    "akgentic-team"
+    "akgentic-catalog"
+    "akgentic-infra"
+    "akgentic-frontend"
+)
+
+echo "--- Migration vers Subtrees (Version Robuste) ---"
+
+for PKG in "${PACKETS[@]}"; do
+    PATH_PKG="$PARENT_DIR/$PKG"
+    REPO_URL="$ORG_URL/$PKG.git"
+
+    echo "Traitement de $PKG..."
+
+    # 1. Nettoyage et COMMIT obligatoire
+    if git submodule status "$PATH_PKG" >/dev/null 2>&1; then
+        echo "   -> Suppression du sous-module..."
+        git submodule deinit -f "$PATH_PKG"
+        rm -rf ".git/modules/$PATH_PKG"
+        git rm -rf "$PATH_PKG"
+        # On commit la suppression pour libérer l'index
+        git commit -m "chore: remove submodule $PKG for subtree migration"
+    fi
+
+    # 2. Ajout du remote
+    git remote add "$PKG" "$REPO_URL" 2>/dev/null || git remote set-url "$PKG" "$REPO_URL"
+    
+    # 3. Ajout du Subtree
+    echo "   -> Importation du contenu $BRANCH (squash)..."
+    if git subtree add --prefix "$PATH_PKG" "$PKG" "$BRANCH" --squash; then
+        echo "   ✅ $PKG migré."
+    else
+        echo "   ❌ Erreur sur $PKG. Vérifiez manuellement 'git status'."
+        exit 1
+    fi
+done
+
+echo "--- Migration terminée ---"
