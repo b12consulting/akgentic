@@ -1,0 +1,53 @@
+[project]
+name = "akgentic-llm"
+version = "0.1.0"
+description = "LLM integration layer for Akgentic agent systems"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
+]
+keywords = ["llm", "agents", "ai", "pydantic-ai", "react"]
+
+dependencies = [
+    "pydantic-ai>=0.1.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.27.0",
+    "tenacity>=8.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akgentic"]
+artifacts = ["src/akgentic/llm/pricing.yaml"]
+
+# Tool configurations inherit from root workspace pyproject.toml
+# Only override when package-specific behavior is needed
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = []
