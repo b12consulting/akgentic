@@ -1,0 +1,19 @@
+[team_process_entries]
+natural_key = ["id"]
+[team_process_entries.columns]
+id = "str"
+data = "json"
+
+[event_entries]
+natural_key = ["team_id", "sequence"]
+[event_entries.columns]
+team_id = "str"
+sequence = "int"
+data = "json"
+
+[agent_state_entries]
+natural_key = ["team_id", "agent_id"]
+[agent_state_entries.columns]
+team_id = "str"
+agent_id = "str"
+data = "json"

@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  NO_COLOR: "1"
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: akgentic
+          POSTGRES_PASSWORD: akgentic
+          POSTGRES_DB: akgentic_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U akgentic"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      POSTGRES_SERVER: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: akgentic
+      POSTGRES_PASSWORD: akgentic
+      POSTGRES_DB: akgentic_test
+      DB_CONN_STRING_PERSISTENCE: postgresql://akgentic:akgentic@localhost:5432/akgentic_test
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          repository: b12consulting/akgentic-quick-start
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Override team submodule with current branch
+        working-directory: packages/akgentic-team
+        run: |
+          git fetch origin ${{ github.head_ref || github.ref_name }}
+          git checkout FETCH_HEAD
+
+      - name: Ensure team package in workspace
+        run: |
+          if ! grep -q 'akgentic-team' pyproject.toml; then
+            sed -i 's/"akgentic-catalog",/"akgentic-catalog",\n    "akgentic-team",/' pyproject.toml
+            sed -i 's|"packages/akgentic-catalog",|"packages/akgentic-catalog",\n    "packages/akgentic-team",|' pyproject.toml
+            sed -i 's/akgentic-catalog = { workspace = true }/akgentic-catalog = { workspace = true }\nakgentic-team = { workspace = true }/' pyproject.toml
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Type checking
+        run: uv run mypy packages/akgentic-team/src/
+
+      - name: Linting
+        run: uv run ruff check packages/akgentic-team/src/
+
+      - name: Run tests with coverage
+        run: >
+          uv run pytest packages/akgentic-team/tests/
+          --cov=akgentic.team
+          --cov-report=term-missing
+          --cov-report=json:coverage.json
+          --cov-fail-under=80
+
+      - name: Update coverage badge
+        if: github.ref_name == 'master' && github.event_name == 'push'
+        run: |
+          COVERAGE=$(python -c "import json; print(round(float(json.load(open('coverage.json'))['totals']['percent_covered_display'])))")
+          if [ "$COVERAGE" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$COVERAGE" -ge 80 ]; then COLOR="green"
+          elif [ "$COVERAGE" -ge 70 ]; then COLOR="yellow"
+          else COLOR="red"; fi
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${COLOR}\"}" > badge.json
+          gh gist edit 708bb547b8679308d083be7beaf4448a -f coverage.json badge.json
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}

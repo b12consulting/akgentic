@@ -1,0 +1,77 @@
+[project]
+name = "akgentic-team"
+version = "1.0.0-alpha.1"
+description = "Team lifecycle management — create, resume, stop, delete teams with event-sourced persistence"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
+]
+keywords = ["agents", "ai", "akgentic", "teams", "lifecycle"]
+
+dependencies = [
+    "pydantic>=2.0.0",
+    "akgentic",
+]
+
+[project.optional-dependencies]
+mongo = ["pymongo>=4.0.0"]
+postgres = ["nagra>=0.5", "psycopg[binary]>=3.1"]
+cli = ["typer>=0.9.0", "rich>=13.0.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
+    "mongomock>=4.0.0",
+    "python-dotenv>=1.0.0",
+    "nagra>=0.5",
+    "psycopg[binary]>=3.1",
+    "testcontainers[postgres]>=4.0.0",
+]
+
+[project.scripts]
+ak-team = "akgentic.team.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+akgentic = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akgentic"]
+
+# Explicitly ship non-Python assets needed at runtime (e.g., Nagra schema TOML
+# for the Postgres backend). Without this, hatchling's default heuristics may
+# skip files like *.toml under src/.
+[tool.hatch.build.targets.wheel.force-include]
+"src/akgentic/team/repositories/postgres/schema.toml" = "akgentic/team/repositories/postgres/schema.toml"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+markers = ["integration: Full lifecycle tests requiring real LLM and API keys"]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "ANN", "ASYNC", "C901", "PLR0912", "PLR0915"]
+ignore = ["ANN401", "N802"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50
