@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+</head>
+<body>
+  <button id="add-node-btn">Add New Node</button>
+  <button id="disable-last-btn">Disable Last Node/Edge</button>
+  <div id="graph-chart" style="width: 800px; height: 600px; margin-top: 10px;"></div>
+  <script>
+    // Initialize the chart
+    var chart = echarts.init(document.getElementById('graph-chart'));
+
+
+    var nodes = [
+            { name: 'Archi', value: 10, category: 0},
+            { name: 'Dev', value: 8, category: 1 },
+            { name: 'DockerExec', value: 6, category: 2 },
+            { name: 'Review', value: 6, category: 2 }
+          ];
+
+    var edges = [
+            { source: 'Archi', target: 'Dev', label: { show: true, formatter: 'WriteCode' } },
+            { source: 'Dev', target: 'Archi', label: { show: true, formatter: 'Result' } },
+            { source: 'Dev', target: 'DockerExec', label: { show: true, formatter: 'ExecCode' }},
+            { source: 'Dev', target: 'Review', label: { show: true, formatter: 'ReviewCode' }}
+          ];
+
+    var categories = [
+            { name: 'Architect' },
+            { name: 'Developer' },
+            { name: 'Task' }
+          ];
+
+    // Define the graph data
+    var option = {
+      title: {
+        text: 'Agent Communication Graph',
+        left: 'center'
+      },
+      tooltip: {
+        trigger: 'item',
+        formatter: function (params) {
+          if (params.dataType === 'node') {
+            return `Node: ${params.data.name}`;
+          } else if (params.dataType === 'edge') {
+            return `Edge: ${params.data.source} → ${params.data.target}<br>Message: ${params.data.label.formatter}`;
+          }
+        }
+      },
+      series: [
+        {
+          type: 'graph',
+          layout: 'force',
+          force: {
+            repulsion: 1000,
+            edgeLength: [50, 200]
+          },
+          draggable: true,
+          roam: true,
+          label: {
+            show: true,
+            position: 'top'
+          },
+          symbol: 'roundRect',
+          symbolSize: [15, 15],
+          edgeSymbol: ['none', 'arrow'],
+          edgeSymbolSize: 12,
+          lineStyle: {
+            color: 'source',
+            curveness: 0.2,
+            width: 2,
+            type: 'solid',
+          },
+          emphasis: {
+            focus: 'adjacency',
+            lineStyle: {
+              width: 3
+            }
+          },
+          data: nodes,
+          links: edges,
+          categories: categories,
+        }
+      ]
+    };
+
+    // Set the option and render the chart
+    chart.setOption(option);
+
+    // Add click event listener for edges
+    chart.on('click', function (params) {
+      if (params.dataType === 'node') {
+        alert(`Clicked node: ${params.data.name}`);
+      } else if (params.dataType === 'edge') {
+        alert(`Clicked edge: ${params.data.source} → ${params.data.target}`);
+      }
+    });
+
+    // Add new node dynamically
+    let newNodeCounter = 1;
+    let lastNode = null;
+    let lastEdge = null;
+
+    document.getElementById('add-node-btn').addEventListener('click', function () {
+      // Define the new node and edge
+      const newNodeName = `NewNode${newNodeCounter}`;
+      const newNode = { name: newNodeName, value: 5, category: 1 };
+      const newLink = {
+        source: 'Dev',
+        target: newNodeName,
+        label: { show: true, formatter: 'NewMessage' }
+      };
+
+      // Add to the existing data
+      nodes.push(newNode);
+      edges.push(newLink);
+
+      // Update references to the last-added node and edge
+      lastNode = newNode;
+      lastEdge = newLink;
+
+      // Increment node counter
+      newNodeCounter++;
+
+      // Update the graph with the new data
+      chart.setOption({
+        series: [
+          {
+            data: nodes,
+            links: edges
+          }
+        ]
+      });
+    });
+
+    // Disable the last-added node and its edge
+    document.getElementById('disable-last-btn').addEventListener('click', function () {
+      if (lastNode) {
+        // Update opacity for the last node
+        lastNode.itemStyle = { opacity: 0.3 };
+
+        // Update opacity for the last edge
+        if (lastEdge) {
+          lastEdge.lineStyle = { opacity: 0.2 };
+        }
+
+        // Update the graph with the new styles
+        chart.setOption({
+          series: [
+            {
+              data: nodes,
+              links: edges
+            }
+          ]
+        });
+      }
+    });
+
+  </script>
+</body>
+</html>

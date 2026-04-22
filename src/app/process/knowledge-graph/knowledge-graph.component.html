@@ -1,0 +1,358 @@
+<!-- Graph Visualization Template -->
+<ng-template #graphVisualizationTemplate>
+  <div
+    class="graph-visualization"
+    [class.modal-mode]="isModal"
+    [class.tab-mode]="!isModal"
+  >
+    <div class="graph-canvas">
+      <div
+        echarts
+        class="echarts-container"
+        [options]="graphOptions"
+        (chartInit)="onChartInit($event)"
+      ></div>
+    </div>
+  </div>
+</ng-template>
+
+<!-- Entities Section Template -->
+<ng-template #entitiesSectionTemplate>
+  <div class="nodes-section">
+    <h4>Entities</h4>
+    <div class="entities-grid">
+      <p-card
+        *ngFor="let node of (graphData$ | async)?.nodes"
+        class="entity-card"
+        [header]="node.name || 'Unnamed Entity'"
+      >
+        <div class="entity-content">
+          <div class="entity-type-container" *ngIf="node.entity_type">
+            <p-tag
+              [value]="node.entity_type"
+              severity="info"
+              class="entity-type-tag"
+            ></p-tag>
+          </div>
+          <p *ngIf="node.description" class="entity-description">
+            <markdown [data]="node.description"></markdown>
+          </p>
+          <div
+            *ngIf="node.observations && node.observations.length > 0"
+            class="entity-observations"
+          >
+            <strong>Observations ({{ node.observations.length }}):</strong>
+            <ul class="observations-list">
+              <li *ngFor="let obs of node.observations">
+                {{ obs }}
+              </li>
+            </ul>
+          </div>
+        </div>
+      </p-card>
+    </div>
+    <div *ngIf="!(graphData$ | async)?.nodes?.length" class="empty-section">
+      <i class="pi pi-inbox"></i>
+      <p>No entities found</p>
+    </div>
+  </div>
+</ng-template>
+
+<!-- Relations Section Template -->
+<ng-template #relationsSectionTemplate>
+  <div class="edges-section">
+    <h4>Relations</h4>
+    <div class="relations-grid">
+      <p-card
+        *ngFor="let edge of (graphData$ | async)?.edges"
+        class="relation-card"
+        [header]="edge.relation_type || 'Relationship'"
+      >
+        <div class="relation-content">
+          <div *ngIf="edge.from_entity && edge.to_entity" class="relation-flow">
+            <p-tag
+              [value]="edge.from_entity"
+              severity="success"
+              class="entity-tag"
+            ></p-tag>
+            <i class="pi pi-arrow-right relation-arrow"></i>
+            <p-tag
+              [value]="edge.to_entity"
+              severity="success"
+              class="entity-tag"
+            ></p-tag>
+          </div>
+        </div>
+      </p-card>
+    </div>
+    <div *ngIf="!(graphData$ | async)?.edges?.length" class="empty-section">
+      <i class="pi pi-link"></i>
+      <p>No relations found</p>
+    </div>
+  </div>
+</ng-template>
+
+<!-- Raw Data Content Template -->
+<ng-template #rawDataContentTemplate>
+  <div
+    class="raw-data-content"
+    [class.modal-mode]="isModal"
+    [class.tab-mode]="!isModal"
+  >
+    <ng-container *ngTemplateOutlet="entitiesSectionTemplate"></ng-container>
+    <ng-container *ngTemplateOutlet="relationsSectionTemplate"></ng-container>
+  </div>
+</ng-template>
+
+<!-- Modular Display: Modal or Tabs -->
+<ng-container *ngIf="isModalView">
+  <p-dialog
+    [(visible)]="showKGModal"
+    [modal]="true"
+    [style]="{
+      width: '98vw',
+      height: '96vh',
+      maxWidth: 'none',
+      maxHeight: 'none'
+    }"
+    [contentStyle]="{
+      height: '90vh',
+      padding: 0,
+      display: 'flex',
+      flexDirection: 'row'
+    }"
+    [baseZIndex]="9999"
+    [closable]="true"
+    [draggable]="false"
+    [dismissableMask]="true"
+    (onHide)="isModalView = false"
+    class="kg-pdialog"
+  >
+    <ng-template pTemplate="header">
+      <div class="dialog-header-container">
+        <span class="dialog-title">Knowledge Graph</span>
+      </div>
+    </ng-template>
+    <app-knowledge-graph
+      [isModal]="true"
+      [processId]="currentProcessId"
+      class="modal-app-component"
+    ></app-knowledge-graph>
+  </p-dialog>
+</ng-container>
+
+<!-- Modal Content - Only shown when isModal is true -->
+<ng-container *ngIf="isModal">
+  <!-- Modal Content -->
+  <div class="modal-content-container">
+    <div class="modal-graph-section">
+      <ng-container
+        *ngTemplateOutlet="graphVisualizationTemplate"
+      ></ng-container>
+    </div>
+    <div
+      class="modal-data-section"
+      [class.panel-open]="showNodeProperties && isModal"
+    >
+      <ng-container *ngTemplateOutlet="rawDataContentTemplate"></ng-container>
+
+      <!-- Custom Side Panel Overlay -->
+      <div
+        class="custom-side-panel"
+        *ngIf="showNodeProperties && (selectedNode$ | async) as node"
+        [@slideIn]
+        (wheel)="$event.stopPropagation()"
+        (touchmove)="$event.stopPropagation()"
+      >
+        <div class="side-panel-header">
+          <h3 class="side-panel-title">
+            <i class="pi pi-info-circle"></i>
+            Node Properties
+          </h3>
+          <button
+            pButton
+            type="button"
+            icon="pi pi-times"
+            class="p-button-text p-button-sm"
+            (click)="showNodeProperties = false; selectedNode$.next(null)"
+          ></button>
+        </div>
+
+        <div class="side-panel-content">
+          <!-- Node Name -->
+          <div class="property-section">
+            <label class="property-label">Name:</label>
+            <div class="property-value">
+              {{ node.name || "Unnamed Entity" }}
+            </div>
+          </div>
+
+          <!-- Entity Type -->
+          <div class="property-section" *ngIf="node.entity_type">
+            <label class="property-label">Type:</label>
+            <div class="property-value">
+              <p-tag
+                [value]="node.entity_type"
+                severity="info"
+                class="entity-type-tag"
+              ></p-tag>
+            </div>
+          </div>
+
+          <!-- Description -->
+          <div class="property-section" *ngIf="node.description">
+            <label class="property-label">Description:</label>
+            <div class="property-value description-text">
+              <markdown [data]="node.description"></markdown>
+            </div>
+          </div>
+
+          <!-- Observations -->
+          <div
+            class="property-section"
+            *ngIf="node.observations && node.observations.length > 0"
+          >
+            <label class="property-label"
+              >Observations ({{ node.observations.length }}):</label
+            >
+            <div class="property-value">
+              <div class="observations-container">
+                <div
+                  *ngFor="let observation of node.observations; let i = index"
+                  class="observation-item"
+                >
+                  <i class="pi pi-angle-right observation-icon"></i>
+                  <span class="observation-text">{{ observation }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty state -->
+          <div
+            *ngIf="
+              !node.description &&
+              (!node.observations || node.observations.length === 0)
+            "
+            class="empty-properties"
+          >
+            <i class="pi pi-info-circle"></i>
+            <span>No additional properties available</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</ng-container>
+
+<!-- Tabbed View - Only shown when isModal is false -->
+<div class="knowledge-graph-container" *ngIf="!isModal">
+  <!-- Main content with tabs - Always present, content conditionally shown -->
+  <div class="knowledge-graph-content">
+    <div class="tabs-header-container">
+      <div class="tabs-with-button">
+        <p-tabView class="flex-tabs" [(activeIndex)]="activeTabIndex">
+          <p-tabPanel header="Graph Visualization">
+            <ng-container
+              *ngTemplateOutlet="graphVisualizationTemplate"
+            ></ng-container>
+          </p-tabPanel>
+          <p-tabPanel header="Raw Data">
+            <ng-container
+              *ngTemplateOutlet="rawDataContentTemplate"
+            ></ng-container>
+          </p-tabPanel>
+        </p-tabView>
+        <button
+          pButton
+          type="button"
+          size="small"
+          severity="secondary"
+          icon="pi pi-external-link"
+          label="Expand KG"
+          (click)="isModalView = true; openKGModal()"
+          class="external-expand-button"
+        ></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Floating Node Properties Panel using PrimeNG Dialog -->
+<!-- In modal mode, attach to parent; in tab mode, use floating dialog -->
+<!-- Floating Node Properties Panel using PrimeNG Dialog (Only in tab view) -->
+<p-dialog
+  *ngIf="!isModal"
+  [(visible)]="showNodeProperties"
+  [modal]="false"
+  [closable]="true"
+  [draggable]="true"
+  [resizable]="false"
+  header="Node Properties"
+  [style]="{ width: '400px' }"
+  [baseZIndex]="1000"
+  styleClass="node-properties-dialog"
+>
+  <div class="node-details" *ngIf="selectedNode$ | async as node">
+    <!-- Node Name -->
+    <div class="property-section">
+      <label class="property-label">Name:</label>
+      <div class="property-value">
+        {{ node.name || "Unnamed Entity" }}
+      </div>
+    </div>
+
+    <!-- Entity Type -->
+    <div class="property-section" *ngIf="node.entity_type">
+      <label class="property-label">Type:</label>
+      <div class="property-value">
+        <p-tag
+          [value]="node.entity_type"
+          severity="info"
+          class="entity-type-tag"
+        ></p-tag>
+      </div>
+    </div>
+
+    <!-- Description -->
+    <div class="property-section" *ngIf="node.description">
+      <label class="property-label">Description:</label>
+      <div class="property-value description-text">
+        <markdown [data]="node.description"></markdown>
+      </div>
+    </div>
+
+    <!-- Observations -->
+    <div
+      class="property-section"
+      *ngIf="node.observations && node.observations.length > 0"
+    >
+      <label class="property-label"
+        >Observations ({{ node.observations.length }}):</label
+      >
+      <div class="property-value">
+        <div class="observations-container">
+          <div
+            *ngFor="let observation of node.observations; let i = index"
+            class="observation-item"
+          >
+            <i class="pi pi-angle-right observation-icon"></i>
+            <span class="observation-text">{{ observation }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div
+      *ngIf="
+        !node.description &&
+        (!node.observations || node.observations.length === 0)
+      "
+      class="empty-properties"
+    >
+      <i class="pi pi-info-circle"></i>
+      <span>No additional properties available</span>
+    </div>
+  </div>
+</p-dialog>

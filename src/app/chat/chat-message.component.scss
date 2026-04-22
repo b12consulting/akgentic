@@ -1,0 +1,147 @@
+/* Collapsed line for Rule 3 and Rule 4 */
+.collapsed-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #334155;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  border: 1px solid rgba(158, 187, 203, 0.5);
+
+  &:hover {
+    background-color: rgba(0, 0, 0, 0.02);
+  }
+}
+
+.collapsed-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collapsed-preview {
+  color: #64748b;
+}
+
+.collapsed-timestamp {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.open-button {
+  flex-shrink: 0;
+}
+
+:host ::ng-deep .open-button .p-button {
+  padding: 2px 8px;
+  font-size: 0.8rem;
+}
+
+.collapsed-notification-icon {
+  display: inline;
+  margin-left: 0;
+}
+
+.hand-raised {
+  display: inline-block;
+  font-style: normal;
+}
+
+/* Expanded message */
+.message {
+  display: flex;
+  width: 100%;
+
+  &.right {
+    justify-content: flex-end;
+  }
+
+  &.left {
+    justify-content: flex-start;
+  }
+
+  &.clickable {
+    cursor: pointer;
+  }
+}
+
+.message-bubble {
+  max-width: 80%;
+  padding: 10px 15px 2px;
+  font-size: 1rem;
+  line-height: 1.5;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  word-wrap: break-word;
+  color: black;
+
+  .right & {
+    border-bottom-right-radius: 0;
+  }
+
+  .left & {
+    border-bottom-left-radius: 0;
+  }
+
+  &.selected {
+    border: 2px solid var(--primary-color);
+  }
+}
+
+.bubble-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 4px;
+
+  .bubble-timestamp {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    white-space: nowrap;
+  }
+}
+
+.label-pill {
+  background-color: #6a9bb6;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 1rem;
+  color: white;
+  cursor: pointer;
+  align-self: flex-start;
+
+  &:hover:not(:disabled) {
+    background-color: #075985;
+  }
+
+  &:disabled {
+    background-color: #6a9bb6;
+    cursor: default;
+    opacity: 1;
+  }
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.notification-icon {
+  color: #38bdf8;
+  font-size: 0.9rem;
+  animation: bell-pulse 2s ease-in-out infinite;
+}
+
+@keyframes bell-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.markdown-content {
+  margin-top: 4px;
+}

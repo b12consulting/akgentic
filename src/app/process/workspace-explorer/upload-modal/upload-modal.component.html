@@ -1,0 +1,102 @@
+<p-dialog
+  [(visible)]="visible"
+  [modal]="true"
+  [closable]="true"
+  [draggable]="false"
+  [resizable]="false"
+  styleClass="upload-dialog"
+  (onHide)="onHide()"
+>
+  <ng-template pTemplate="header">
+    <div class="dialog-header">
+      <i class="pi pi-cloud-upload"></i>
+      <span class="dialog-title">Upload Files</span>
+    </div>
+  </ng-template>
+
+  <div class="upload-content">
+    <div class="target-path">
+      <i class="pi pi-folder"></i>
+      <span
+        >Upload to: <strong>{{ targetPath || "Root Folder" }}</strong></span
+      >
+    </div>
+
+    <p-message
+      *ngIf="errorMessage"
+      severity="error"
+      [text]="errorMessage"
+      styleClass="message-full-width"
+    />
+
+    <p-message
+      *ngIf="successMessage"
+      severity="success"
+      [text]="successMessage"
+      styleClass="message-full-width"
+    />
+
+    <div class="upload-area">
+      <p-fileUpload
+        name="files[]"
+        [multiple]="true"
+        [showUploadButton]="false"
+        [showCancelButton]="false"
+        [customUpload]="true"
+        (onSelect)="onSelect($event)"
+        (onRemove)="onRemove($event)"
+        (onClear)="onClear()"
+        [disabled]="uploading"
+        chooseLabel="Select Files"
+        chooseIcon="pi pi-file"
+        styleClass="custom-file-upload"
+      >
+        <ng-template pTemplate="content" let-files>
+          <div *ngIf="files.length === 0" class="empty-upload">
+            <i class="pi pi-cloud-upload empty-upload-icon"></i>
+            <div class="empty-upload-title">Choose files to upload</div>
+            <div class="empty-upload-desc">
+              Select one or multiple files from your computer
+            </div>
+          </div>
+          <div *ngIf="files.length > 0" class="files-list">
+            <div *ngFor="let file of files; let i = index" class="file-item">
+              <div class="file-info">
+                <i class="pi pi-file"></i>
+                <span class="file-name">{{ file.name }}</span>
+                <span class="file-size">{{ formatFileSize(file.size) }}</span>
+              </div>
+            </div>
+          </div>
+        </ng-template>
+      </p-fileUpload>
+
+      <p-progressBar
+        *ngIf="uploading"
+        [value]="uploadProgress"
+        [showValue]="true"
+        styleClass="upload-progress"
+      />
+    </div>
+  </div>
+
+  <ng-template pTemplate="footer">
+    <div class="dialog-footer">
+      <p-button
+        label="Cancel"
+        icon="pi pi-times"
+        [text]="true"
+        severity="secondary"
+        (onClick)="onHide()"
+        [disabled]="uploading"
+      />
+      <p-button
+        label="Upload"
+        icon="pi pi-upload"
+        (onClick)="uploadFiles()"
+        [disabled]="selectedFiles.length === 0 || uploading"
+        [loading]="uploading"
+      />
+    </div>
+  </ng-template>
+</p-dialog>

@@ -1,0 +1,23 @@
+<div class="config-editor-container">
+  <div class="config-notice">
+    <p-tag value="V2 Community Tier" severity="info"></p-tag>
+    <p style="margin-top: 0.5rem">
+      Configuration management is not available in V2 community tier.
+      Team configurations are managed via catalog YAML files.
+    </p>
+  </div>
+
+  <div *ngIf="loading" style="text-align: center; padding: 2rem">
+    <i class="pi pi-spinner pi-spin" style="font-size: 2rem"></i>
+  </div>
+
+  <div *ngIf="!loading && (catalogEntries$ | async) as entries">
+    <h4>Available Catalog Entries</h4>
+    <ul *ngIf="entries.length > 0">
+      <li *ngFor="let entry of entries">
+        {{ entry.name || entry.id }}
+      </li>
+    </ul>
+    <p *ngIf="entries.length === 0">No catalog entries found.</p>
+  </div>
+</div>

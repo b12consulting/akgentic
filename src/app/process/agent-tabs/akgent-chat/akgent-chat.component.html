@@ -1,0 +1,103 @@
+<!-- Collapsible Arrow and Button -->
+<div class="collapsible-container" *ngIf="context.length">
+  <div class="collapsible">
+    <p-table
+      #dataTable
+      [value]="context"
+      [scrollable]="true"
+      scrollHeight="calc(100vh - 370px)"
+      (mouseenter)="isMouseOverTable = true"
+      (mouseleave)="isMouseOverTable = false"
+    >
+      <ng-template #body let-message>
+        <div class="card-container">
+          <div class="card-header">
+            {{ message.type | capitalize }} : {{ message.name }}
+            <span *ngIf="message.model_name" class="model-info">
+              ({{ message.provider_name }}/{{ message.model_name }})
+            </span>
+          </div>
+          <div class="fieldset-body">
+            <ng-container
+              *ngIf="
+                ['system', 'ai', 'tool', 'human', 'tool_result'].includes(
+                  message.type
+                )
+              "
+            >
+              <p-fieldset legend="Content" [toggleable]="false">
+                <app-copy-button
+                  (click)="utilService.copyToClipboard(message.content)"
+                />
+                <div class="text-container" [innerHTML]="message.content"></div>
+              </p-fieldset>
+            </ng-container>
+            <ng-container *ngIf="['tool_call'].includes(message.type)">
+              <p-fieldset legend="Tool" [toggleable]="false">
+                {{ message.name }}
+              </p-fieldset>
+              <p-fieldset legend="Args" [toggleable]="false">
+                <app-copy-button
+                  (click)="
+                    utilService.copyToClipboard(
+                      utilService.formatJSON(message.args)
+                    )
+                  "
+                />
+                <pre class="text-container">{{
+                  utilService.formatJSON(message.args)
+                }}</pre>
+              </p-fieldset>
+              <p-fieldset
+                legend="Result"
+                [toggleable]="false"
+                *ngIf="message.result !== null && message.result !== undefined"
+              >
+                <app-copy-button
+                  (click)="utilService.copyToClipboard(message.result)"
+                />
+                <pre class="text-container">{{
+                  utilService.formatJSON(message.result)
+                }}</pre>
+              </p-fieldset>
+            </ng-container>
+          </div>
+        </div>
+      </ng-template>
+    </p-table>
+  </div>
+</div>
+
+<div class="input-container">
+  <p-floatlabel variant="in">
+    <div class="input-row">
+      <div class="input-row-textarea">
+        <textarea
+          pTextarea
+          rows="4"
+          cols="50"
+          [(ngModel)]="userInput"
+          (click)="scroll()"
+        ></textarea>
+        <label for="on_label">Chat input</label>
+      </div>
+      <div class="input-row-buttons">
+        <button
+          pButton
+          type="button"
+          size="small"
+          label="Submit"
+          (click)="sendMessage()"
+          [disabled]="!userInput || isLoading || !(contextService.currentTeamRunning$ | async)"
+        >
+          <ng-container *ngIf="isLoading; else refreshIcon">
+            <i class="pi pi-spinner pi-spin"></i>
+          </ng-container>
+          <ng-template #refreshIcon>
+            <i class="pi pi-send"></i>
+          </ng-template>
+        </button>
+      </div>
+    </div>
+  </p-floatlabel>
+</div>

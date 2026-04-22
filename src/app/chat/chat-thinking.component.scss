@@ -1,0 +1,115 @@
+/* Story 4-8 (ADR-002 Decision 10):
+ * Per-agent thinking bubble. Reuses the Rule 4 collapsed-line border colour
+ * for visual consistency. Owns the @keyframes dot-blink animation that
+ * previously lived in chat-panel.component.scss (Story 4-8 AC6). */
+
+.thinking-bubble {
+  /* Match the collapsed-line styling (chat-message.component.scss) so a
+   * thinking bubble and a Rule 4 collapsed bubble read as the same family:
+   * transparent background, hover tint only. */
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #334155;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  border: 1px solid rgba(158, 187, 203, 0.5);
+
+  /* Hover tint only while the bubble is clickable (non-final). Once
+   * finalised the bubble is static chat history — no cursor change, no
+   * hover affordance. */
+  &:not(.final):hover {
+    background-color: rgba(0, 0, 0, 0.02);
+  }
+
+  &.final {
+    cursor: default;
+  }
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agent-label {
+  font-weight: 500;
+}
+
+.thinking-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.timestamp {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.tool-list {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 0.5rem;
+}
+
+.tool-entry {
+  font-family:
+    ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  color: #475569;
+
+  &.done {
+    color: #94a3b8;
+  }
+
+  .bullet {
+    margin-right: 4px;
+  }
+
+  .tool-name {
+    font-weight: 500;
+  }
+
+  .tool-args {
+    color: #64748b;
+  }
+}
+
+/* dot-blink animation — relocated from chat-panel.component.scss (AC6). */
+.thinking-bubble .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #6a9bb6;
+  opacity: 0;
+  animation: dot-blink 1.5s infinite ease-in-out;
+}
+
+.thinking-bubble .dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.thinking-bubble .dot:nth-child(2) {
+  animation-delay: 0.3s;
+}
+.thinking-bubble .dot:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+@keyframes dot-blink {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

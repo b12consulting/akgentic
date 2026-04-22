@@ -1,0 +1,71 @@
+<div class="login-container">
+  <div class="login-card">
+    <img [src]="logo" alt="Logo" class="logo" />
+
+    <h1>{{ welcomeMessage }}</h1>
+
+    <!-- Error message for no providers configured -->
+    <div *ngIf="loginProviders.length === 0" class="error-message">
+      <p>No authentication providers are configured. Please contact your administrator.</p>
+    </div>
+
+    <!-- Tab navigation (only show if multiple providers) -->
+    <div *ngIf="showTabs" class="provider-tabs">
+      <button
+        *ngFor="let provider of loginProviders"
+        [class.active]="isProviderActive(provider)"
+        (click)="selectProvider(provider)"
+        class="tab-button"
+      >
+        {{ getProviderLabel(provider) }}
+      </button>
+    </div>
+
+    <!-- Provider content area -->
+    <div class="provider-content" *ngIf="loginProviders.length > 0">
+
+      <!-- OAuth/OIDC Providers (azure, google, default, or any custom) -->
+      <ng-container *ngFor="let provider of loginProviders">
+        <div *ngIf="isOAuthProvider(provider) && isProviderActive(provider)" class="provider-panel">
+          <button (click)="loginOAuth(provider)" class="login-button oauth-button">
+            <img *ngIf="provider === 'azure'" src="microsoft_auth_button.svg" alt="Azure AD" class="icon" />
+            <img *ngIf="provider === 'google'" src="google_auth_button.svg" alt="Google" class="icon" />
+            <span *ngIf="provider !== 'azure' && provider !== 'google'" class="pi pi-sign-in"></span>
+            <span *ngIf="provider !== 'azure' && provider !== 'google'">{{ getProviderLabel(provider) }}</span>
+          </button>
+        </div>
+      </ng-container>
+
+      <!-- API Key Provider -->
+      <div *ngIf="isProviderActive('apikey') && isProviderEnabled('apikey')" class="provider-panel">
+        <div class="apikey-card">
+          <div *ngIf="error" class="apikey-error">{{ error }}</div>
+          <div class="apikey-field">
+            <label for="apikey-field" class="apikey-label">API Key</label>
+            <input
+              type="password"
+              [(ngModel)]="apiKey"
+              placeholder="Enter your API key"
+              [ngModelOptions]="{ standalone: true }"
+              autocomplete="current-password"
+              name="apikey"
+              id="apikey-field"
+              class="apikey-input"
+              (keyup.enter)="loginWithApiKey()"
+            />
+          </div>
+          <button
+            type="button"
+            (click)="loginWithApiKey()"
+            [disabled]="loading"
+            class="apikey-btn"
+          >
+            <span class="pi pi-key"></span>
+            <span>{{ loading ? 'Authenticating...' : 'Login with API Key' }}</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

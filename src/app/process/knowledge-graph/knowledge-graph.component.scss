@@ -1,0 +1,858 @@
+
+// Shared Markdown Styles Mixin
+@mixin compact-markdown-styles {
+    ::ng-deep markdown {
+        p {
+            margin: 0 0 0.15rem 0;
+            line-height: 1.25;
+            font-size: 0.85rem;
+            
+            &:last-child {
+                margin-bottom: 0;
+            }
+        }
+        
+        strong, b {
+            font-weight: 600;
+        }
+        
+        em, i {
+            font-style: italic;
+        }
+        
+        code {
+            background: rgba(0, 0, 0, 0.1);
+            padding: 0.05rem 0.2rem;
+            border-radius: 2px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+        }
+        
+        ul, ol {
+            margin: 0.15rem 0;
+            padding-left: 0.75rem;
+            
+            li {
+                margin-bottom: 0.05rem;
+                font-size: 0.8em;
+                line-height: 1.2;
+            }
+        }
+        
+        h1, h2, h3, h4, h5, h6 {
+            margin: 0.2rem 0 0.1rem 0;
+            font-weight: 600;
+            line-height: 1.1;
+            
+            &:first-child {
+                margin-top: 0;
+            }
+        }
+        
+        h1, h2, h3 { font-size: 0.85em; }
+        h4, h5, h6 { font-size: 0.8em; }
+        
+        blockquote {
+            border-left: 2px solid #007bff;
+            padding-left: 0.3rem;
+            margin: 0.15rem 0;
+            color: #6c757d;
+            font-style: italic;
+            font-size: 0.8em;
+        }
+        
+        a {
+            color: #007bff;
+            text-decoration: none;
+            font-size: 0.85em;
+            
+            &:hover {
+                text-decoration: underline;
+            }
+        }
+        
+        pre {
+            background: rgba(0, 0, 0, 0.05);
+            padding: 0.3rem;
+            border-radius: 3px;
+            margin: 0.15rem 0;
+            font-size: 0.75em;
+            line-height: 1.2;
+            overflow-x: auto;
+        }
+        
+        hr {
+            margin: 0.3rem 0;
+            border: none;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        table {
+            font-size: 0.8em;
+            line-height: 1.2;
+            margin: 0.15rem 0;
+        }
+        
+        th, td {
+            padding: 0.2rem 0.3rem;
+        }
+    }
+}
+
+// Host component styling - ensure full dimensions in modal mode
+:host {
+    display: block;
+    height: 100%;
+    width: 100%;
+}
+
+:host(.modal-mode) {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    flex: 1;
+}
+
+// Ensure modal content containers take full space
+.modal-content-container {
+    display: flex;
+    width: 100%;
+    height: 100%; // Full height since dialog header is handled by PrimeNG
+    flex: 1;
+}
+
+// Modal layout sections
+.modal-graph-section {
+    flex: 1.6;
+    min-width: 0;
+    border-right: 1px solid #eee;
+    overflow: auto;
+    padding: 10px;
+}
+
+.modal-data-section {
+    flex: 1;
+    min-width: 0;
+    max-width: 650px; // Increased to accommodate wider 600px sidebar
+    overflow: auto;
+    padding: 10px;
+    position: relative; // For positioning the custom side panel
+    
+    // When panel is open, prevent underlying content scroll
+    &.panel-open {
+        overflow: hidden;
+    }
+}
+
+// Custom Side Panel Styles
+.custom-side-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
+    border-left: 1px solid #e0e0e0;
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    pointer-events: all; // Ensure panel captures all pointer events
+    
+    // Prevent underlying content from scrolling when panel is open
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100vw;
+        width: 100vw;
+        height: 100%;
+        background: transparent;
+        pointer-events: all;
+        z-index: -1;
+    }
+
+    .side-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #e0e0e0;
+        background: #f8f9fa;
+        flex-shrink: 0;
+
+        .side-panel-title {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+
+            .pi {
+                color: #6c757d;
+                font-size: 1rem;
+            }
+        }
+    }
+
+    .side-panel-content {
+        flex: 1;
+        padding: 1rem;
+        overflow-y: auto;
+        
+        .property-section {
+            margin-bottom: 1rem;
+            
+            &:last-child {
+                margin-bottom: 0;
+            }
+            
+            .property-label {
+                display: block;
+                font-weight: 600;
+                color: #495057;
+                margin-bottom: 0.5rem;
+                font-size: 0.9rem;
+            }
+            
+            .property-value {
+                color: #6c757d;
+                line-height: 1.4;
+                font-size: 0.9rem;
+                
+                &.description-text {
+                    padding: 0.75rem;
+                    background: #f8f9fa;
+                    border-radius: 6px;
+                    border-left: 3px solid #007bff;
+                    
+                    // Use compact markdown styling mixin
+                    @include compact-markdown-styles;
+                }
+                
+                .entity-type-tag {
+                    font-size: 0.9rem;
+                }
+            }
+        }
+        
+        .observations-container {
+            max-height: 250px;
+            overflow-y: auto;
+            
+            .observation-item {
+                display: flex;
+                align-items: flex-start;
+                margin-bottom: 0.5rem;
+                padding: 0.5rem;
+                background: #f8f9fa;
+                border-radius: 4px;
+                
+                &:last-child {
+                    margin-bottom: 0;
+                }
+                
+                .observation-icon {
+                    color: #6c757d;
+                    margin-right: 0.5rem;
+                    margin-top: 0.05rem;
+                    flex-shrink: 0;
+                    font-size: 0.8rem;
+                }
+                
+                .observation-text {
+                    flex: 1;
+                    font-size: 0.85rem;
+                    line-height: 1.3;
+                }
+            }
+        }
+        
+        .empty-properties {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            padding: 3rem;
+            color: #6c757d;
+            font-style: italic;
+            
+            .pi {
+                font-size: 1.5rem;
+            }
+        }
+    }
+}
+
+// Dialog header styling
+.dialog-header-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.dialog-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.dialog-refresh-button {
+    margin-right: 0.5rem;
+}
+
+// Modal app component styling
+.modal-app-component {
+    width: 100%;
+    height: 100%;
+    display: flex;
+}
+
+// Modal header bar styling
+.modal-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 15px;
+    border-bottom: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    min-height: 50px;
+
+    .modal-title {
+        font-weight: 600;
+        font-size: 1.1rem;
+        color: #333;
+    }
+}
+
+.knowledge-graph-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 0rem;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+// Spinner animation for refresh buttons
+.pi-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.knowledge-graph-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+// New overlay-based styling
+.tab-content-wrapper {
+    position: relative;
+    height: 100%;
+    min-height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+
+.content-area {
+    flex: 1;
+    transition: none;
+}
+
+.loading-overlay,
+.error-overlay,
+.empty-overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 400px;
+    background: #ffffff;
+}
+
+.loading-content,
+.error-content,
+.empty-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 2rem;
+    text-align: center;
+    
+    i {
+        font-size: 2rem;
+        color: #007bff;
+    }
+    
+    p {
+        margin: 0;
+        font-size: 1rem;
+        color: #666;
+    }
+}
+
+.error-content i {
+    color: #dc3545;
+}
+
+.empty-content i {
+    color: #6c757d;
+}
+
+.loading-state,
+.error-state,
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 1rem;
+    color: #666;
+
+    i {
+        font-size: 2rem;
+        color: #007bff;
+    }
+
+    p {
+        margin: 0;
+        font-size: 1rem;
+        text-align: center;
+    }
+}
+
+.error-state i {
+    color: #dc3545;
+}
+
+.empty-state i {
+    color: #6c757d;
+}
+
+// Tab view styling
+.flex-tabs {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    
+    ::ng-deep {
+        .p-tabview {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .p-tabview-nav {
+            flex-shrink: 0;
+        }
+        
+        .p-tabview-panels {
+            flex: 1;
+            padding: 0;
+            background: transparent;
+        }
+        
+        .p-tabview-panel {
+            height: 100%;
+            padding: 1rem;
+        }
+    }
+}
+
+// Button positioning for tabs
+.tabs-header-container {
+    position: relative;
+    height: 100%;
+}
+
+.tabs-with-button {
+    position: relative;
+    height: 100%;
+
+    .flex-tabs {
+        height: 100%;
+    }
+
+    .external-expand-button {
+        position: absolute;
+        top: 0.75rem;
+        right: 1rem;
+        z-index: 10;
+        margin-left: 0.5rem;
+    }
+
+    .external-refresh-button {
+        position: absolute;
+        top: 0.75rem;
+        right: 1rem;
+        z-index: 10;
+    }
+}
+
+// Z-Index Management for Proper Layering
+::ng-deep {
+    // Main Knowledge Graph modal (highest priority - must be above any parent panels)
+    .kg-pdialog {
+        .p-dialog-mask {
+            z-index: 9999 !important; // Very high to ensure it's above parent panels
+        }
+        
+        .p-dialog {
+            z-index: 10000 !important; // Highest priority
+        }
+    }
+    
+    // Floating dialog in tab view (medium priority)
+    .node-properties-dialog {
+        .p-dialog-mask {
+            z-index: 1000 !important;
+        }
+        
+        .p-dialog {
+            z-index: 1001 !important;
+        }
+    }
+}
+
+.graph-visualization {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+
+    // Modal mode: optimized for side-by-side layout
+    &.modal-mode {
+        .graph-canvas {
+            .echarts-container {
+                height: calc(90vh - 40px);
+            }
+        }
+    }
+
+    // Tab mode: full-width layout
+    &.tab-mode {
+        .graph-canvas {
+            .echarts-container {
+                height: calc(100vh - 260px);
+            }
+        }
+    }
+}
+
+.raw-data-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    flex: 1;
+    padding: 0.5rem 0;
+
+    // Modal mode: optimized for narrow side panel
+    &.modal-mode {
+        grid-template-columns: 1fr; // Stack vertically in narrow modal sidebar
+        gap: 1rem;
+        padding: 0.5rem;
+
+        .entities-grid,
+        .relations-grid {
+            max-height: none; // Remove height constraints for vertical scrolling
+        }
+
+        // Responsive adjustments for very wide modals
+        @media (min-width: 1400px) {
+            grid-template-columns: 1fr 1fr; // Back to side-by-side on very wide screens
+            gap: 1.5rem;
+            
+            .entities-grid,
+            .relations-grid {
+                overflow-y: auto;
+                max-height: calc(90vh - 100px);
+            }
+        }
+    }
+
+    // Tab mode: side-by-side layout with more space
+    &.tab-mode {
+        min-height: 500px;
+        grid-template-columns: 1fr 1fr; // Keep side-by-side layout
+        gap: 1.5rem;
+        
+        .entities-grid,
+        .relations-grid {
+            overflow-y: auto;
+            max-height: calc(100vh - 305px);
+        }
+    }
+}
+
+.graph-canvas {
+    flex: 1;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+    overflow: hidden;
+    position: relative;
+    height: 100%;
+    min-height: 350px;
+
+    .echarts-container {
+        width: 100%;
+        height: 100%;
+        min-height: 350px;
+    }
+}
+
+.nodes-section h4,
+.edges-section h4 {
+    font-size: 1.15rem;
+    font-weight: 500;
+    color: #222;
+    margin-bottom: 1rem;
+    margin-top: 0;
+    padding-bottom: 0.3rem;
+    padding-left: 1rem;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.entities-grid,
+.relations-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.entity-card,
+.relation-card {
+    .entity-content,
+    .relation-content {
+        padding: 0;
+    }
+
+    .entity-type-container {
+        margin-bottom: 0.5rem;
+    }
+
+    .entity-description {
+        margin: 0.5rem 0 0 0;
+        color: #555;
+        font-size: 0.9rem;
+        font-style: italic;
+        line-height: 1.4;
+        
+        // Use compact markdown styling mixin
+        @include compact-markdown-styles;
+    }
+
+    .entity-observations {
+        margin-top: 0.75rem;
+
+        strong {
+            color: #495057;
+            font-size: 0.85rem;
+        }
+
+        .observations-list {
+            margin: 0.5rem 0 0 1rem;
+            padding: 0;
+            list-style-type: disc;
+
+            li {
+                margin-bottom: 0.25rem;
+                color: #666;
+                font-size: 0.85rem;
+                line-height: 1.3;
+            }
+        }
+    }
+
+    .relation-flow {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+
+        .relation-arrow {
+            color: #007bff;
+            font-size: 0.875rem;
+        }
+
+        .entity-tag {
+            max-width: 120px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+    }
+}
+
+.empty-section {
+    padding: 2rem;
+    text-align: center;
+    color: #6c757d;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 2px dashed #dee2e6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+
+    i {
+        font-size: 2rem;
+        color: #adb5bd;
+    }
+
+    p {
+        margin: 0;
+        font-style: italic;
+        font-size: 0.9rem;
+    }
+}
+
+// Node Properties Dialog (Floating Panel)
+::ng-deep .node-properties-dialog {
+    // Make it a floating panel, not a modal
+    .p-dialog-mask {
+        pointer-events: none !important;
+        background: transparent !important;
+    }
+    
+    .p-dialog {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border: 1px solid #dee2e6;
+        position: fixed !important; // Ensure fixed positioning
+    }
+    
+    .p-dialog-content {
+        padding: 1rem;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    
+    .p-dialog-header {
+        padding: 0.75rem 1rem;
+        background: #f8f9fa;
+        border-bottom: 1px solid #e0e0e0;
+        cursor: move; // Indicate it's draggable
+        
+        .p-dialog-title {
+            font-weight: 600;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            
+            &::before {
+                content: "\e900"; // PrimeIcons info-circle
+                font-family: 'primeicons';
+                color: #6c757d;
+            }
+        }
+        
+        .p-dialog-header-icon {
+            color: #6c757d;
+            
+            &:hover {
+                color: #495057;
+            }
+        }
+    }
+}
+
+// Node Properties Content Styles
+.node-details {
+    .property-section {
+        margin-bottom: 1rem;
+        
+        &:last-child {
+            margin-bottom: 0;
+        }
+        
+        .property-label {
+            display: block;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .property-value {
+            color: #6c757d;
+            line-height: 1.5;
+            
+            &.description-text {
+                padding: 0.5rem;
+                background: #f8f9fa;
+                border-radius: 4px;
+                border-left: 3px solid #007bff;
+                
+                // Use compact markdown styling mixin
+                @include compact-markdown-styles;
+            }
+            
+            .entity-type-tag {
+                font-size: 0.85rem;
+            }
+        }
+    }
+    
+    .observations-container {
+        max-height: 200px;
+        overflow-y: auto;
+        
+        .observation-item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+            
+            &:last-child {
+                margin-bottom: 0;
+            }
+            
+            .observation-icon {
+                color: #6c757d;
+                margin-right: 0.5rem;
+                margin-top: 0.1rem;
+                flex-shrink: 0;
+            }
+            
+            .observation-text {
+                flex: 1;
+                font-size: 0.9rem;
+                line-height: 1.4;
+            }
+        }
+    }
+    
+    .empty-properties {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 2rem;
+        color: #6c757d;
+        font-style: italic;
+        
+        .pi {
+            font-size: 1.2rem;
+        }
+    }
+}

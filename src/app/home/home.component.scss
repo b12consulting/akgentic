@@ -1,0 +1,62 @@
+.main-container {
+    background-color: #F2F7F9;
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.team-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.team-name {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.team-description {
+    font-size: 0.875rem;
+    color: #666;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    max-width: 300px;
+
+    &:hover {
+        background-color: #f5f5f5;
+    }
+}
+
+.description-text {
+    color: #333;
+}
+
+.description-placeholder {
+    color: #999;
+    font-style: italic;
+}
+
+.description-editor {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+
+    .description-input {
+        flex: 1;
+        max-width: 300px;
+        font-size: 0.875rem;
+    }
+
+    .description-save-btn,
+    .description-cancel-btn {
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+
+        i {
+            font-size: 0.65rem;
+        }
+    }
+}

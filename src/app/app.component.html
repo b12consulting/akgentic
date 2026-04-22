@@ -1,0 +1,55 @@
+<main>
+  <p-menubar
+    [model]="items"
+    *ngIf="(authService.currentUser$ | async) ?? hideLogin"
+  >
+    <ng-template #start>
+      <div class="header-start">
+        <img
+          [src]="logo"
+          class="logo clickable-logo"
+          style="height: 40px; cursor: pointer"
+          alt="Logo"
+          (click)="navigateToHome()"
+          title="Go to Home"
+        />
+        <div>
+          <ng-container
+            *ngIf="(contextService.currentTeam$ | async) as team"
+          >
+            <span class="process-type"
+              >{{ team.name }}
+              <span class="process-config-name"> — {{ team.config_name }}</span>
+              <p-tag
+                *ngIf="(contextService.currentTeamRunning$ | async) === false"
+                value="Stopped"
+                severity="info"
+                [style]="{ 'margin-left': '8px' }"
+              >
+              </p-tag>
+              <p-tag
+                *ngIf="(contextService.currentTeamRunning$ | async)"
+                value="Running"
+                severity="success"
+                [style]="{ 'margin-left': '8px' }"
+              >
+              </p-tag>
+            </span>
+          </ng-container>
+        </div>
+      </div>
+    </ng-template>
+    <ng-template #item let-item>
+      <ng-container>
+        <a [routerLink]="item.route" class="p-menubar-item-link">
+          <span [class]="item.icon"></span>
+          <span class="mr-2">{{ item.label }}</span>
+        </a>
+      </ng-container>
+    </ng-template>
+  </p-menubar>
+  <section class="content">
+    <router-outlet></router-outlet>
+  </section>
+  <p-toast></p-toast>
+</main>

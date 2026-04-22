@@ -1,0 +1,198 @@
+::ng-deep .upload-dialog {
+  width: 90%;
+  max-width: 600px;
+
+  .p-dialog-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--surface-border);
+  }
+
+  .p-dialog-content {
+    padding: 1.5rem;
+  }
+
+  .p-dialog-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--surface-border);
+  }
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  i {
+    font-size: 1.5rem;
+    color: var(--primary-color);
+  }
+
+  .dialog-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-color);
+  }
+}
+
+.upload-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.target-path {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface-50);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--surface-border);
+  font-size: 0.875rem;
+  color: var(--text-color-secondary);
+
+  i {
+    color: var(--primary-color);
+  }
+
+  strong {
+    color: var(--text-color);
+  }
+}
+
+.upload-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+::ng-deep .custom-file-upload {
+  .p-fileupload-content {
+    min-height: 200px;
+    border: 2px dashed var(--surface-border);
+    border-radius: var(--border-radius);
+    background: var(--surface-50);
+    padding: 1.5rem;
+  }
+
+  .p-fileupload-buttonbar {
+    padding: 1rem;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--surface-border);
+  }
+}
+
+.empty-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #6c757d;
+
+  &-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    color: #adb5bd;
+  }
+
+  &-title {
+    font-size: 1.1rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+
+  &-desc {
+    font-size: 0.9rem;
+    color: #aaa;
+    line-height: 1.4;
+  }
+}
+
+.files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--border-radius);
+  transition: background-color 0.2s;
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+
+  i {
+    color: var(--primary-color);
+    font-size: 1.25rem;
+  }
+
+  .file-name {
+    flex: 1;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-size {
+    font-size: 0.8rem;
+    color: var(--text-color-secondary);
+    white-space: nowrap;
+  }
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+::ng-deep .message-full-width {
+  width: 100%;
+  
+  .p-message-wrapper {
+    width: 100%;
+  }
+}
+
+::ng-deep .upload-progress {
+  margin-top: 1rem;
+}
+
+// Scrollbar styling for files list
+.files-list::-webkit-scrollbar {
+  width: 0.4rem;
+}
+
+.files-list::-webkit-scrollbar-track {
+  background: var(--surface-ground);
+}
+
+.files-list::-webkit-scrollbar-thumb {
+  background: var(--surface-400);
+  border-radius: var(--border-radius);
+}
+
+.files-list::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-500);
+}

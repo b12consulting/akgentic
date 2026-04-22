@@ -1,0 +1,64 @@
+.feedback-icons {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+  
+    i {
+      cursor: pointer;
+      margin-left: 10px;
+      font-size: 1.2rem;
+      transition: color 0.3s ease;
+  
+      &:hover {
+        color: #007bff;
+      }
+  
+      &.selected {
+        color: #007bff; // Highlight selected thumb
+      }
+    }
+  }
+
+  
+  
+  p-dialog {
+    .modal-selected-thumb {
+        i{
+            font-size: 1.2rem;
+            color: #007bff;
+        }
+    }
+    .modal-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .p-dialog-header {
+      background-color: #f0f0f0;
+      border-bottom: 1px solid #ddd;
+      padding: 1rem;
+      font-weight: bold;
+    }
+  
+    .p-dialog-content {
+      padding: 1rem;
+    }
+  
+    textarea {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+  
+    .p-dialog-footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 1rem;
+      border-top: 1px solid #ddd;
+    }
+  }
+

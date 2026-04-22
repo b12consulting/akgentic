@@ -1,0 +1,70 @@
+<p-dialog
+  [header]="headerText"
+  [modal]="true"
+  [visible]="visible()"
+  (visibleChange)="onVisibleChange($event)"
+  [style]="{ width: '50rem' }"
+  [contentStyle]="{ 'max-height': '60vh', overflow: 'auto' }"
+>
+  <ng-container
+    *ngIf="answeredMessages().length === 0 && pendingMessages().length === 0"
+  >
+    <div class="empty-state">No requests for this pair.</div>
+  </ng-container>
+
+  <div *ngIf="answeredMessages().length > 0" class="answered-list">
+    <div class="section-label">Answered</div>
+    <div
+      *ngFor="let a of answeredMessages(); trackBy: trackByAnsweredId"
+      class="answered-request"
+    >
+      <div class="answered-header">
+        <span class="message-time">[{{ a.request.timestamp | date : 'HH:mm' }}]</span>
+        <div class="message-content">
+          <markdown [data]="a.request.content"></markdown>
+        </div>
+      </div>
+      <div class="answered-reply">
+        <span class="reply-marker">↳ Your reply:</span>
+        <div class="message-content">
+          <markdown [data]="a.reply.content"></markdown>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="pendingMessages().length > 0" class="pending-list">
+    <div class="section-label" *ngIf="answeredMessages().length > 0">Pending</div>
+    <div
+      *ngFor="let msg of pendingMessages(); trackBy: trackByRequestId"
+      class="pending-request"
+    >
+      <div class="pending-header">
+        <span class="message-time">[{{ msg.timestamp | date : 'HH:mm' }}]</span>
+        <div class="message-content">
+          <markdown [data]="msg.content"></markdown>
+        </div>
+      </div>
+      <div class="reply-section">
+        <textarea
+          pTextarea
+          style="width: 100%; min-height: 80px; max-height: 200px"
+          [autoResize]="true"
+          [ngModel]="getReplyBuffer(msg.id)"
+          (ngModelChange)="setReplyBuffer(msg.id, $event)"
+          placeholder="Type your reply..."
+          (keydown.meta.enter)="onSendForRequest(msg.id)"
+          (keydown.control.enter)="onSendForRequest(msg.id)"
+        ></textarea>
+        <div class="reply-actions">
+          <p-button
+            label="Send"
+            size="small"
+            [disabled]="!getReplyBuffer(msg.id).trim()"
+            (click)="onSendForRequest(msg.id)"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+</p-dialog>

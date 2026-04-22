@@ -1,0 +1,248 @@
+<div class="workspace-explorer">
+  <div class="explorer-layout">
+    <!-- Preview Panel with Custom Sliding Panel -->
+    <div class="preview-panel">
+      <!-- Custom Sliding File Navigator -->
+      <div
+        class="file-navigator"
+        [class.expanded]="sidebarVisible"
+        (mouseenter)="onNavigatorHover()"
+        (mouseleave)="onNavigatorLeave()"
+      >
+        <div class="navigator-header">
+          <h3 class="navigator-title">Workspace Files</h3>
+          <div class="header-actions">
+            <p-button
+              icon="pi pi-upload"
+              [text]="true"
+              [rounded]="true"
+              severity="secondary"
+              size="small"
+              (onClick)="openUploadModalToCurrentSelection()"
+              [pTooltip]="
+                selectedFolder
+                  ? 'Upload to ' + selectedFolder.name
+                  : selectedFile
+                  ? 'Upload to parent folder'
+                  : 'Upload to root folder'
+              "
+            />
+            <p-button
+              icon="pi pi-refresh"
+              [text]="true"
+              [rounded]="true"
+              severity="secondary"
+              size="small"
+              (onClick)="refresh()"
+              pTooltip="Refresh workspace"
+            />
+          </div>
+        </div>
+
+        <div class="navigator-content">
+          <p-progressSpinner
+            *ngIf="loading"
+            styleClass="spinner"
+            [style]="{ width: '50px', height: '50px' }"
+          />
+
+          <div *ngIf="errorMessage && !loading" class="error-message">
+            <i class="pi pi-exclamation-triangle"></i>
+            <p>{{ errorMessage }}</p>
+          </div>
+
+          <div
+            *ngIf="!loading && !errorMessage && treeNodes.length === 0"
+            class="empty-workspace"
+          >
+            <i class="pi pi-folder-open empty-workspace-icon"></i>
+            <div class="empty-workspace-title">No files found</div>
+            <div class="empty-workspace-desc">
+              The workspace is empty or no files are available
+            </div>
+          </div>
+
+          <p-tree
+            *ngIf="!loading && !errorMessage && treeNodes.length > 0"
+            [value]="treeNodes"
+            selectionMode="single"
+            (onNodeSelect)="onNodeSelect($event)"
+            (onNodeExpand)="onNodeExpand($event)"
+            [style]="{ width: '100%', border: 'none' }"
+          />
+        </div>
+
+        <!-- Collapsed state strip -->
+        <div class="collapsed-strip">
+          <i class="pi pi-folder-open"></i>
+        </div>
+      </div>
+
+      <p-toolbar styleClass="preview-toolbar">
+        <ng-template pTemplate="start">
+          <div class="file-info">
+            <i *ngIf="selectedFile" class="pi pi-file file-icon"></i>
+            <i *ngIf="selectedFolder" class="pi pi-folder file-icon"></i>
+            <h3 *ngIf="selectedFile" class="toolbar-title">
+              {{ selectedFile.name }}
+            </h3>
+            <h3 *ngIf="selectedFolder" class="toolbar-title">
+              {{ selectedFolder.name }}
+            </h3>
+            <h3
+              *ngIf="!selectedFile && !selectedFolder"
+              class="toolbar-title placeholder"
+            >
+              Select a file or folder
+            </h3>
+            <p-tag
+              *ngIf="selectedFile && selectedFile.size"
+              [value]="formatFileSize(selectedFile.size)"
+              severity="secondary"
+            />
+            <p-tag *ngIf="selectedFolder" value="Folder" severity="info" />
+          </div>
+        </ng-template>
+        <ng-template pTemplate="end">
+          <p-button
+            *ngIf="selectedFolder"
+            label="Upload here"
+            icon="pi pi-upload"
+            [text]="true"
+            [rounded]="true"
+            severity="primary"
+            [disabled]="!isProcessRunning"
+            (onClick)="openUploadModal(selectedFolder.path)"
+            [pTooltip]="
+              !isProcessRunning ? 'Process must be running to upload files' : ''
+            "
+          />
+          <p-button
+            *ngIf="selectedFile"
+            label="Download"
+            icon="pi pi-download"
+            [text]="true"
+            [rounded]="true"
+            severity="secondary"
+            (onClick)="downloadFile()"
+          />
+        </ng-template>
+      </p-toolbar>
+
+      <p-divider />
+
+      <div class="panel-content">
+        <p-progressSpinner
+          *ngIf="loadingContent"
+          styleClass="spinner"
+          [style]="{ width: '50px', height: '50px' }"
+        />
+
+        <div *ngIf="errorMessage && !loadingContent" class="error-message">
+          <i class="pi pi-exclamation-triangle"></i>
+          <p>{{ errorMessage }}</p>
+        </div>
+
+        <div
+          *ngIf="!selectedFile && !selectedFolder && !loadingContent"
+          class="empty-section file-placeholder"
+        >
+          <div class="empty-section-box">
+            <i class="pi pi-folder-open file-placeholder-icon"></i>
+            <div class="file-placeholder-title">Workspace Root</div>
+            <div class="file-placeholder-desc">
+              Select a file from the tree to view its content, or upload files
+              to the root folder
+            </div>
+            <p-button
+              label="Upload to Root"
+              icon="pi pi-upload"
+              severity="primary"
+              [disabled]="!isProcessRunning"
+              (onClick)="openUploadModal()"
+              styleClass="upload-button"
+              [pTooltip]="
+                !isProcessRunning
+                  ? 'Process must be running to upload files'
+                  : ''
+              "
+            />
+          </div>
+        </div>
+
+        <div
+          *ngIf="selectedFolder && !loadingContent"
+          class="empty-section folder-view"
+        >
+          <div class="empty-section-box">
+            <i class="pi pi-folder folder-icon"></i>
+            <div class="folder-title">{{ selectedFolder.name }}</div>
+            <div class="folder-desc">Upload files to this folder</div>
+            <p-button
+              label="Upload Files"
+              icon="pi pi-upload"
+              severity="primary"
+              [disabled]="!isProcessRunning"
+              (onClick)="openUploadModal(selectedFolder.path)"
+              styleClass="upload-button"
+              [pTooltip]="
+                !isProcessRunning
+                  ? 'Process must be running to upload files'
+                  : ''
+              "
+            />
+          </div>
+        </div>
+
+        <p-card
+          *ngIf="selectedFile && isBinaryFile && !loadingContent"
+          styleClass="binary-card"
+        >
+          <div class="binary-message">
+            <i class="pi pi-info-circle"></i>
+            <p>{{ fileContent }}</p>
+            <p-button
+              label="Download to view"
+              icon="pi pi-download"
+              severity="info"
+              (onClick)="downloadFile()"
+            />
+          </div>
+        </p-card>
+
+        <div
+          *ngIf="
+            selectedFile &&
+            !isBinaryFile &&
+            !isMarkdownFile &&
+            fileContent !== null &&
+            !loadingContent
+          "
+          class="file-content"
+        >
+          <pre><code>{{ fileContent }}</code></pre>
+        </div>
+
+        <div
+          *ngIf="
+            selectedFile &&
+            !isBinaryFile &&
+            isMarkdownFile &&
+            fileContent !== null &&
+            !loadingContent
+          "
+          class="markdown-content"
+        >
+          <markdown [data]="fileContent"></markdown>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Modal -->
+<app-upload-modal
+  [(visible)]="uploadModalVisible"
+  [targetPath]="uploadTargetPath"
+  (uploadComplete)="handleUploadComplete()"
+/>

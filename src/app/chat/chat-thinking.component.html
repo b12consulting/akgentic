@@ -1,0 +1,27 @@
+<div
+  class="thinking-bubble"
+  [class.final]="state().final"
+  [class.expanded]="expanded()"
+  (click)="onClick()"
+>
+  <div class="thinking-header">
+    <span class="agent-label">[{{ state().agent_name }}]<span *ngIf="!state().final"> thinking</span></span>
+    <span class="thinking-dots" *ngIf="!state().final">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </span>
+    <span class="spacer"></span>
+    <span class="timestamp">{{ state().start_time | date: 'HH:mm' }}</span>
+  </div>
+  <div class="tool-list" *ngIf="state().tools.length > 0">
+    <div
+      class="tool-entry"
+      *ngFor="let t of state().tools; trackBy: trackByToolId"
+      [class.done]="t.done"
+    >
+      <span class="bullet">·</span>
+      <span class="tool-name">{{ t.tool_name }}</span>
+      <span class="tool-sep"> - </span>
+      <span class="tool-args">"{{ t.arguments_preview }}"</span>
+    </div>
+  </div>
+</div>

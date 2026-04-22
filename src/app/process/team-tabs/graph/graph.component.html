@@ -1,0 +1,10 @@
+<div class="graph-component-container">
+  <div
+    echarts
+    class="graph-container"
+    [options]="graphOptions"
+    (chartInit)="onChartInit($event)"
+    style="height: calc(100vh - 260px)"
+  ></div>
+  <app-human-request [nodes]="nodes"></app-human-request>
+</div>

@@ -1,0 +1,204 @@
+.apikey-error {
+  color: #d32f2f;
+  background: #fdeaea;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  text-align: left;
+}
+.apikey-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.apikey-field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.5rem;
+}
+
+.apikey-label {
+  font-weight: 500;
+  color: #495057;
+  margin-bottom: 0.5rem;
+  text-align: left;
+}
+
+.apikey-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #bfc4c9;
+  border-radius: 4px;
+  font-size: 1rem;
+  background: #f8fafc;
+  transition: border-color 0.2s;
+}
+.apikey-input:focus {
+  border-color: #75aecd;
+  outline: none;
+}
+
+.apikey-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #75aecd;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.75rem 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(117,174,205,0.08);
+  transition: background 0.2s, box-shadow 0.2s;
+  margin-top: 0.5rem;
+}
+.apikey-btn:hover, .apikey-btn:focus {
+  background: #5b8fa8;
+  box-shadow: 0 4px 16px rgba(117,174,205,0.15);
+}
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f0f2f5, #cfd9df);
+  padding: 1rem;
+}
+
+.button-container {
+  margin-top: 20px;
+}
+
+.login-card {
+  background: #fff;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+}
+.login-card h1 {
+  margin-bottom: 0.5rem;
+  font-size: 1.5rem;
+  color: #333;
+}
+.login-card p {
+  margin-bottom: 1.5rem;
+  color: #666;
+}
+.login-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.5rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  margin: 0 auto;
+}
+
+.apikey {
+  flex-direction: row;
+  background-color: #75aecd;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.login-button:hover {
+  background-color: #6A9BB6;
+}
+
+.logo {
+  height: 40px;
+  margin-bottom: 1rem;
+}
+
+// Tab navigation
+.provider-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+  margin-bottom: 24px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.tab-button {
+  padding: 12px 24px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.2s ease;
+
+  &:hover {
+    color: #333;
+    background-color: #f5f5f5;
+  }
+
+  &.active {
+    color: #1976d2;
+    border-bottom-color: #1976d2;
+    font-weight: 600;
+  }
+}
+
+// Provider content
+.provider-content {
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.provider-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+// Provider-specific button styles
+.login-button {
+  &.azure-button {
+    // Azure AD specific styles
+  }
+
+  &.google-button {
+    // Google specific styles
+  }
+}
+
+// Error message styling
+.error-message {
+  padding: 16px;
+  background-color: #ffebee;
+  border-left: 4px solid #f44336;
+  color: #c62828;
+  border-radius: 4px;
+  margin: 16px 0;
+
+  p {
+    margin: 0;
+  }
+}
+

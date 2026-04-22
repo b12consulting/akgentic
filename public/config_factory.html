@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Configuration File User Manual</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 72em;
+      padding-left: 80px;
+      padding-right: 80px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap; font-family: "Fira Code", "Consolas", "Monaco", monospace;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+<h1 id="configuration-file-user-manual">Configuration File User
+Manual</h1>
+<p>This guide explains how to build a <strong>YAML configuration
+file</strong> that follows the specification.</p>
+<p>The configuration controls the behavior of a team of members, each
+with its own LLM (Large Language Model) configuration, tools, and
+runtime options.</p>
+<hr />
+<h2 id="top-level-structure">Top-Level Structure</h2>
+<p>Your YAML configuration must include at least:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">welcome_message</span><span class="kw">:</span><span class="at"> Welcome to the team!</span><span class="co"> # Optional</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">team_config</span><span class="kw">:</span><span class="co"> # Required</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">&lt;member_role&gt;</span><span class="kw">:</span><span class="at"> &lt;member_configuration&gt;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">workspace_files</span><span class="kw">:</span><span class="co"> # Optional</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">&lt;file_path&gt;</span><span class="kw">:</span><span class="at"> &lt;file_content&gt;</span></span></code></pre></div>
+<ul>
+<li><strong>welcome_message</strong> (string | null, optional): A
+message displayed at the start.</li>
+<li><strong>team_config</strong> (object, required): Defines all members
+of the team. Each key is the member’s name, and the value is its
+configuration.</li>
+<li><strong>workspace_files</strong> (object, optional): Dictionary of
+initial files to create in the workspace. Keys are file paths (relative
+to workspace root), values are file contents.</li>
+</ul>
+<hr />
+<h2 id="member-configuration-memberconfig">Member Configuration
+(<code>MemberConfig</code>)</h2>
+<p>Each member in <code>team_config</code> requires:</p>
+<ul>
+<li><strong>prompt</strong> (string | object, required): The initial
+prompt for the member.</li>
+<li><strong>llm</strong> (object, default: {provider:
+<code>openai</code>, model: <code>gpt-4.1</code>}): The LLM setup.</li>
+<li><strong>usage_limits</strong> (object, optional): Limits on model
+usage (requests, tokens, tool calls, …).</li>
+<li><strong>tools</strong> (array, optional): Tools the member can
+use.</li>
+<li><strong>max_help_requests</strong> (integer, default:
+<code>5</code>): Max number of help requests and agent can do to other
+agents within a request (prevent the agent to loop with the same
+request).</li>
+<li><strong>hire_at_start</strong> (boolean, default:
+<code>true</code>): Whether to create at startup.</li>
+</ul>
+<h3 id="example">Example</h3>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">team_config</span><span class="kw">:</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">researcher</span><span class="kw">:</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">prompt</span><span class="kw">:</span><span class="at"> Find and summarize information.</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">llm</span><span class="kw">:</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">provider</span><span class="kw">:</span><span class="at"> openai</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">model</span><span class="kw">:</span><span class="at"> gpt-4.1</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">temperature</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.7</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">tools</span><span class="kw">:</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> web_search</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="at">        </span><span class="fu">max_results</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">max_help_requests</span><span class="kw">:</span><span class="at"> </span><span class="dv">3</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">usage_limits</span><span class="kw">:</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">request_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">tool_calls_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">50</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">hire_at_start</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span></code></pre></div>
+<hr />
+<h2 id="prompt">Prompt</h2>
+<p>The <code>prompt</code> field can be specified in two ways:</p>
+<h3 id="as-a-string">1. As a String</h3>
+<p>Use a simple string as the prompt for the member:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">prompt</span><span class="kw">:</span><span class="at"> You are a helpful assistant.</span></span></code></pre></div>
+<h3 id="as-an-object-with-template">2. As an Object (with Template)</h3>
+<p>Use an object with a mandatory <code>template</code> field. The
+template can include placeholders in curly braces (<code>{}</code>) that
+will be replaced by the values of the other fields in the object.</p>
+<p>All other fields in the object are available as replacement keys for
+the template. For example:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reusable field</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">_template</span><span class="kw">: </span><span class="ot">&amp;TEMPLATE</span><span class="at"> </span><span class="ch">|</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  You are a business analyst. Your specialty is {specialty}.</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">team_config</span><span class="kw">:</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">business analyst</span><span class="kw">:</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">prompt</span><span class="kw">:</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">template</span><span class="kw">:</span><span class="at"> </span><span class="ot">*TEMPLATE</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">specialty</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;market research&quot;</span></span></code></pre></div>
+<h4 id="special-parameters">Special Parameters</h4>
+<ul>
+<li><strong>member_name</strong>: Automatically replaced by the agent’s
+name (e.g., <code>@Manager</code>, <code>@Developer</code>)
+<ul>
+<li>Use <code>{{member_name}}</code> (<strong>double braces</strong>) in
+your template to reference the agent’s assigned name</li>
+<li>Example: <code>"You are {{member_name}}, a senior developer"</code>
+becomes <code>"You are @Developer, a senior developer"</code></li>
+</ul></li>
+<li><strong>team_profile</strong>: Allows to define in the agent
+profiles that will be aggregated under the key
+<code>{team_profiles}</code>
+<ul>
+<li><p>If a member’s prompt object contains a <code>team_profile</code>
+field, this value is aggregated across all members to produce a
+replacement key <code>team_profiles</code>.</p></li>
+<li><p>In the template, use <code>{team_profiles}</code> to insert the
+aggregated list of all team profiles (with each member’s
+<code>team_profile</code> rendered and formatted with its own
+fields).</p></li>
+<li><p>Example:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reusable field</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">_template</span><span class="kw">: </span><span class="ot">&amp;TEMPLATE</span><span class="at"> </span><span class="ch">|</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  You are an helpful business analyst. Your specialty is {specialty}.</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  Your are part of a team of :</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  {team_profiles}</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="fu">team_config</span><span class="kw">:</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">manager</span><span class="kw">:</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">prompt</span><span class="kw">:</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">template</span><span class="kw">:</span><span class="at"> </span><span class="ot">*TEMPLATE</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">specialty</span><span class="kw">:</span><span class="at"> coordinate project</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">team_profile</span><span class="kw">:</span><span class="at"> - Manager, coordinates the team.</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">analyst</span><span class="kw">:</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">prompt</span><span class="kw">:</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">template</span><span class="kw">:</span><span class="at"> </span><span class="ot">*TEMPLATE</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">specialty</span><span class="kw">:</span><span class="at"> finance</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">team_profile</span><span class="kw">:</span><span class="at"> - Analyst, expert in {specialty}</span></span></code></pre></div>
+<p>In this example, <code>{team_profiles}</code> in each template will
+be replaced by the concatenation of all members’
+<code>team_profile</code> values, with their own fields
+substituted.</p></li>
+</ul></li>
+</ul>
+<hr />
+<h2 id="llm-configuration">LLM Configuration</h2>
+<ul>
+<li><strong>provider</strong> (string, default: <code>openai</code>,
+enum: <code>openai</code>, <code>azure</code>, <code>nvidia</code>,
+<code>google-gla</code>, <code>mistral</code>,
+<code>anthropic</code>)</li>
+<li><strong>model</strong> (string, default: <code>gpt-4.1</code>)</li>
+<li><strong>temperature</strong> (number | null, default:
+<code>null</code>): Controls randomness in responses (0.0 =
+deterministic, 1.0 = creative)</li>
+<li><strong>seed</strong> (integer | null, default: <code>null</code>):
+Random seed for reproducible outputs</li>
+<li><strong>max_tokens</strong> (integer | null, default:
+<code>null</code>): The maximum number of tokens to generate before
+stopping</li>
+<li><strong>openai_reasoning_effort</strong> (string | null, default:
+<code>null</code>, enum: <code>low</code>, <code>medium</code>,
+<code>high</code>): The reasoning effort level for OpenAI models that
+support it (e.g., o1 series)</li>
+</ul>
+<h3 id="example-1">Example</h3>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">llm</span><span class="kw">:</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">provider</span><span class="kw">:</span><span class="at"> azure</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">model</span><span class="kw">:</span><span class="at"> gpt-4.1</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">temperature</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.2</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">seed</span><span class="kw">:</span><span class="at"> </span><span class="dv">123</span></span></code></pre></div>
+<h3 id="supported-providers-and-models">Supported Providers and
+Models</h3>
+<p>You can use models from any of the supported providers:</p>
+<h4 id="openai">OpenAI</h4>
+<ul>
+<li><strong>provider</strong>: <code>openai</code></li>
+<li><strong>models</strong>: See the <a
+href="https://platform.openai.com/docs/pricing">OpenAI Pricing</a> page
+for available models (e.g., <code>gpt-4.1</code>, <code>gpt-4o</code>,
+<code>o1</code>, etc.)</li>
+<li><strong>API key</strong>: <code>OPENAI_API_KEY</code> environment
+variable</li>
+<li><strong>Native structured output</strong>: ✅ Supported</li>
+</ul>
+<h4 id="azure-openai">Azure OpenAI</h4>
+<ul>
+<li><strong>provider</strong>: <code>azure</code></li>
+<li><strong>models</strong>: Same models as OpenAI, but deployed through
+Azure</li>
+<li><strong>API key</strong>: <code>AZURE_OPENAI_API_KEY</code> and
+<code>AZURE_OPENAI_ENDPOINT</code> environment variables</li>
+<li><strong>Native structured output</strong>: ✅ Supported</li>
+</ul>
+<h4 id="nvidia-openai-compatible-endpoint">NVIDIA (OpenAI-compatible
+endpoint)</h4>
+<ul>
+<li><strong>provider</strong>: <code>nvidia</code></li>
+<li><strong>models</strong>: Access to NVIDIA’s open-source model
+inference API
+<ul>
+<li><strong>Tested models</strong>:
+<ul>
+<li><code>mistralai/mistral-large-3-675b-instruct-2512</code> - Mistral
+Large 3 (675B parameters)</li>
+<li><code>qwen/qwen3-235b-a22b</code> - Qwen 3 (235B parameters)</li>
+</ul></li>
+<li>See <a href="https://build.nvidia.com/models">NVIDIA Build</a> for
+all available models</li>
+</ul></li>
+<li><strong>API key</strong>: <code>NVIDIA_API_KEY</code> environment
+variable</li>
+<li><strong>Native structured output</strong>: ⚠️ Partial (models
+prefixed with <code>openai</code> only)</li>
+<li><strong>Note</strong>: NVIDIA Mistral models don’t support
+<code>tool_choice='required'</code> parameter (automatically
+handled)</li>
+</ul>
+<h4 id="google-generative-language-api">Google Generative Language
+API</h4>
+<ul>
+<li><strong>provider</strong>: <code>google-gla</code></li>
+<li><strong>models</strong>: Google’s Gemini models via Generative
+Language API
+<ul>
+<li><strong>Tested models</strong>:
+<ul>
+<li><code>gemini-2.5-pro</code> - Gemini 2.5 Pro</li>
+<li><code>gemini-3-pro-preview</code> - Gemini 3 Pro (preview)</li>
+</ul></li>
+<li>See <a href="https://ai.google.dev/models">Google AI Studio</a> for
+all available models</li>
+</ul></li>
+<li><strong>API key</strong>: <code>GOOGLE_API_KEY</code> environment
+variable</li>
+<li><strong>Native structured output</strong>: ❌ Not supported (uses
+raw output_type with <code>end_strategy='exhaustive'</code>)</li>
+</ul>
+<h4 id="mistral">Mistral</h4>
+<ul>
+<li><strong>provider</strong>: <code>mistral</code></li>
+<li><strong>models</strong>: Mistral’s native API models
+<ul>
+<li><strong>Tested models</strong>:
+<ul>
+<li><code>mistral-large-latest</code> - Latest Mistral Large model</li>
+</ul></li>
+<li>See <a
+href="https://docs.mistral.ai/getting-started/models/">Mistral AI
+Docs</a> for all available models</li>
+</ul></li>
+<li><strong>API key</strong>: <code>MISTRAL_API_KEY</code> environment
+variable</li>
+<li><strong>Native structured output</strong>: ❌ Not supported (uses
+raw output_type with <code>end_strategy='exhaustive'</code>)</li>
+</ul>
+<h4 id="anthropic">Anthropic</h4>
+<ul>
+<li><strong>provider</strong>: <code>anthropic</code></li>
+<li><strong>models</strong>: See the <a
+href="https://docs.claude.com/en/docs/about-claude/models/overview">Claude
+Models</a> page for available models (e.g.,
+<code>claude-3-5-sonnet-20241022</code>,
+<code>claude-3-opus-20240229</code>, etc.)</li>
+<li><strong>API key</strong>: <code>ANTHROPIC_API_KEY</code> environment
+variable</li>
+<li><strong>Native structured output</strong>: ✅ Supported</li>
+</ul>
+<h3 id="provider-examples">Provider Examples</h3>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># NVIDIA example</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">llm</span><span class="kw">:</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">provider</span><span class="kw">:</span><span class="at"> nvidia</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">model</span><span class="kw">:</span><span class="at"> mistralai/mistral-large-3-675b-instruct-2512</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">temperature</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.1</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Google Gemini example</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="fu">llm</span><span class="kw">:</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">provider</span><span class="kw">:</span><span class="at"> google-gla</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">model</span><span class="kw">:</span><span class="at"> gemini-2.5-pro</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">temperature</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.2</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Mistral example</span></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a><span class="fu">llm</span><span class="kw">:</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">provider</span><span class="kw">:</span><span class="at"> mistral</span></span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">model</span><span class="kw">:</span><span class="at"> mistral-large-latest</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">temperature</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.1</span></span></code></pre></div>
+<hr />
+<h2 id="usage-limits-usagelimits">Usage Limits
+(<code>UsageLimits</code>)</h2>
+<p>Limits on model usage to control costs and prevent runaway processes.
+These limits apply to each pydantic_ai run (ie request), not to the
+entire agent session.</p>
+<p>Each limit can be set to <code>null</code> to disable it.</p>
+<ul>
+<li><strong>request_limit</strong> (integer | null, default:
+<code>50</code>): Maximum number of requests to the model per LLM
+call</li>
+<li><strong>tool_calls_limit</strong> (integer | null, default:
+<code>null</code>): Maximum number of successful tool calls per LLM
+call</li>
+<li><strong>input_tokens_limit</strong> (integer | null, default:
+<code>null</code>): Maximum number of input/prompt tokens per LLM
+call</li>
+<li><strong>output_tokens_limit</strong> (integer | null, default:
+<code>null</code>): Maximum number of output/response tokens per LLM
+call</li>
+<li><strong>total_tokens_limit</strong> (integer | null, default:
+<code>null</code>): Maximum total tokens (input + output) per LLM
+call</li>
+</ul>
+<p>Example:</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">usage_limits</span><span class="kw">:</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">request_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">tool_calls_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">50</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">total_tokens_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">100000</span></span></code></pre></div>
+<hr />
+<h2 id="tools">Tools</h2>
+<h3 id="web-search-tool-websearchtool">Web Search Tool
+(<code>WebSearchTool</code>)</h3>
+<p>Enables web searches to retrieve up-to-date information from the
+internet.</p>
+<ul>
+<li><strong>name</strong>: <code>"web_search"</code> (constant)</li>
+<li><strong>search</strong> (boolean, default: <code>true</code>):
+Enable web search functionality</li>
+<li><strong>crawl</strong> (boolean, default: <code>false</code>):
+Enable web crawler to recursively crawl websites</li>
+<li><strong>extract</strong> (boolean, default: <code>false</code>):
+Enable content extraction from web pages</li>
+<li><strong>max_results</strong> (integer, default: <code>5</code>):
+Maximum number of web search results to return</li>
+</ul>
+<p>Example:</p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> web_search</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">search</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">crawl</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">extract</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">max_results</span><span class="kw">:</span><span class="at"> </span><span class="dv">8</span></span></code></pre></div>
+<h3 id="vector-store-tool-vectorstoretool">Vector Store Tool
+(<code>VectorStoreTool</code>)</h3>
+<p>Provides semantic search capabilities over indexed documents and
+files using three distinct tools:</p>
+<ol type="1">
+<li><strong>query_vector_store</strong>: Searches for relevant document
+chunks based on semantic similarity
+<ul>
+<li>Returns detailed chunks with content, score, metadata, and
+dates</li>
+<li>Uses hybrid search (vector similarity + BM25 keyword matching,
+weighted 75% vector / 25% keyword)</li>
+<li>Supports optional date filtering (year_from, year_to)</li>
+</ul></li>
+<li><strong>search_file_names</strong>: Finds unique files related to a
+query
+<ul>
+<li>Returns file metadata only (name, file_id, file_path, dates) without
+content</li>
+<li>Uses hybrid search weighted toward keywords (25% vector / 75%
+keyword) to better match filenames</li>
+<li>Useful for discovering relevant documents before fetching full
+content</li>
+</ul></li>
+<li><strong>fetch_google_drive_document</strong>: Retrieves the complete
+content of a specific document by file_id
+<ul>
+<li>Fetches all chunks for a file and reconstructs the full
+document</li>
+<li>Returns complete document with metadata and full text content</li>
+</ul></li>
+</ol>
+<h4 id="configuration-parameters">Configuration Parameters</h4>
+<ul>
+<li><strong>name</strong>: <code>"vector_store"</code> (constant)</li>
+<li><strong>database</strong> (string, default:
+<code>"GoogleDrive"</code>): The vector store database collection to
+query</li>
+<li><strong>max_number_files</strong> (integer, default:
+<code>25</code>): Maximum number of results returned per search
+<ul>
+<li>For <code>query_vector_store</code>: limits the number of chunks
+returned</li>
+<li>For <code>search_file_names</code>: limits the number of unique
+files returned</li>
+</ul></li>
+<li><strong>score_threshold</strong> (number, default:
+<code>0.5</code>): Minimum similarity score for results (0.0 to 1.0)
+<ul>
+<li>Only chunks with scores ≥ threshold are returned by
+<code>query_vector_store</code></li>
+<li>Higher values (0.7-0.9) = more precise but fewer results</li>
+<li>Lower values (0.3-0.5) = broader search with more results</li>
+</ul></li>
+</ul>
+<p><strong>Note</strong>: When using VectorStoreTool, all team members
+must use <code>provider: azure</code> for LLM configuration.</p>
+<p>Example:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> vector_store</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">database</span><span class="kw">:</span><span class="at"> GoogleDrive</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">max_number_files</span><span class="kw">:</span><span class="at"> </span><span class="dv">50</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">score_threshold</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.7</span></span></code></pre></div>
+<h3 id="knowledge-graph-tool-knowledgegraphtool">Knowledge Graph Tool
+(<code>KnowledgeGraphTool</code>)</h3>
+<p>Provides access to a knowledge graph for storing and querying
+structured information.</p>
+<ul>
+<li><strong>name</strong>: <code>"knowledge_graph"</code>
+(constant)</li>
+<li><strong>read_only</strong> (boolean, default: <code>false</code>):
+If <code>true</code>, prevents modifications to the knowledge graph</li>
+</ul>
+<p>Example:</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> knowledge_graph</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">read_only</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span></code></pre></div>
+<h3 id="workspace-tool-workspacetool">Workspace Tool
+(<code>WorkspaceTool</code>)</h3>
+<p>Provides access to workspace files and code with two distinct
+execution modes:</p>
+<h4 id="file-based-tools-no-container-required">File-based Tools (no
+container required)</h4>
+<ul>
+<li><strong><code>file_view</code></strong>: Read-only text file access
+(read_text_file)</li>
+<li><strong><code>file_all</code></strong>: Full file operations
+(file_extractor, read_text_file, save_test_file)
+<ul>
+<li><code>file_extractor</code> uses GPT-5-mini to intelligently extract
+and summarize information from files</li>
+</ul></li>
+</ul>
+<h4 id="swe-tools-requires-docker-container">SWE Tools (requires Docker
+container)</h4>
+<ul>
+<li><strong><code>swe_view</code></strong>: View-only workspace access
+(view files, file tree, search)</li>
+<li><strong><code>swe_analysis</code></strong>: Code analysis tools
+(<code>swe_view</code> + create file &amp; repo map)</li>
+<li><strong><code>swe_all</code></strong>: Complete workspace access
+with bash execution (<code>swe_analysis</code> + bash_command &amp; edit
+file)</li>
+</ul>
+<p>The SWE tools run inside a Docker container, enabling safe bash
+command execution and isolated file operations. File-based tools operate
+directly without containerization.</p>
+<h4 id="configuration-parameters-1">Configuration Parameters</h4>
+<ul>
+<li><strong>name</strong>: <code>"workspace"</code> (constant)</li>
+<li><strong>tools</strong> (string, default: <code>file_view</code>):
+The tool set to enable</li>
+</ul>
+<p>Example:</p>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> workspace</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">tools</span><span class="kw">:</span><span class="at"> swe_analysis</span></span></code></pre></div>
+<hr />
+<h2 id="workspace-files">Workspace Files</h2>
+<p>The <code>workspace_files</code> field allows you to pre-populate the
+workspace with initial files when the team is created. This is useful
+for providing configuration files, documentation, templates, or any
+other files that agents need to access.</p>
+<h3 id="configuration">Configuration</h3>
+<ul>
+<li><strong>workspace_files</strong> (object, optional): A dictionary
+where:
+<ul>
+<li>Keys are file paths relative to the workspace root</li>
+<li>Values are the string contents of each file</li>
+<li>Files are created automatically when the workspace is
+initialized</li>
+<li>Nested directories are created automatically as needed</li>
+</ul></li>
+</ul>
+<h3 id="example-2">Example</h3>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">workspace_files</span><span class="kw">:</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="fu">  README.md</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    # Project Documentation</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>    This workspace contains project files.</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="fu">  config/settings.json</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>    {</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>      &quot;version&quot;: &quot;1.0&quot;,</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>      &quot;environment&quot;: &quot;development&quot;</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a><span class="fu">  scripts/setup.sh</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>    #!/bin/bash</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>    echo &quot;Setting up environment...&quot;</span></code></pre></div>
+<p>In this example:</p>
+<ul>
+<li><code>README.md</code> is created at the workspace root</li>
+<li><code>config/settings.json</code> is created in a
+<code>config/</code> subdirectory (directory is auto-created)</li>
+<li><code>scripts/setup.sh</code> is created in a <code>scripts/</code>
+subdirectory (directory is auto-created)</li>
+</ul>
+<h3 id="use-cases">Use Cases</h3>
+<ul>
+<li><strong>Configuration files</strong>: Provide default settings or
+environment configurations</li>
+<li><strong>Documentation</strong>: Include project documentation,
+guides, or instructions</li>
+<li><strong>Templates</strong>: Pre-populate templates for agents to
+use</li>
+<li><strong>Sample data</strong>: Include sample or seed data files</li>
+<li><strong>Scripts</strong>: Provide utility scripts or automation
+tools</li>
+</ul>
+<hr />
+<h2 id="complete-example">Complete Example</h2>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">welcome_message</span><span class="kw">:</span><span class="at"> Hello, team! Let&#39;s get started.</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="fu">workspace_files</span><span class="kw">:</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="fu">  README.md</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>    # Team Workspace</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>    This workspace is shared by all team members.</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="fu">  config/project.json</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>    {</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>      &quot;name&quot;: &quot;My Project&quot;,</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>      &quot;version&quot;: &quot;1.0.0&quot;</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="fu">team_config</span><span class="kw">:</span></span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">assistant</span><span class="kw">:</span></span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">prompt</span><span class="kw">:</span><span class="at"> Answer questions clearly.</span></span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">llm</span><span class="kw">:</span></span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">provider</span><span class="kw">:</span><span class="at"> openai</span></span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">model</span><span class="kw">:</span><span class="at"> gpt-4.1</span></span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">temperature</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.8</span></span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">tools</span><span class="kw">:</span></span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> web_search</span></span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a><span class="at">        </span><span class="fu">max_results</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
+<span id="cb14-24"><a href="#cb14-24" aria-hidden="true" tabindex="-1"></a><span class="at">        </span><span class="fu">search</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb14-25"><a href="#cb14-25" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> vector_store</span></span>
+<span id="cb14-26"><a href="#cb14-26" aria-hidden="true" tabindex="-1"></a><span class="at">        </span><span class="fu">database</span><span class="kw">:</span><span class="at"> GoogleDrive</span></span>
+<span id="cb14-27"><a href="#cb14-27" aria-hidden="true" tabindex="-1"></a><span class="at">        </span><span class="fu">max_number_files</span><span class="kw">:</span><span class="at"> </span><span class="dv">20</span></span>
+<span id="cb14-28"><a href="#cb14-28" aria-hidden="true" tabindex="-1"></a><span class="at">        </span><span class="fu">score_threshold</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.5</span></span>
+<span id="cb14-29"><a href="#cb14-29" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> workspace</span></span>
+<span id="cb14-30"><a href="#cb14-30" aria-hidden="true" tabindex="-1"></a><span class="at">        </span><span class="fu">tools</span><span class="kw">:</span><span class="at"> swe_analysis</span></span>
+<span id="cb14-31"><a href="#cb14-31" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">max_help_requests</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
+<span id="cb14-32"><a href="#cb14-32" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">usage_limits</span><span class="kw">:</span></span>
+<span id="cb14-33"><a href="#cb14-33" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">request_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span>
+<span id="cb14-34"><a href="#cb14-34" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">tool_calls_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">50</span></span>
+<span id="cb14-35"><a href="#cb14-35" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">total_tokens_limit</span><span class="kw">:</span><span class="at"> </span><span class="dv">100000</span></span>
+<span id="cb14-36"><a href="#cb14-36" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">hire_at_start</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span></code></pre></div>
+<hr />
+</body>
+</html>

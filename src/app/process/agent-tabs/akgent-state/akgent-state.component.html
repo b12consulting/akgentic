@@ -1,0 +1,41 @@
+<form [formGroup]="dynamicForm" (ngSubmit)="onSubmit()">
+  <div *ngFor="let field of schemaFields">
+    <label *ngIf="field.type" [for]="field.name">{{ field.label }}</label>
+
+    <!-- Text Input -->
+    <textarea
+      *ngIf="field.type === 'string' || field.type === 'array'"
+      rows="5"
+      pTextarea
+      [formControlName]="field.name"
+      [id]="field.name"
+    ></textarea>
+
+    <!-- Number Input -->
+    <input
+      *ngIf="field.type === 'integer'"
+      type="number"
+      [formControlName]="field.name"
+      [id]="field.name"
+    />
+
+    <!-- Error Messages -->
+    <div class="error" *ngIf="dynamicForm.get(field.name)?.invalid">
+      <small *ngIf="dynamicForm.get(field.name)?.errors?.['required']">
+        {{ field.label }} is required.
+      </small>
+      <small *ngIf="dynamicForm.get(field.name)?.errors?.['min']">
+        {{ field.label }} must be at least {{ field.min }}.
+      </small>
+    </div>
+  </div>
+
+  <p-button
+    type="submit"
+    size="small"
+    label="Read Only (V2)"
+    [disabled]="true"
+  >
+    <i class="pi pi-lock"></i>
+  </p-button>
+</form>
