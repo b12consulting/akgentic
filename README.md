@@ -26,9 +26,6 @@ This root package serves as the **quick-start entry point** for the Akgentic fra
 git clone https://github.com/b12consulting/akgentic-framework.git
 cd akgentic-framework
 
-# Initialize submodules
-git submodule update --init --recursive
-
 # 2. Create and activate virtual environment
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate

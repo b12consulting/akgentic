@@ -12,7 +12,6 @@ build/
 .pytest_cache/
 .coverage
 coverage.json
-htmlcov/
 
 # Type checking
 .mypy_cache/
@@ -34,12 +33,9 @@ htmlcov/
 .codex/
 .mcp.json
 
-
 */settings.local.json
 .env
-.claude
 
-_bmad-output/presentations/
 workspaces/
 tmp/
 data/
