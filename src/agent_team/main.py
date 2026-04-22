@@ -71,7 +71,13 @@ class MessagePrinter(EventSubscriber):
     def __init__(self) -> None:
         self._usage_events: dict[str, list[LlmUsageEvent]] = defaultdict(list)
 
+    def set_restoring(self) -> None:
+        pass
+
     def on_stop(self) -> None:
+        pass
+
+    def on_stop_request(self) -> None:
         pass
 
     def on_message(self, message: Message) -> None:

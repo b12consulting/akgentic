@@ -3,6 +3,7 @@ tool_class: akgentic.tool.planning.PlanningTool
 tool:
   name: Planning
   description: Planning tool to manage team plans and tasks
+  vector_store: true
   update_planning:
     instructions: |-
       CRITICAL: Always keep the plan updated.

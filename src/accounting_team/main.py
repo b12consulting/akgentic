@@ -46,7 +46,7 @@ class MessagePrinter(EventSubscriber):
     V1 equivalent: Controller with PrintModule
     """
 
-    def on_stop(self) -> None:
+    def on_stop_request(self) -> None:
         pass
 
     def on_message(self, message: Message) -> None:

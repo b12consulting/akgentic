@@ -1,4 +1,6 @@
 id: workspace
 tool_class: akgentic.tool.workspace.WorkspaceTool
 tool:
+  name: Workspace
+  description: Workspace tool for managing agent interactions and data
   workspace_id: cli-catalog

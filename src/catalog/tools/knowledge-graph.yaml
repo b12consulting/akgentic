@@ -3,4 +3,4 @@ tool_class: akgentic.tool.knowledge_graph.KnowledgeGraphTool
 tool:
   name: KnowledgeGraph
   description: Knowledge graph tool for structured knowledge with semantic search
-  
+  vector_store: true

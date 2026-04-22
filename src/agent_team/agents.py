@@ -19,7 +19,7 @@ manager_card = AgentCard(
         prompt=PromptTemplate(
             template="You are a helpful manager. Coordinate the team effectively.",
         ),
-        model_cfg=ModelConfig(provider="openai", model=LLM_MODEL, temperature=0.3),
+        model_cfg=ModelConfig(provider="azure", model="gpt-4.1", temperature=0.3),
         usage_limits=UsageLimits(request_limit=20, total_tokens_limit=200000),
         runtime_cfg=RuntimeConfig(),
         tools=tools,
@@ -41,6 +41,7 @@ assistant_card = AgentCard(
         model_cfg=ModelConfig(provider="openai", model=LLM_MODEL, temperature=0.3),
         tools=tools,
     ),
+    routes_to=["Manger"],
 )
 
 expert_card = AgentCard(
@@ -57,6 +58,7 @@ expert_card = AgentCard(
         model_cfg=ModelConfig(provider="openai", model=LLM_MODEL, temperature=0.3),
         tools=tools,
     ),
+    routes_to=["Manger"],
 )
 
 agent_cards = [manager_card, assistant_card, expert_card]
