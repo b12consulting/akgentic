@@ -1,0 +1,23 @@
+[template_entries]
+natural_key = ["id"]
+[template_entries.columns]
+id = "str"
+data = "json"
+
+[tool_entries]
+natural_key = ["id"]
+[tool_entries.columns]
+id = "str"
+data = "json"
+
+[agent_entries]
+natural_key = ["id"]
+[agent_entries.columns]
+id = "str"
+data = "json"
+
+[team_entries]
+natural_key = ["id"]
+[team_entries.columns]
+id = "str"
+data = "json"
