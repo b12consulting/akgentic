@@ -155,7 +155,7 @@ export class ApiService {
 
   async getTeamConfigs(): Promise<any> {
     return await this.fetchService.fetch({
-      url: `${this.apiUrl}/catalog/api/teams`,
+      url: `${this.apiUrl}/admin/catalog/teams`,
     });
   }
 
