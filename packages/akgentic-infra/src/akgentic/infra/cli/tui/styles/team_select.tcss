@@ -1,0 +1,45 @@
+#team-header {
+    dock: top;
+    height: 1;
+    background: $surface;
+    text-style: bold;
+    padding: 0 1;
+}
+
+#team-list {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#team-input-area {
+    dock: bottom;
+    height: auto;
+    border: solid $accent;
+}
+
+#team-input {
+    height: 1;
+    border: none;
+}
+
+#team-input:focus {
+    border: none;
+}
+
+#team-hints {
+    height: 1;
+    background: $surface;
+}
+
+.section-header {
+    margin: 0 0 0 0;
+    text-style: bold;
+}
+
+.team-entry {
+    margin: 0;
+}
+
+.error-message {
+    margin: 1 0;
+}

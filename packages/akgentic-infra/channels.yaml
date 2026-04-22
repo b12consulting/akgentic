@@ -1,0 +1,6 @@
+telegram:
+  parser_fqcn: "akgentic.infra.adapters.shared.telegram_parser.TelegramChannelParser"
+  adapter_fqcn: "akgentic.infra.adapters.shared.telegram_adapter.TelegramChannelAdapter"
+  config:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    default_catalog_entry: "default"

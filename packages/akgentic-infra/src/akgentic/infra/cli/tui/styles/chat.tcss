@@ -1,0 +1,76 @@
+Screen {
+    layout: vertical;
+}
+
+StatusHeader {
+    dock: top;
+    height: 1;
+    background: $surface;
+}
+
+#conversation {
+    height: 1fr;
+}
+
+#welcome, .welcome-msg {
+    margin: 1 2;
+    color: $text-muted;
+}
+
+#input-area {
+    dock: bottom;
+    height: auto;
+    border: solid $accent;
+}
+
+ChatInput {
+    height: auto;
+    max-height: 10;
+    min-height: 1;
+    border: none;
+}
+
+ChatInput:focus {
+    border: none;
+}
+
+HintBar {
+    height: 1;
+    background: $surface;
+}
+
+ThinkingIndicator {
+    margin: 0 0 1 0;
+}
+
+CommandPalette {
+    layer: overlay;
+    dock: bottom;
+    offset-y: -3;
+    height: auto;
+    max-height: 8;
+    width: 50%;
+    min-width: 40;
+    border: solid $accent;
+    background: $surface;
+    padding: 0 1;
+}
+
+ScrollIndicator {
+    layer: overlay;
+    dock: bottom;
+    offset-y: -4;
+    height: 1;
+    width: auto;
+    min-width: 24;
+    content-align: center middle;
+    text-align: center;
+    background: $accent;
+    color: $text;
+    display: none;
+}
+
+/* History replay -- dimmed widgets */
+.history {
+    opacity: 60%;
+}
