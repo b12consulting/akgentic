@@ -4,9 +4,6 @@
 [submodule "packages/akgentic-catalog"]
 	path = packages/akgentic-catalog
 	url = git@github.com:b12consulting/akgentic-catalog.git
-[submodule "packages/akgentic-team"]
-	path = packages/akgentic-team
-	url = git@github.com:b12consulting/akgentic-team.git
 [submodule "packages/akgentic-infra"]
 	path = packages/akgentic-infra
 	url = git@github.com:b12consulting/akgentic-infra.git
