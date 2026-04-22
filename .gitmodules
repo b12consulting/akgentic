@@ -1,6 +1,3 @@
-[submodule "packages/akgentic-llm"]
-	path = packages/akgentic-llm
-	url = git@github.com:b12consulting/akgentic-llm.git
 [submodule "packages/akgentic-template"]
 	path = packages/akgentic-template
 	url = git@github.com:b12consulting/akgentic-template.git
