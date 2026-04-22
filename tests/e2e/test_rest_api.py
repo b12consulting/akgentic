@@ -26,8 +26,8 @@ pytestmark = [pytest.mark.e2e]
 
 
 def test_e2e_list_catalog_teams(e2e_http_client: httpx.Client) -> None:
-    """AC #1: GET /catalog/api/teams/ returns expected shape and content."""
-    resp = e2e_http_client.get("/catalog/api/teams/")
+    """AC #1: GET /admin/catalog/teams returns expected shape and content."""
+    resp = e2e_http_client.get("/admin/catalog/teams")
     assert resp.status_code == 200
     teams = resp.json()
     assert isinstance(teams, list)
