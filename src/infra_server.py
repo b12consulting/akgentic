@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import argparse
 
 import logfire
 import uvicorn
@@ -10,12 +10,22 @@ from akgentic.infra.server.app import create_app
 from akgentic.infra.server.settings import CommunitySettings
 from akgentic.infra.wiring import wire_community
 
-settings = CommunitySettings(catalog_path=Path("./src/catalog"))
-services = wire_community(settings)
-app = create_app(services, settings)
-
 if __name__ == "__main__":
-    logfire.configure(console=False)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--logfire",
+        action="store_true",
+        help="Enable Logfire instrumentation.",
+    )
+    args = parser.parse_args()
+
+    settings = CommunitySettings()
+    services = wire_community(settings)
+    app = create_app(services, settings)
+
+    if args.logfire:
+        logfire.configure(console=False)
+
     uvicorn.run(
         app,
         host=settings.host,

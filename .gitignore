@@ -36,9 +36,5 @@ coverage.json
 */settings.local.json
 .env
 
-workspaces/
-tmp/
-data/
-
 # OS files
 .DS_Store
