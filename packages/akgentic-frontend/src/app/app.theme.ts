@@ -3,6 +3,14 @@ import { definePreset } from '@primeng/themes';
 import Aura from '@primeng/themes/aura';
 
 const MyPreset = definePreset(Aura, {
+  components: {
+    datatable: {
+      headerCellBackground: 'transparent',
+      headerCellColor: '{text.color}',
+      headerCellSelectedBackground: 'transparent',
+      headerCellSelectedColor: '{text.color}',
+    },
+  },
   semantic: {
     primary: {
       50: '{sky.50}',
