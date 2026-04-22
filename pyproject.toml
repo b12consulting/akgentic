@@ -1,0 +1,93 @@
+[project]
+name = "akgentic-infra"
+version = "0.1.0"
+description = "Infrastructure backend: protocol abstractions and community-tier implementations for akgentic"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "B12 Consulting", email = "info@b12consulting.com" }
+]
+keywords = ["agents", "ai", "akgentic", "infrastructure"]
+
+dependencies = [
+    "akgentic>=0.1.0",
+    "akgentic-team>=0.1.0",
+    "akgentic-catalog>=0.1.0",
+    "akgentic-agent>=0.1.0",
+    "akgentic-llm>=0.1.0",
+    "akgentic-tool>=0.1.0",
+    "fastapi>=0.100.0",
+    "pydantic-settings>=2.0.0",
+    "logfire>=0.1.0",
+    "typer[all]>=0.9.0",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0",
+    "websockets>=12.0",
+    "rich>=13.0.0",
+    "textual>=1.0.0",
+]
+
+[project.scripts]
+ak-infra = "akgentic.infra.cli.main:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+akgentic = { workspace = true }
+akgentic-team = { workspace = true }
+akgentic-catalog = { workspace = true }
+akgentic-agent = { workspace = true }
+akgentic-llm = { workspace = true }
+akgentic-tool = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akgentic"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "ANN", "ASYNC", "C901", "PLR0912", "PLR0915"]
+ignore = ["ANN401", "N802"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: Full server flow tests requiring real LLM and API keys",
+    "llm: Tests requiring LLM API keys (auto-skipped when OPENAI_API_KEY is absent)",
+    "smoke: End-to-end smoke tests using TestModel (no API key required)",
+    "e2e: Real end-to-end tests requiring a running server and OPENAI_API_KEY",
+]
+addopts = "-m 'not integration' --cov=akgentic.infra --cov-branch"
+filterwarnings = ["ignore:No logs or spans:UserWarning"]
+
+[tool.coverage.report]
+fail_under = 90

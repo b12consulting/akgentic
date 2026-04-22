@@ -1,0 +1,210 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  NO_COLOR: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          repository: b12consulting/akgentic-quick-start
+          ref: master
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Override akgentic-infra submodule with current branch
+        working-directory: packages/akgentic-infra
+        run: |
+          git fetch origin master
+          git fetch origin ${{ github.head_ref || github.ref_name }}
+          git checkout FETCH_HEAD
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Type checking
+        run: uv run mypy packages/akgentic-infra/src/
+
+      - name: Linting
+        run: uv run ruff check packages/akgentic-infra/src/
+
+      - name: Enforce no MagicMock in integration and e2e tests
+        working-directory: packages/akgentic-infra
+        run: |
+          if grep -r "MagicMock" tests/integration/ --include='*.py' -l | grep -v '/test_cli\.py$'; then
+            echo "::error::MagicMock found in integration tests — integration tests must not use mocks"
+            exit 1
+          fi
+          if grep -r "MagicMock" tests/e2e/ --include='*.py' -l 2>/dev/null; then
+            echo "::error::MagicMock found in e2e tests — e2e tests must not use mocks"
+            exit 1
+          fi
+
+      - name: Enforce zero src/ changes on test branches
+        if: startsWith(github.head_ref || github.ref_name, 'test/')
+        working-directory: packages/akgentic-infra
+        run: |
+          changed=$(git diff origin/master --name-only -- src/ || true)
+          if [ -n "$changed" ]; then
+            echo "::error::src/ changes detected on a test/* branch — test branches must not modify production code"
+            echo "$changed"
+            exit 1
+          fi
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          repository: b12consulting/akgentic-quick-start
+          ref: master
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Override akgentic-infra submodule with current branch
+        working-directory: packages/akgentic-infra
+        run: |
+          git fetch origin master
+          git fetch origin ${{ github.head_ref || github.ref_name }}
+          git checkout FETCH_HEAD
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Run unit tests with coverage
+        run: >
+          uv run pytest packages/akgentic-infra/tests/
+          --ignore=packages/akgentic-infra/tests/integration/
+          --ignore=packages/akgentic-infra/tests/e2e/
+          --cov=akgentic.infra
+          --cov-report=term-missing
+          --cov-report=json:coverage.json
+          --cov-fail-under=80
+
+      - name: Update coverage badge
+        if: github.ref_name == 'master' && github.event_name == 'push'
+        run: |
+          COVERAGE=$(python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered_display']))")
+          if [ "$COVERAGE" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$COVERAGE" -ge 80 ]; then COLOR="green"
+          elif [ "$COVERAGE" -ge 70 ]; then COLOR="yellow"
+          else COLOR="red"; fi
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${COLOR}\"}" > badge.json
+          gh gist edit d0b84268aa19a7460fe186dbf23e500d -f coverage.json badge.json
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+  integration-tests:
+    if: false  # temporarily disabled — deadlock under pytest-cov, investigating
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          repository: b12consulting/akgentic-quick-start
+          ref: master
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Override akgentic-infra submodule with current branch
+        working-directory: packages/akgentic-infra
+        run: |
+          git fetch origin master
+          git fetch origin ${{ github.head_ref || github.ref_name }}
+          git checkout FETCH_HEAD
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      # --cov-fail-under=0 overrides pyproject.toml fail_under=90
+      # so integration coverage is reported without a gate.
+      - name: Run integration tests
+        run: >
+          uv run pytest packages/akgentic-infra/tests/integration/ -v
+          -o "addopts="
+          --cov=akgentic.infra
+          --cov-report=term-missing
+          --cov-fail-under=0
+
+  # Optional job — not required for PR merge. Succeeds (skipped) when
+  # OPENAI_API_KEY is absent; runs real-LLM integration tests when present.
+  integration-llm:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Check for API key
+        if: env.OPENAI_API_KEY == ''
+        run: |
+          echo "::notice::OPENAI_API_KEY not available — skipping LLM integration tests"
+
+      - name: Checkout workspace
+        if: env.OPENAI_API_KEY != ''
+        uses: actions/checkout@v4
+        with:
+          repository: b12consulting/akgentic-quick-start
+          ref: master
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Override akgentic-infra submodule with current branch
+        if: env.OPENAI_API_KEY != ''
+        working-directory: packages/akgentic-infra
+        run: |
+          git fetch origin master
+          git fetch origin ${{ github.head_ref || github.ref_name }}
+          git checkout FETCH_HEAD
+
+      - name: Install uv
+        if: env.OPENAI_API_KEY != ''
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        if: env.OPENAI_API_KEY != ''
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        if: env.OPENAI_API_KEY != ''
+        run: uv sync --all-packages --all-extras
+
+      - name: Run integration tests with real LLM
+        if: env.OPENAI_API_KEY != ''
+        run: >
+          uv run pytest packages/akgentic-infra/tests/integration/ -v
+          -o "addopts="
