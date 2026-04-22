@@ -1,0 +1,79 @@
+<!-- Collapsed line for Rule 3 and Rule 4 -->
+<div
+  *ngIf="(message().rule === 3 || message().rule === 4) && message().collapsed"
+  class="collapsed-line"
+  (click)="onToggleCollapse()"
+>
+  <span class="collapsed-label">
+    [{{ message().label }}<span
+      *ngIf="message().rule === 3 && notification()"
+      class="notification-icon collapsed-notification-icon"
+    > (<span class="hand-raised">🙋</span>)</span>]<span
+      *ngIf="preview().length > 0"
+      class="collapsed-preview"
+    > : {{ preview() }}</span>
+  </span>
+  <p-button
+    *ngIf="message().rule === 3"
+    size="small"
+    label="Reply"
+    [disabled]="!notification()"
+    (click)="onOpenModal($event)"
+    class="open-button"
+  ></p-button>
+  <span class="collapsed-timestamp">{{
+    message().timestamp | date : "HH:mm"
+  }}</span>
+</div>
+
+<!-- Expanded bubble (Rules 1/2, or Rule 3/4 expanded) -->
+<div
+  *ngIf="(message().rule !== 3 && message().rule !== 4) || !message().collapsed"
+  class="message"
+  [class.right]="message().alignment === 'right'"
+  [class.left]="message().alignment === 'left'"
+  (click)="onBubbleClick($event)"
+  [class.clickable]="true"
+>
+  <div
+    class="message-bubble"
+    [class.selected]="selected()"
+    [style.background-color]="message().color"
+  >
+    <div class="bubble-header">
+      <button
+        class="label-pill"
+        [disabled]="message().rule === 1"
+        (click)="onLabelClick(); $event.stopPropagation()"
+      >
+        {{ message().label }}
+      </button>
+      <span
+        *ngIf="message().rule === 3 && notification()"
+        class="notification-icon"
+      >
+        <span class="hand-raised">🙋</span>
+      </span>
+      <span
+        *ngIf="message().rule === 4 && notification()"
+        class="notification-icon"
+      >
+        <i class="pi pi-bell"></i>
+      </span>
+      <p-button
+        *ngIf="message().rule === 3"
+        size="small"
+        label="Reply"
+        [disabled]="!notification()"
+        (click)="onOpenModal($event)"
+        class="open-button"
+      ></p-button>
+      <span class="bubble-timestamp">{{
+        message().timestamp | date : "HH:mm"
+      }}</span>
+    </div>
+    <div class="markdown-content">
+      <markdown [data]="message().content"></markdown>
+    </div>
+  </div>
+</div>

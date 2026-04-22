@@ -1,0 +1,36 @@
+form {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+div {
+  margin-bottom: 1rem;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+textarea,
+input {
+  min-width: 100%;
+  max-width: 100%;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+button {
+  background-color: #6A9BB6;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: white;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+button:hover {
+  background-color: #075985;
+}

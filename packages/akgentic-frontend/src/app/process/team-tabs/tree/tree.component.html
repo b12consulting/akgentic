@@ -1,0 +1,31 @@
+<div class="tree-component-container">
+  <div class="tree-container">
+    <p-tree
+      *ngIf="treeNodes.length"
+      [value]="treeNodes"
+      (onNodeSelect)="onNodeClick($event)"
+      selectionMode="single"
+    >
+      <ng-template let-node pTemplate="human">
+        <span
+          class="human-node"
+          [class.highlight-node]="node?.styleClass === 'highlight-node'"
+          [ngStyle]="{ background: node.key }"
+          >{{ node.label }}</span
+        >
+      </ng-template>
+      <ng-template let-node pTemplate="default">
+        <div
+          [class.highlight-node]="node?.styleClass === 'highlight-node'"
+          [ngStyle]="{ background: node.key }"
+        >
+          <b>{{ node.label }}</b>
+          <span *ngIf="node.data?.errorMessage" class="error-label">
+            — {{ node.data.errorMessage }}
+          </span>
+        </div>
+      </ng-template>
+    </p-tree>
+  </div>
+  <app-human-request [nodes]="nodes"></app-human-request>
+</div>

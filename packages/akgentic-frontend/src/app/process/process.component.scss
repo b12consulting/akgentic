@@ -1,0 +1,183 @@
+/* Ensure the entire viewport is used and no extra scrolling occurs */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden; /* so the entire page won't scroll */
+}
+
+/* Flex container for the layout */
+.main-container {
+  display: flex;
+  height: calc(100vh - 80px);
+  background-color: #f2f7f9;
+  border-radius: 6px;
+}
+
+/* Left Column Styling */
+.left-column {
+  flex: 2.1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+
+.chat-app {
+  flex: 1;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+/* Right Column Styling */
+.right-column {
+  flex: 2; /* Initial flex value when expanded */
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem; /* Adds space between elements */
+  overflow: hidden;
+  transition: all 0.3s ease-in-out; /* Smooth transition for collapse/expand */
+}
+
+.right-header {
+  padding: 1rem;
+  background-color: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+/* Collapsed Right Column Styling */
+.right-column.collapsed {
+  flex: 0; /* Set flex to 0 to minimize width */
+  width: 0; /* Explicitly set width to 0 */
+  padding: 0; /* Remove padding */
+  margin-left: 0; /* Remove margin if needed to fully collapse */
+  overflow: hidden; /* Hide content when collapsed */
+}
+
+
+/* Header Styling */
+.header {
+  display: flex;
+  justify-content: space-between; /* Keep button on right if added */
+  align-items: center;
+  background-color: #ffffff;
+  padding: 0.5rem;
+  border-radius: 6px;
+}
+
+.title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5em;
+}
+
+.process-id {
+  font-size: 80%;
+  color: grey;
+}
+
+/* Visualization Container */
+.visualization-container {
+  flex: 1;
+  background-color: #ffffff;
+  border-radius: 6px;
+  overflow: hidden; /* Changed from scroll to hidden to prevent scrollbars */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative; /* Enable positioning context for children */
+}
+
+/* Off-screen mechanism to preserve dimensions while hiding components */
+.visualization-container > * {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* No transition for instant switching */
+}
+
+.visualization-container > .moved-offscreen {
+  transform: translateX(-100vw); /* Move completely off-screen to the left */
+  pointer-events: none; /* Disable interactions when off-screen */
+  z-index: -1; /* Put off-screen elements behind */
+}
+
+/* Ensure visible components are on top and can receive events */
+.visualization-container > *:not(.moved-offscreen) {
+  z-index: 1;
+  pointer-events: auto;
+}
+
+/* Tabs Container Styling */
+.tabs-container {
+  flex: 1;
+  overflow-y: scroll;
+  background-color: #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Styling for Tab Headers */
+.p-tablist {
+  display: flex;
+  justify-content: space-around;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.p-tablist .p-tab {
+  padding: 10px;
+  cursor: pointer;
+}
+
+.p-tablist .p-tab.p-highlight {
+  background-color: #007bff;
+  color: #ffffff;
+}
+
+/*  Styling for the collapse button (example - adjust as needed) */
+.header button {
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 5px 10px;
+  /* Add any specific styling for your button here */
+}
+
+/* Ensuring Responsiveness */
+@media (max-width: 768px) {
+  .main-container {
+    flex-direction: column;
+    height: 100%;
+  }
+  .left-column,
+  .right-column {
+    flex: 1;
+    padding: 0.5rem;
+    margin-left: 0; /* Remove margin in mobile view if it exists */
+  }
+  .right-column {
+    flex: 1; /* Adjust right column flex in mobile view to take available space */
+  }
+  .right-column.collapsed {
+    flex: 0; /* Keep collapsed behavior in mobile */
+  }
+  .visualization-container {
+    flex: 0 0 35%;
+  }
+  .tabs-container {
+    flex: 1;
+  }
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

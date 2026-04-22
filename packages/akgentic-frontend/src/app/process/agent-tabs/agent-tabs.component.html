@@ -1,0 +1,67 @@
+<ng-container *ngIf="agentsByCategory; else noAgentsPlaceholder">
+  <p-tabs value="0">
+    <p-tablist>
+      <p-tab value="0" *ngIf="(context$ | async)?.length">
+        Chat with "{{ selectedAgent?.label }}"
+      </p-tab>
+      <p-tab
+        [value]="(context$ | async)?.length ? '1' : '0'"
+        *ngIf="state$ | async"
+      >
+        State of "{{ selectedAgent?.label }}"
+      </p-tab>
+      <div
+        style="
+          margin-left: auto;
+          margin-right: 0.75rem;
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        "
+      >
+        <p-dropdown
+          optionLabel="label"
+          group="true"
+          placeholder="Select agent"
+          appendTo="body"
+          inputId="agent-dropdown"
+          [options]="agentsByCategory"
+          [filter]="true"
+          [style]="{ minWidth: '220px', 'max-width': '300px' }"
+          [disabled]="agentsByCategory.length === 0"
+          [(ngModel)]="selectedAgent"
+          (onChange)="onAgentSelect($event)"
+        ></p-dropdown>
+      </div>
+    </p-tablist>
+    <p-tabpanels>
+      <p-tabpanel value="0" *ngIf="(context$ | async)?.length">
+        <app-akgent-chat
+          [context$]="context$"
+          [agentId]="akgentId"
+          [agentName]="akgentName"
+        ></app-akgent-chat>
+      </p-tabpanel>
+      <p-tabpanel
+        [value]="(context$ | async)?.length ? '1' : '0'"
+        *ngIf="state$ | async"
+      >
+        <app-akgent-state
+          [state$]="state$"
+          [agentId]="akgentId"
+        ></app-akgent-state>
+      </p-tabpanel>
+    </p-tabpanels>
+  </p-tabs>
+</ng-container>
+<ng-template #noAgentsPlaceholder>
+  <div class="empty-section agent-placeholder">
+    <div class="empty-section-box">
+      <i class="pi pi-users agent-placeholder-icon"></i>
+      <div class="agent-placeholder-title">No agents available</div>
+      <div class="agent-placeholder-desc">
+        Agent chat interface and state management will appear here.
+      </div>
+    </div>
+  </div>
+</ng-template>

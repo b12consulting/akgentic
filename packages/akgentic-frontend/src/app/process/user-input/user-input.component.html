@@ -1,0 +1,68 @@
+<div class="input-container">
+  <div *ngIf="selectedAgents.length > 0" class="reply-indicator">
+    <span>Send to {{ selectedAgentsDisplay }}</span>
+    <i class="pi pi-times reply-indicator-close" role="button" aria-label="Clear Send-to selection" (click)="clearSendTo()"></i>
+  </div>
+  <p-floatlabel variant="in">
+    <div class="input-row">
+      <textarea
+        pTextarea
+        rows="4"
+        cols="50"
+        [autoResize]="true"
+        [style]="{ 'max-height': '400px', 'overflow-y': 'auto' }"
+        [(ngModel)]="userInput"
+        (keydown.enter)="userInputEnterKeySubmit ? sendMessage() : null"
+        (keydown.meta.enter)="sendMessage()"
+        (keydown.control.enter)="sendMessage()"
+        [mention]="mentionItems"
+        [mentionConfig]="{
+          triggerChar: '@',
+          labelKey: 'name',
+          returnTrigger: true,
+          allowSpace: true,
+          mentionSelect: selectAgent,
+          dropUp: true,
+          maxItems: 10
+        }"
+      ></textarea>
+      <label for="on_label">Process input</label>
+    </div>
+  </p-floatlabel>
+
+  <div class="button-group">
+    @if (humanAgents.length > 1) {
+      <div class="send-as-group">
+        <label class="send-as-label">Send as</label>
+        <p-dropdown
+          [options]="humanAgentOptions"
+          [(ngModel)]="selectedSender"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Send as"
+          [showClear]="true"
+          size="small"
+          appendTo="body"
+          [panelStyleClass]="'send-as-panel-up'"
+        ></p-dropdown>
+      </div>
+    }
+    <label class="send-to-label">Send to</label>
+    <p-multiSelect
+      [options]="dropdownAgents"
+      [(ngModel)]="selectedAgents"
+      optionLabel="label"
+      optionValue="value"
+      placeholder="All (supervisors)"
+      [showClear]="true"
+      size="small"
+      display="chip"
+    ></p-multiSelect>
+    <p-button
+      size="small"
+      label="Submit"
+      (click)="sendMessage()"
+      [disabled]="!userInput || !(contextService.currentTeamRunning$ | async)"
+    />
+  </div>
+</div>

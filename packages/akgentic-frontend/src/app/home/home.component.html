@@ -1,0 +1,177 @@
+<section class="content">
+  <br />
+  <div class="main-container">
+    <p-select
+      size="small"
+      [options]="(catalogEntries$ | async) || []"
+      [ngModel]="selectedCatalogEntry$ | async"
+      (ngModelChange)="selectedCatalogEntry$.next($event)"
+      optionLabel="name"
+      placeholder="Select a team type"
+    />
+    &nbsp;
+    <button
+      pButton
+      size="small"
+      type="button"
+      label="Create"
+      [icon]="isCreatingTeam ? 'pi pi-spinner pi-spin' : 'pi pi-plus'"
+      [disabled]="isCreatingTeam"
+      (click)="createTeam()"
+      class="extra-small-button"
+    ></button>
+    &nbsp;
+    <button
+      pButton
+      size="small"
+      type="button"
+      label="Refresh"
+      [icon]="isRefreshing ? 'pi pi-spinner pi-spin' : 'pi pi-refresh'"
+      [disabled]="isRefreshing"
+      (click)="refreshContext()"
+      class="extra-small-button"
+    ></button>
+    <br />
+    <br />
+
+    <p-table
+      [value]="(contextService.teams$ | async) || []"
+      selectionMode="single"
+      (onRowSelect)="onRowSelect($event)"
+      [tableStyle]="{ 'min-width': '50rem' }"
+      [sortField]="'created_at'"
+      [sortOrder]="-1"
+    >
+      <ng-template #header>
+        <tr>
+          <th>Name</th>
+          <th pSortableColumn="created_at">
+            Creation Date
+            <p-sortIcon field="created_at"></p-sortIcon>
+          </th>
+          <th>Status</th>
+          <th>Team ID</th>
+          <th></th>
+        </tr>
+      </ng-template>
+      <ng-template #body let-ctx>
+        <tr [pSelectableRow]="ctx">
+          <td>
+            <div class="team-info">
+              <div class="team-name">
+                {{ ctx.name }} — {{ ctx.config_name }}
+              </div>
+
+              <!-- Display mode -->
+              <div
+                *ngIf="editingDescriptionFor !== ctx.team_id"
+                class="team-description"
+                (click)="
+                  startEditDescription(ctx.team_id, ctx.description);
+                  $event.stopPropagation()
+                "
+              >
+                <span *ngIf="ctx.description" class="description-text">
+                  {{ ctx.description }}
+                </span>
+                <span *ngIf="!ctx.description" class="description-placeholder">
+                  Click to add description...
+                </span>
+              </div>
+
+              <!-- Edit mode -->
+              <div
+                *ngIf="editingDescriptionFor === ctx.team_id"
+                class="description-editor"
+                (click)="$event.stopPropagation()"
+              >
+                <input
+                  #descriptionInput
+                  type="text"
+                  pInputText
+                  [ngModel]="descriptionDrafts.get(ctx.team_id)"
+                  (ngModelChange)="descriptionDrafts.set(ctx.team_id, $event)"
+                  placeholder="Enter team description"
+                  (keyup.enter)="saveDescription(ctx.team_id)"
+                  (keyup.escape)="cancelEditDescription()"
+                  class="description-input"
+                  maxlength="500"
+                  [autofocus]="true"
+                />
+                <button
+                  pButton
+                  icon="pi pi-check"
+                  (click)="saveDescription(ctx.team_id)"
+                  class="description-save-btn"
+                  rounded
+                ></button>
+                <button
+                  pButton
+                  icon="pi pi-times"
+                  (click)="cancelEditDescription()"
+                  severity="secondary"
+                  class="description-cancel-btn"
+                  rounded
+                ></button>
+              </div>
+            </div>
+          </td>
+          <td>{{ ctx.created_at | date: "short" }}</td>
+          <td>
+            <p-tag
+              *ngIf="!isRunning(ctx)"
+              value="Stopped"
+              severity="info"
+            >
+            </p-tag>
+            <p-tag
+              *ngIf="isRunning(ctx)"
+              value="Running"
+              severity="success"
+            >
+            </p-tag>
+          </td>
+          <td>{{ ctx.team_id }}</td>
+          <td>
+            <p-button
+              *ngIf="isRunning(ctx)"
+              [icon]="
+                isStopping(ctx.team_id)
+                  ? 'pi pi-spinner pi-spin'
+                  : 'pi pi-stop-circle'
+              "
+              (click)="stopTeam(ctx.team_id)"
+              severity="secondary"
+              rounded
+              [style]="{ 'margin-right': '0.5rem' }"
+              title="Stop Team"
+              [disabled]="isStopping(ctx.team_id)"
+            />
+            <p-button
+              *ngIf="!isRunning(ctx)"
+              [icon]="
+                isRestoring(ctx.team_id)
+                  ? 'pi pi-spinner pi-spin'
+                  : 'pi pi-replay'
+              "
+              (click)="restoreTeam(ctx.team_id)"
+              severity="secondary"
+              rounded
+              [style]="{ 'margin-right': '0.5rem' }"
+              title="Restore Team"
+              [disabled]="isRestoring(ctx.team_id)"
+            />
+            &nbsp;
+            <p-button
+              icon="pi pi-times"
+              (click)="deleteTeam(ctx.team_id)"
+              severity="secondary"
+              rounded
+              title="Delete Team"
+            />
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </div>
+</section>

@@ -1,0 +1,444 @@
+.workspace-explorer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--surface-ground);
+}
+
+.explorer-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.preview-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--surface-card);
+  position: relative;
+  padding-left: 20px;
+}
+
+/* Custom Sliding File Navigator */
+.file-navigator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 320px;
+  background-color: var(--surface-card, #ffffff);
+  border-right: 1px solid var(--surface-border, #dee2e6);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-300px);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 100;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.file-navigator.expanded,
+.file-navigator:not(.expanded):hover {
+  transform: translateX(0);
+}
+
+.navigator-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--surface-border);
+  min-height: 56px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.file-navigator.expanded .navigator-header {
+  opacity: 1;
+}
+
+.navigator-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.navigator-content {
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.file-navigator.expanded .navigator-content {
+  opacity: 1;
+}
+
+.empty-workspace {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #888;
+
+  &-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+  }
+
+  &-title {
+    font-size: 1rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+
+  &-desc {
+    font-size: 0.875rem;
+    color: #aaa;
+    line-height: 1.4;
+  }
+}
+
+/* Collapsed Strip */
+.collapsed-strip {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  background: var(--surface-300);
+  transition: opacity 0.2s, width 0.2s, background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.4;
+}
+
+.file-navigator:not(.expanded):hover .collapsed-strip {
+  opacity: 0.7;
+  width: 24px;
+  background: var(--surface-400);
+}
+
+.file-navigator.expanded .collapsed-strip {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.collapsed-strip i {
+  font-size: 1.25rem;
+  color: var(--text-color-secondary);
+  transform: rotate(90deg);
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.toolbar-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+:host ::ng-deep .preview-toolbar {
+  border: none;
+  border-radius: 0;
+  padding: 0.75rem 1rem;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+:host ::ng-deep .p-divider {
+  margin: 0;
+}
+
+.toolbar-title.placeholder {
+  color: var(--text-color-secondary);
+  font-weight: 400;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.file-icon {
+  color: var(--primary-color);
+  font-size: 1.2rem;
+}
+
+.panel-content {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem;
+  position: relative;
+}
+
+.spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.error-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  gap: 0.75rem;
+
+  i {
+    font-size: 3rem;
+    color: var(--red-500);
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-color);
+  }
+}
+
+// File placeholder (matches message-list style)
+.empty-section {
+  padding: 2rem;
+  text-align: center;
+  color: #6c757d;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 2px dashed #dee2e6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.empty-section-box {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.file-placeholder {
+  margin: 2rem;
+  padding: 3rem 2rem;
+
+  &-icon {
+    font-size: 3.5rem;
+    margin-bottom: 1rem;
+  }
+
+  &-title {
+    font-size: 1.25rem;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+  }
+
+  &-desc {
+    font-size: 0.95rem;
+    color: #aaa;
+    max-width: 400px;
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+  }
+}
+
+.folder-view {
+  margin: 2rem;
+  padding: 3rem 2rem;
+
+  .folder-icon {
+    font-size: 3.5rem;
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+  }
+
+  .folder-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--text-color);
+  }
+
+  .folder-desc {
+    font-size: 0.95rem;
+    color: #6c757d;
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+  }
+
+  ::ng-deep .upload-button {
+    margin-top: 0.5rem;
+  }
+}
+
+.binary-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  gap: 1rem;
+
+  i {
+    font-size: 3rem;
+    color: var(--blue-500);
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-color);
+  }
+}
+
+:host ::ng-deep .binary-card {
+  margin: 1rem;
+  box-shadow: none;
+  border: 1px solid var(--surface-border);
+}
+
+.file-content {
+  height: 100%;
+  overflow: auto;
+
+  pre {
+    margin: 0;
+    padding: 1rem;
+    background-color: var(--surface-50);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--surface-border);
+    overflow-x: auto;
+    font-family: monospace;
+    font-size: 85%;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  code {
+    font-family: monospace;
+    color: var(--text-color);
+  }
+}
+
+.markdown-content {
+  height: 100%;
+  overflow: auto;
+  padding: 1rem;
+}
+
+/* Tree customization */
+:host ::ng-deep .p-tree {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+:host ::ng-deep .p-tree .p-tree-container {
+  overflow: visible;
+}
+
+:host ::ng-deep .p-tree .p-treenode {
+  padding: 0;
+}
+
+:host ::ng-deep .p-tree .p-treenode-content {
+  padding: 0.5rem;
+  border-radius: var(--border-radius);
+  transition: background-color 0.2s;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+:host ::ng-deep .p-tree .p-treenode-content:hover {
+  background-color: var(--surface-hover);
+}
+
+:host ::ng-deep .p-tree .p-treenode-content.p-highlight {
+  background-color: var(--primary-50);
+  color: var(--primary-color);
+}
+
+:host ::ng-deep .p-tree .p-tree-toggler {
+  margin-right: 4px;
+}
+
+:host ::ng-deep .p-tree .p-treenode-icon {
+  margin-right: 0.5rem;
+  color: var(--text-color-secondary);
+}
+
+:host ::ng-deep .p-tree .p-treenode-label {
+  font-size: 0.8125rem;
+  color: var(--text-color);
+  flex: 1;
+  cursor: pointer;
+}
+
+/* Root node styling */
+:host ::ng-deep .p-tree > .p-tree-container > .p-treenode:first-child > .p-treenode-content {
+  font-weight: 600;
+  background-color: var(--surface-50);
+  margin-bottom: 0.25rem;
+  
+  .p-treenode-icon {
+    color: var(--primary-color);
+  }
+  
+  .p-treenode-label {
+    font-size: 0.875rem;
+  }
+}
+
+:host ::ng-deep .p-tree > .p-tree-container > .p-treenode:first-child > .p-treenode-content:hover {
+  background-color: var(--surface-100);
+}
+
+:host ::ng-deep .p-tree > .p-tree-container > .p-treenode:first-child > .p-treenode-content.p-highlight {
+  background-color: var(--primary-100);
+}
+
+/* Scrollbar styling */
+.panel-content::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+.panel-content::-webkit-scrollbar-track {
+  background: var(--surface-ground);
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+  background: var(--surface-400);
+  border-radius: var(--border-radius);
+}
+
+.panel-content::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-500);
+}

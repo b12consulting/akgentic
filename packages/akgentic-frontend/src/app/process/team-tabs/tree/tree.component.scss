@@ -1,0 +1,45 @@
+.tree-container {
+  width: 100%;
+  margin: auto;
+}
+
+.human-node {
+  border-radius: 5px;
+  padding: 5px;
+  color: white;
+}
+
+.highlight-node {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  padding: 5px;
+  box-shadow: inset 0 0 0 2px transparent; /* Initial transparent border */
+  animation: animateBorder 5s linear infinite;
+}
+
+@keyframes animateBorder {
+    0% {
+        box-shadow: inset 0 0 0 2px rgba(139, 0, 0, 0); /* Start transparent */
+    }
+    25%{
+        box-shadow: inset 0 0 0 2px rgba(139, 0, 0, 0.75);
+    }
+    50% {
+        box-shadow: inset 0 0 0 2px rgba(139, 0, 0, 0); /* Transparent again */
+    }
+    75%{
+        box-shadow: inset 0 0 0 2px rgba(139, 0, 0, 0.75);
+    }
+    100% {
+        box-shadow: inset 0 0 0 2px rgba(139, 0, 0, 0); /* Back to transparent */
+    }
+}
+
+
+.error-label {
+  color: darkred;
+  font-size: 0.85em;
+  font-weight: normal;
+}

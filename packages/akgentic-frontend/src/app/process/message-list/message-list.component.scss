@@ -1,0 +1,60 @@
+// Boxed empty-section style (copied from knowledge-graph)
+.empty-section {
+	padding: 2rem;
+	text-align: center;
+	color: #6c757d;
+	background: #f8f9fa;
+	border-radius: 8px;
+	border: 2px dashed #dee2e6;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.5rem;
+
+	i {
+		font-size: 2rem;
+		color: #adb5bd;
+	}
+
+	p {
+		margin: 0;
+		font-style: italic;
+		font-size: 0.9rem;
+	}
+}
+
+.empty-section-box {
+	width: 100%;
+	max-width: 400px;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+// Placeholder for no messages (matches agent-tabs style)
+.message-placeholder {
+	margin: 2rem;
+	padding: 2.5rem 0;
+	text-align: center;
+	color: #888;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+
+	&-icon {
+		font-size: 2.5rem;
+		margin-bottom: 0.5rem;
+	}
+	&-title {
+		font-size: 1.15rem;
+		font-weight: 500;
+	}
+	&-desc {
+		font-size: 0.98rem;
+		color: #aaa;
+		max-width: 320px;
+	}
+}
+

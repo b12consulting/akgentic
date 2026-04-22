@@ -1,0 +1,162 @@
+[
+  {
+    "id": "env-start-1",
+    "parent_id": null,
+    "team_id": "team-fixture",
+    "timestamp": "2026-04-13T10:00:00Z",
+    "sender": {
+      "__actor_address__": true,
+      "agent_id": "kg-1",
+      "name": "#KnowledgeGraphTool",
+      "role": "Tool",
+      "squad_id": "s1",
+      "user_message": false
+    },
+    "display_type": "other",
+    "content": null,
+    "__model__": "akgentic.core.messages.orchestrator.StartMessage",
+    "config": {},
+    "parent": null
+  },
+  {
+    "id": "env-evt-1",
+    "parent_id": null,
+    "team_id": "team-fixture",
+    "timestamp": "2026-04-13T10:00:01Z",
+    "sender": {
+      "__actor_address__": true,
+      "agent_id": "kg-1",
+      "name": "#KnowledgeGraphTool",
+      "role": "Tool",
+      "squad_id": "s1",
+      "user_message": false
+    },
+    "display_type": "other",
+    "content": null,
+    "__model__": "akgentic.core.messages.orchestrator.EventMessage",
+    "event": {
+      "__model__": "akgentic.tool.messages.ToolStateEvent",
+      "tool_id": "t1",
+      "seq": 1,
+      "payload": {
+        "__model__": "akgentic.tool.messages.KnowledgeGraphStateEvent",
+        "entities_added": [
+          {
+            "id": "e1",
+            "name": "Alpha",
+            "entity_type": "Concept",
+            "description": "",
+            "observations": []
+          },
+          {
+            "id": "e2",
+            "name": "Beta",
+            "entity_type": "Concept",
+            "description": "",
+            "observations": []
+          }
+        ],
+        "entities_modified": [],
+        "entities_removed": [],
+        "relations_added": [
+          {
+            "id": "r1",
+            "from_entity": "Alpha",
+            "to_entity": "Beta",
+            "relation_type": "relates_to",
+            "description": ""
+          }
+        ],
+        "relations_modified": [],
+        "relations_removed": []
+      }
+    }
+  },
+  {
+    "id": "env-evt-2",
+    "parent_id": null,
+    "team_id": "team-fixture",
+    "timestamp": "2026-04-13T10:00:02Z",
+    "sender": {
+      "__actor_address__": true,
+      "agent_id": "kg-1",
+      "name": "#KnowledgeGraphTool",
+      "role": "Tool",
+      "squad_id": "s1",
+      "user_message": false
+    },
+    "display_type": "other",
+    "content": null,
+    "__model__": "akgentic.core.messages.orchestrator.EventMessage",
+    "event": {
+      "__model__": "akgentic.tool.messages.ToolStateEvent",
+      "tool_id": "t1",
+      "seq": 2,
+      "payload": {
+        "__model__": "akgentic.tool.messages.KnowledgeGraphStateEvent",
+        "entities_added": [],
+        "entities_modified": [
+          {
+            "id": "e1",
+            "name": "AlphaPrime",
+            "entity_type": "Concept",
+            "description": "",
+            "observations": []
+          }
+        ],
+        "entities_removed": [],
+        "relations_added": [],
+        "relations_modified": [],
+        "relations_removed": []
+      }
+    }
+  },
+  {
+    "id": "env-evt-3",
+    "parent_id": null,
+    "team_id": "team-fixture",
+    "timestamp": "2026-04-13T10:00:03Z",
+    "sender": {
+      "__actor_address__": true,
+      "agent_id": "kg-1",
+      "name": "#KnowledgeGraphTool",
+      "role": "Tool",
+      "squad_id": "s1",
+      "user_message": false
+    },
+    "display_type": "other",
+    "content": null,
+    "__model__": "akgentic.core.messages.orchestrator.EventMessage",
+    "event": {
+      "__model__": "akgentic.tool.messages.ToolStateEvent",
+      "tool_id": "t1",
+      "seq": 3,
+      "payload": {
+        "__model__": "akgentic.tool.messages.KnowledgeGraphStateEvent",
+        "entities_added": [],
+        "entities_modified": [],
+        "entities_removed": ["e2"],
+        "relations_added": [],
+        "relations_modified": [],
+        "relations_removed": []
+      }
+    }
+  },
+  {
+    "id": "env-stop-1",
+    "parent_id": null,
+    "team_id": "team-fixture",
+    "timestamp": "2026-04-13T10:00:04Z",
+    "sender": {
+      "__actor_address__": true,
+      "agent_id": "kg-1",
+      "name": "#KnowledgeGraphTool",
+      "role": "Tool",
+      "squad_id": "s1",
+      "user_message": false
+    },
+    "display_type": "other",
+    "content": null,
+    "__model__": "akgentic.core.messages.orchestrator.StopMessage"
+  }
+]

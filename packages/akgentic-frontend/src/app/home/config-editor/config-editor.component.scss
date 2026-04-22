@@ -1,0 +1,42 @@
+// Flex row for action buttons at the bottom
+.config-actions-row {
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+	align-items: flex-end;
+	margin-top: auto;
+	width: 100%;
+	padding-bottom: 0rem;
+}
+
+// Use flexbox to position config-actions at the bottom right
+:host > div {
+	display: flex;
+	flex-direction: column;
+	min-height: 60vh;
+	height: 100%;
+}
+
+// Position the config-actions-left at the bottom left
+.config-actions-left {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: auto;
+    padding-left: 2rem;
+    padding-bottom: 0rem;
+}
+
+.config-actions-right {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: auto;
+	padding-right: 2rem;
+	padding-bottom: 0rem;
+	gap: 1rem;
+}
+.config-actions-right .field,
+.config-actions-left .field {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+}

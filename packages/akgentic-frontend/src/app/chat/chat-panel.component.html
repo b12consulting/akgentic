@@ -1,0 +1,57 @@
+<div class="chat-container" (mouseenter)="onMouseEnter()" (mouseleave)="onMouseLeave()">
+  <ng-container *ngIf="displayItems.length > 0; else noMessagesPlaceholder">
+    <div class="message-list" #scrollContainer (click)="onBackgroundClick()">
+      <ng-container *ngFor="let item of displayItems; trackBy: trackByDisplayItem">
+        <app-chat-message
+          *ngIf="item.kind === 'message'"
+          [message]="item.data"
+          [selected]="item.data.id === selectedMessageId"
+          [notification]="hasNotification(item.data)"
+          (messageSelected)="onMessageSelected($event)"
+          (toggleCollapse)="onToggleCollapse($event)"
+          (bubbleClicked)="onBubbleClicked($event)"
+          (rule3Clicked)="onRule3Clicked($event)"
+        ></app-chat-message>
+        <app-chat-thinking
+          *ngIf="item.kind === 'thinking'"
+          [state]="item.data"
+          [expanded]="isThinkingExpanded(item.data)"
+          (toggleExpanded)="onToggleThinkingExpanded($event)"
+        ></app-chat-thinking>
+      </ng-container>
+    </div>
+  </ng-container>
+  <ng-template #noMessagesPlaceholder>
+    <ng-container *ngIf="loadingProcess$ | async; else emptyState">
+      <div class="empty-section">
+        <div class="empty-section-box">
+          <i class="pi pi-spin pi-spinner chat-placeholder-icon"></i>
+          <div class="chat-placeholder-title">Loading process...</div>
+          <div class="chat-placeholder-desc">
+            Please wait while we fetch the conversation.
+          </div>
+        </div>
+      </div>
+    </ng-container>
+    <ng-template #emptyState>
+      <div class="empty-section">
+        <div class="empty-section-box">
+          <i class="pi pi-comment chat-placeholder-icon"></i>
+          <div class="chat-placeholder-title">No messages yet</div>
+          <div class="chat-placeholder-desc">
+            Start a conversation by sending a message below.
+          </div>
+        </div>
+      </div>
+    </ng-template>
+  </ng-template>
+  <app-user-input [processId]="processId"></app-user-input>
+  <app-chat-human-modal
+    [visible]="modalVisible"
+    [agentPair]="modalAgentPair"
+    [pendingMessages]="modalPendingMessages"
+    [answeredMessages]="modalAnsweredMessages"
+    (visibleChange)="onModalVisibleChange($event)"
+    (reply)="onModalReply($event)"
+  ></app-chat-human-modal>
+</div>

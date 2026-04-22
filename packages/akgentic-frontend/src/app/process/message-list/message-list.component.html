@@ -1,0 +1,83 @@
+<ng-container
+  *ngIf="
+    filteredMessages && filteredMessages.length > 0;
+    else noMessagesPlaceholder
+  "
+>
+  <p-table
+    #dataTable
+    [value]="filteredMessages"
+    [tableStyle]="{ 'min-width': '40rem' }"
+    [scrollable]="true"
+    scrollHeight="calc(100vh - 185px)"
+    (mouseenter)="isMouseOverTable = true"
+    (mouseleave)="isMouseOverTable = false"
+  >
+    <ng-template #body let-message>
+      <div class="card-container">
+        <div class="card-header">
+          <span [ngStyle]="getSenderColor(message)">◼︎</span>
+          {{ message.sender.name }} &nbsp;➔&nbsp;
+          <ng-container *ngIf="message.recipient; else broacasted">
+            <span [ngStyle]="getRecipientColor(message)">◼︎</span>
+            {{ message.recipient.name }}
+          </ng-container>
+          <ng-template #broacasted> All </ng-template>
+        </div>
+        <ng-container *ngIf="message.__model__.includes('ErrorMessage')">
+          <div class="fieldset-body">
+            <p-fieldset
+              legend="{{ message.exception_type | capitalize }}"
+              [toggleable]="false"
+            >
+              <div
+                style="color: darkred; margin: 0.5rem 0 1rem"
+                class="text-container"
+                [innerHTML]="message.exception_value"
+              ></div>
+              <div>
+                <p-button
+                  size="small"
+                  label="Relaunch (N/A)"
+                  (click)="relaunch($event, message)"
+                  [disabled]="true"
+                />
+              </div>
+            </p-fieldset>
+          </div>
+        </ng-container>
+        <ng-container *ngIf="!message.__model__.includes('ErrorMessage')">
+          <div
+            class="fieldset-body"
+            *ngFor="let content of getMessageContentKeys(message.message)"
+          >
+            <p-fieldset
+              legend="{{ content | capitalize }}"
+              [toggleable]="false"
+              *ngIf="message.message[content]"
+            >
+              <app-copy-button
+                (click)="utilService.copyToClipboard(message.message[content])"
+              />
+              <div
+                class="text-container"
+                [innerHTML]="message.message[content]"
+              ></div>
+            </p-fieldset>
+          </div>
+        </ng-container>
+      </div>
+    </ng-template>
+  </p-table>
+</ng-container>
+<ng-template #noMessagesPlaceholder>
+  <div class="empty-section message-placeholder">
+    <div class="empty-section-box">
+      <i class="pi pi-comments message-placeholder-icon"></i>
+      <div class="message-placeholder-title">No messages to display</div>
+      <div class="message-placeholder-desc">
+        Messages exchanged between agents will appear here.
+      </div>
+    </div>
+  </div>
+</ng-template>

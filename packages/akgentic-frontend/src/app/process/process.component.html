@@ -1,0 +1,50 @@
+<section>
+  <div class="main-container">
+    <div class="left-column">
+      <app-chat-panel
+        class="chat-app"
+        [processId]="processId"
+      ></app-chat-panel>
+    </div>
+
+    <div
+      class="right-column"
+      [class.collapsed]="isRightColumnCollapsed$ | async"
+    >
+      <div class="right-header">
+        <p-selectbutton
+          [options]="(visualizationOptions$ | async) ?? []"
+          optionLabel="label"
+          optionValue="value"
+          aria-labelledby="basic"
+          [ngModel]="currentVisualizationMode"
+          (onChange)="setVisualizationMode($event.value)"
+          style="background-color: #ffffff"
+          ><ng-template #item let-item>
+            <i [class]="item.icon"></i>
+            <span>{{ item.label }}</span>
+          </ng-template></p-selectbutton
+        >
+      </div>
+      <div class="visualization-container">
+        <div [class.moved-offscreen]="isHidden('team')">
+          <app-team-tabs></app-team-tabs>
+        </div>
+        <div [class.moved-offscreen]="isHidden('member')">
+          <app-agent-tabs></app-agent-tabs>
+        </div>
+        <app-workspace-explorer
+          *ngIf="hasWorkspace"
+          [class.moved-offscreen]="isHidden('workspace')"
+        ></app-workspace-explorer>
+        <app-knowledge-graph
+          *ngIf="hasKnowledgeGraph$ | async"
+          [class.moved-offscreen]="isHidden('knowledge-graph')"
+        ></app-knowledge-graph>
+        <app-message-list
+          [class.moved-offscreen]="isHidden('messages')"
+        ></app-message-list>
+      </div>
+    </div>
+  </div>
+</section>

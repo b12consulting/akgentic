@@ -1,0 +1,53 @@
+:host ::ng-deep .p-menubar {
+  position: relative;
+}
+
+:host ::ng-deep .p-menubar .p-menubar-button {
+  position: absolute;
+  right: 0;
+}
+
+// Header start section with logo and process type
+.header-start {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+
+  .logo {
+    height: 40px;
+  }
+
+  .process-type {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #495057;
+    padding: 0.5rem 1rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+    
+    &::before {
+      content: "Process: ";
+      font-weight: normal;
+      color: #6c757d;
+      font-size: 1rem;
+    }
+    .process-config-name {
+      font-size: 1rem;
+      color: #6c757d;
+      margin-left: 0.25rem;
+    }
+  }
+}
+
+@media screen and (min-width: 960px) {
+  :host ::ng-deep .p-menubar-root-list > li:last-child .p-submenu-list {
+    right: 1rem;
+  }
+
+  :host ::ng-deep .p-menubar .p-menubar-root-list {
+    position: absolute;
+    right: 1rem;
+    top: 25%;
+  }
+}

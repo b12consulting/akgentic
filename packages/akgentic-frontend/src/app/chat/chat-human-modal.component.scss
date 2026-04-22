@@ -1,0 +1,88 @@
+.section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.answered-list,
+.pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.answered-request {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  opacity: 0.65;
+}
+
+.answered-header,
+.pending-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.answered-reply {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding-left: 1rem;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.reply-marker {
+  white-space: nowrap;
+  font-style: italic;
+  padding-top: 2px;
+}
+
+.pending-request {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background-color: #f8fafc;
+}
+
+.message-time {
+  font-size: 0.85rem;
+  color: #64748b;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+.message-content {
+  flex: 1;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.reply-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.reply-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.empty-state {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #94a3b8;
+  font-style: italic;
+}

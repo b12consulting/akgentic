@@ -1,0 +1,71 @@
+// Chat input row layout
+.input-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+
+  .input-row-textarea {
+      display: flex;
+      align-items: flex-end;
+
+      textarea {
+        flex: 1 1 auto;
+      }
+    }
+
+  .input-row-buttons {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-end;
+
+    .pi-refresh {
+      font-size: 1rem;
+    }
+
+    .pi-spinner {
+      font-size: 1rem;
+    }
+  }
+}
+
+.input-container {
+    padding: 1rem 0rem 0rem;
+    textarea {
+    width: 100%;
+    margin-bottom: 0.5rem;
+    }
+}
+
+.card-container {
+  margin: 1rem 0;
+}
+
+.text-container {
+  font-size: 85%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+  font-family: monospace;
+  margin: 0;
+}
+
+/* Ensure the container doesn't exceed the available width */
+.collapsible-container {
+    width: 100%;
+    overflow: hidden;
+  }
+  
+  /* Collapsible button styling */
+.collapse-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    padding: 5px;
+    margin-bottom: 10px;
+    color: #334155;
+  }
