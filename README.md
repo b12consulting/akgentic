@@ -1,8 +1,12 @@
-# Akgentic Framework Quick Start Guide
+<div align="center">
+<img src="akgents.png" alt="Akgents - Powered by Yuma" width="400">
+<br><br>
 
 **Modern actor-based agent framework for Python 3.12+**
 
 A comprehensive framework for building intelligent multi-agent systems with LLM integration, dynamic team composition, and actor-based architecture.
+
+</div>
 
 | Package | CI | Coverage | Dependencies |
 |---|---|---|---|
