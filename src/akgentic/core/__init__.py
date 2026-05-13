@@ -30,11 +30,7 @@ from akgentic.core.agent_state import AkgentStateObserver, BaseState
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 from akgentic.core.user_proxy import UserProxy
 
-__version__ = "1.0.0-alpha.2"
-
 __all__ = [
-    # Version
-    "__version__",
     # Agent base class and proxies
     "Akgent",
     "AkgentDeserializeContext",
