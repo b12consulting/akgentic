@@ -58,13 +58,22 @@ class MockTemplateCatalog:
 
 
 def _base_agent_card(**overrides: object) -> dict[str, object]:
-    """Build minimal valid card data for BaseAgent."""
+    """Build minimal valid card data for BaseAgent.
+
+    ``config.role`` is the single source of truth for ``AgentCard.role``
+    (ADR-007); this helper injects ``role="engineer"`` into the config
+    dict — including overridden configs that omit it — so every test
+    builds a valid card by default.
+    """
+    role = overrides.pop("role", "engineer")
+    config = overrides.pop("config", {"name": "test-agent"})
+    if isinstance(config, dict) and "role" not in config:
+        config = {**config, "role": role}
     card: dict[str, object] = {
-        "role": "engineer",
         "description": "A test agent",
         "skills": ["coding"],
         "agent_class": "akgentic.agent.BaseAgent",
-        "config": {"name": "test-agent"},
+        "config": config,
     }
     card.update(overrides)
     return card

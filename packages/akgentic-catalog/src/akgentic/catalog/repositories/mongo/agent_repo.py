@@ -34,18 +34,24 @@ class MongoAgentCatalogRepository(AgentCatalogRepository):
     def __init__(self, collection: pymongo.collection.Collection) -> None:  # type: ignore[type-arg]
         """Initialize with a pymongo Collection and ensure indexes.
 
-        Creates indexes on ``card.role`` (secondary) and ``card.skills``
+        Creates indexes on ``card.config.role`` (secondary) and ``card.skills``
         (multikey for ``$in`` queries). ``_id`` is inherently unique.
+
+        Per ADR-007, ``AgentCard.role`` is a non-serialized ``@property``
+        derived from ``config.role`` — the stored BSON has no ``card.role``
+        key, so the secondary index targets ``card.config.role`` where the
+        registry key actually lives.
 
         Args:
             collection: The MongoDB collection for agent entries.
         """
         self._collection = collection
         # _id is inherently unique in MongoDB — no explicit index needed.
-        self._collection.create_index("card.role")
+        self._collection.create_index("card.config.role")
         self._collection.create_index("card.skills")
         logger.info(
-            "MongoAgentCatalogRepository initialized with indexes on _id, card.role, card.skills"
+            "MongoAgentCatalogRepository initialized with indexes on "
+            "_id, card.config.role, card.skills"
         )
 
     def create(self, agent_entry: AgentEntry) -> str:
@@ -94,9 +100,10 @@ class MongoAgentCatalogRepository(AgentCatalogRepository):
     def search(self, query: AgentQuery) -> _list[AgentEntry]:
         """Filter agents by AND-ing all non-None query fields.
 
-        Uses server-side exact match for ``id`` and ``card.role``. Uses
-        ``$in`` for ``card.skills`` (ANY overlap semantics). Uses ``$regex``
-        with case-insensitive option for substring matching on ``card.description``.
+        Uses server-side exact match for ``id`` and ``card.config.role``.
+        Uses ``$in`` for ``card.skills`` (ANY overlap semantics). Uses
+        ``$regex`` with case-insensitive option for substring matching on
+        ``card.description``.
 
         Args:
             query: Query with optional filter fields.
@@ -108,7 +115,7 @@ class MongoAgentCatalogRepository(AgentCatalogRepository):
         if query.id is not None:
             mongo_filter["_id"] = query.id
         if query.role is not None:
-            mongo_filter["card.role"] = query.role
+            mongo_filter["card.config.role"] = query.role
         if query.skills is not None:
             mongo_filter["card.skills"] = {"$in": query.skills}
         if query.description is not None:
