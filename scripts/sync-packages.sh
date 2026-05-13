@@ -2,7 +2,7 @@
 
 ORG="b12consulting"
 PARENT_DIR="packages"
-BRANCH="master"
+BRANCH="version-1.x"
 
 if [ -n "$(git status --porcelain)" ]; then
     echo "❌ Working tree has uncommitted changes. Commit or stash them before syncing." >&2
