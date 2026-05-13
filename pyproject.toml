@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-team"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 description = "Team lifecycle management — create, resume, stop, delete teams with event-sourced persistence"
 readme = "README.md"
 requires-python = ">=3.12"
