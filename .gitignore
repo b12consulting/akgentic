@@ -24,7 +24,6 @@ coverage.json
 .venv/
 
 # IDE
-.github/
 .vscode/
 .idea/
 .cursor/
