@@ -109,6 +109,7 @@ def make_tool(
 def make_agent(
     id: str = "agent-1",
     name: str = "test-agent",
+    role: str = "engineer",
     tool_ids: _list[str] | None = None,
     template_ref: str | None = None,
     params: dict[str, str] | None = None,
@@ -120,14 +121,13 @@ def make_agent(
         prompt["template"] = template_ref
         if params is not None:
             prompt["params"] = params
-    config: dict[str, str | dict[str, str | dict[str, str]]] = {"name": name}
+    config: dict[str, str | dict[str, str | dict[str, str]]] = {"name": name, "role": role}
     if prompt:
         config["prompt"] = prompt
     return AgentEntry(
         id=id,
         tool_ids=tool_ids or [],
         card={
-            "role": "engineer",
             "description": "test agent",
             "skills": ["coding"],
             "agent_class": "akgentic.agent.BaseAgent",

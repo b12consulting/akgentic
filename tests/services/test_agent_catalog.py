@@ -377,11 +377,10 @@ class TestBaseConfigAgentService:
             id=id,
             tool_ids=[],
             card={
-                "role": "Human",
                 "description": "User-facing proxy",
                 "skills": [],
                 "agent_class": "akgentic.agent.HumanProxy",
-                "config": {"name": name},
+                "config": {"name": name, "role": "Human"},
                 "routes_to": [],
             },
         )

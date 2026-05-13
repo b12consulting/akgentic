@@ -197,7 +197,6 @@ class AgentEntry(BaseModel):
                 config.prompt = resolved_prompt  # ADR-003: duck-type gate
 
         return AgentCard(
-            role=card.role,
             description=card.description,
             skills=card.skills,
             agent_class=card.agent_class,

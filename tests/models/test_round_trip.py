@@ -71,12 +71,12 @@ class TestRoundTripAgentEntry:
             id="researcher",
             tool_ids=["search", "planning"],
             card={
-                "role": "research-engineer",
                 "description": "Research engineer specializing in biology",
                 "skills": ["research", "analysis", "citation"],
                 "agent_class": "tests.models.test_round_trip.ResearchAgent",
                 "config": {
                     "name": "researcher",
+                    "role": "research-engineer",
                     "research_domain": "biology",
                     "max_sources": 20,
                     "include_citations": False,
@@ -129,11 +129,10 @@ class TestRoundTripAgentEntry:
             id="researcher",
             tool_ids=["search", "planning", "analysis"],
             card={
-                "role": "engineer",
                 "description": "Test agent",
                 "skills": ["coding"],
                 "agent_class": "tests.models.test_round_trip.ResearchAgent",
-                "config": {"name": "test"},
+                "config": {"name": "test", "role": "engineer"},
                 "routes_to": [],
             },
         )
@@ -149,12 +148,12 @@ class TestRoundTripAgentEntry:
             id="researcher",
             tool_ids=["search"],
             card={
-                "role": "research-engineer",
                 "description": "Research engineer specializing in biology",
                 "skills": ["research", "analysis", "citation"],
                 "agent_class": "tests.models.test_round_trip.ResearchAgent",
                 "config": {
                     "name": "researcher",
+                    "role": "research-engineer",
                     "research_domain": "biology",
                     "max_sources": 20,
                     "include_citations": False,
@@ -184,7 +183,6 @@ class TestRoundTripBaseConfigAgent:
             id="human-proxy",
             tool_ids=[],
             card={
-                "role": "Human",
                 "description": "User-facing proxy",
                 "skills": [],
                 "agent_class": "tests.models.test_round_trip.BareConfigAgent",
@@ -199,7 +197,7 @@ class TestRoundTripBaseConfigAgent:
         assert restored.card.config.name == "@Human"
         assert restored.card.config.role == "HumanProxy"
         assert restored.tool_ids == []
-        assert restored.card.role == "Human"
+        assert restored.card.role == "HumanProxy"
         assert restored.card.description == "User-facing proxy"
         assert restored.card.routes_to == ["@Manager"]
         assert restored.id == "human-proxy"

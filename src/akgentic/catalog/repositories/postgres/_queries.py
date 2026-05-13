@@ -196,13 +196,14 @@ def agent_id_predicate(value: str) -> tuple[str, list[object]]:
 
 
 def agent_role_predicate(value: str) -> tuple[str, list[object]]:
-    """Build ``data->'card'->>'role' = %s`` predicate for an exact role match.
+    """Build ``data->'card'->'config'->>'role' = %s`` predicate for exact role match.
 
-    ``AgentEntry.card`` is a nested ``AgentCard``, so ``role`` lives under the
-    nested ``card`` object in the JSONB document — matching the Mongo
-    backend's ``card.role`` filter.
+    Per ADR-007, ``AgentCard.role`` is a non-serialized ``@property`` derived
+    from ``config.role`` — the serialized JSONB has no top-level ``card.role``
+    key, so the predicate traverses one level deeper into ``card.config.role``
+    to match the authoritative registry key.
     """
-    return "data->'card'->>'role' = %s", [value]
+    return "data->'card'->'config'->>'role' = %s", [value]
 
 
 def agent_skills_predicate(value: list[str]) -> tuple[str, list[object]]:
