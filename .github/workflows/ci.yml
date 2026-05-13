@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout workspace
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: b12consulting/akgentic-quick-start
           submodules: recursive
@@ -27,7 +27,7 @@ jobs:
           git checkout FETCH_HEAD
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "latest"
 
