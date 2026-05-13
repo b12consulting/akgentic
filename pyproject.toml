@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-infra"
-version = "1.0.0-alpha.2"
+version = "1.2.0"
 description = "Infrastructure backend: protocol abstractions and community-tier implementations for akgentic"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,12 +10,12 @@ authors = [
 keywords = ["agents", "ai", "akgentic", "infrastructure"]
 
 dependencies = [
-    "akgentic>=0.1.0",
-    "akgentic-team>=0.1.0",
-    "akgentic-catalog>=0.1.0",
-    "akgentic-agent>=0.1.0",
-    "akgentic-llm>=0.1.0",
-    "akgentic-tool>=0.1.0",
+    "akgentic-core",
+    "akgentic-team",
+    "akgentic-catalog",
+    "akgentic-agent",
+    "akgentic-llm",
+    "akgentic-tool",
     "fastapi>=0.100.0",
     "pydantic-settings>=2.0.0",
     "logfire>=0.1.0",
@@ -46,7 +46,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-akgentic = { workspace = true }
+akgentic-core = { workspace = true }
 akgentic-team = { workspace = true }
 akgentic-catalog = { workspace = true }
 akgentic-agent = { workspace = true }
