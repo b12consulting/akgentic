@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-team"
-version = "1.0.0-alpha.2"
+version = "1.2.0"
 description = "Team lifecycle management — create, resume, stop, delete teams with event-sourced persistence"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -11,7 +11,7 @@ keywords = ["agents", "ai", "akgentic", "teams", "lifecycle"]
 
 dependencies = [
     "pydantic>=2.0.0",
-    "akgentic",
+    "akgentic-core",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +39,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-akgentic = { workspace = true }
+akgentic-core = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akgentic"]
