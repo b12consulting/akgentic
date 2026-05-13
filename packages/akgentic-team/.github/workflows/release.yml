@@ -1,0 +1,69 @@
+name: Release
+
+# Manual release: reads version from pyproject.toml on master, tags master HEAD,
+# builds the wheel, and creates a GitHub Release with the wheel attached.
+#
+# Bumping the version is a separate maintainer action via a normal PR. This
+# workflow does NOT push commits to master — branch protection blocks that.
+# The release flow is therefore two-step:
+#   1. Open a "chore: bump version to X.Y.Z" PR; merge it.
+#   2. Trigger this workflow from the Actions tab.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Read version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(grep -E '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          echo "Releasing version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag does not already exist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists. Bump the version in pyproject.toml first."
+            exit 1
+          fi
+
+      - name: Tag master HEAD
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Build wheel
+        run: uv build --wheel --out-dir dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.version }}"
+          name: "v${{ steps.version.outputs.version }}"
+          files: dist/*.whl
+          generate_release_notes: true
