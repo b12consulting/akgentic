@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-catalog"
-version = "1.0.0-alpha.2"
+version = "1.2.0"
 description = "Collaborative agent patterns for the Akgentic framework"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,7 @@ keywords = ["ai", "catalog", "collaboration", "pydantic"]
 dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
-    "akgentic",
+    "akgentic-core",
     "akgentic-tool",
     "akgentic-team",
 ]
@@ -64,7 +64,7 @@ packages = ["src/akgentic"]
 "src/akgentic/catalog/repositories/postgres/schema.toml" = "akgentic/catalog/repositories/postgres/schema.toml"
 
 [tool.uv.sources]
-akgentic = { workspace = true }
+akgentic-core = { workspace = true }
 akgentic-tool = { workspace = true }
 akgentic-team = { workspace = true }
 
