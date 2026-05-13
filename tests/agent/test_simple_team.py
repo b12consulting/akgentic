@@ -133,6 +133,12 @@ class TestSimpleTeam:
             description="Test manager",
             skills=["coordination"],
             agent_class="akgentic.agent.BaseAgent",
+            config=AgentConfig(
+                name="@Manager",
+                role="Manager",
+                prompt=PromptTemplate(template="You are a test manager."),
+                model_cfg=ModelConfig(provider="openai", model="gpt-5-mini", temperature=0.3),
+            ),
             routes_to=["Assistant"],
         )
 
@@ -141,6 +147,12 @@ class TestSimpleTeam:
             description="Test assistant",
             skills=["research"],
             agent_class="akgentic.agent.BaseAgent",
+            config=AgentConfig(
+                name="@Assistant",
+                role="Assistant",
+                prompt=PromptTemplate(template="You are a test assistant."),
+                model_cfg=ModelConfig(provider="openai", model="gpt-5-mini", temperature=0.3),
+            ),
         )
 
         orchestrator.register_agent_profile(manager_card)
