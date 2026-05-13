@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-llm"
-version = "1.0.0-alpha.2"
+version = "1.2.0"
 description = "LLM integration layer for Akgentic agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
