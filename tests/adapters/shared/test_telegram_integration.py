@@ -187,14 +187,12 @@ class TestWebhookWithTelegramParser:
         resp = client.post("/webhook/unknown", json={"text": "hello"})
         assert resp.status_code == 404
 
-    def test_invalid_telegram_payload_raises(self) -> None:
-        """Payload without 'message' key → parser raises ValueError.
-
-        The webhook route does not catch parser errors — they propagate
-        as 500. This is existing model behavior (not a bug introduced
-        by the Telegram classes).
+    def test_invalid_telegram_payload_returns_400(self) -> None:
+        """Payload without 'message' key → parser raises ValueError,
+        surfaced as HTTP 400 (client sent a malformed body — not a 5xx).
         """
         app, _, _ = self._make_app()
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.post("/webhook/telegram", json={"update_id": 1})
-        assert resp.status_code == 500
+        assert resp.status_code == 400
+        assert "message" in resp.json()["detail"].lower()
