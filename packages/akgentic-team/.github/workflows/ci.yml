@@ -35,7 +35,7 @@ jobs:
       DB_CONN_STRING_PERSISTENCE: postgresql://akgentic:akgentic@localhost:5432/akgentic_test
     steps:
       - name: Checkout workspace
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: b12consulting/akgentic-quick-start
           submodules: recursive
@@ -56,7 +56,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "latest"
 

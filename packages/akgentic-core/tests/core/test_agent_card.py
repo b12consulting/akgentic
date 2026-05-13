@@ -20,7 +20,6 @@ class TestAgentCard:
         """AgentCard can store config."""
         config = BaseConfig(name="test", role="TestAgent")
         card = AgentCard(
-            role="TestAgent",
             description="A test agent",
             skills=["testing", "validation"],
             agent_class="test.TestAgent",
@@ -34,12 +33,16 @@ class TestAgentCard:
         assert retrieved_config.name == "test"
 
     def test_create_agent_card_with_dict_config(self) -> None:
-        """AgentCard accepts dict config."""
+        """AgentCard accepts dict config.
+
+        Uses ``akgentic.core.Akgent`` (itself unparameterised) so the
+        config-coercion validator falls back to ``BaseConfig`` without
+        attempting to import a non-existent ``test.TestAgent`` module.
+        """
         card = AgentCard(
-            role="TestAgent",
             description="A test agent",
             skills=["testing"],
-            agent_class="test.TestAgent",
+            agent_class="akgentic.core.Akgent",
             config={"name": "test", "role": "TestAgent"},
         )
 
@@ -50,20 +53,20 @@ class TestAgentCard:
     def test_agent_class_accepts_string(self) -> None:
         """AgentCard accepts agent_class as string."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="test.TestAgent",
+            config=BaseConfig(role="TestAgent"),
         )
         assert card.agent_class == "test.TestAgent"
 
     def test_agent_class_accepts_type(self) -> None:
         """AgentCard accepts agent_class as actual type."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class=Akgent,  # Using actual class type
+            config=BaseConfig(role="TestAgent"),
         )
         assert card.agent_class == Akgent
         assert isinstance(card.agent_class, type)
@@ -71,10 +74,10 @@ class TestAgentCard:
     def test_has_skill(self) -> None:
         """AgentCard.has_skill() checks for skill presence."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["skill1", "skill2"],
             agent_class="test.Agent",
+            config=BaseConfig(role="TestAgent"),
         )
 
         assert card.has_skill("skill1") is True
@@ -83,10 +86,10 @@ class TestAgentCard:
     def test_metadata_extensibility(self) -> None:
         """AgentCard supports custom metadata."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="test.Agent",
+            config=BaseConfig(role="TestAgent"),
             metadata={"version": "1.0", "author": "team-alpha"},
         )
 
@@ -96,10 +99,10 @@ class TestAgentCard:
     def test_routes_to_unrestricted(self) -> None:
         """AgentCard with empty routes_to allows routing to any role."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="test.Agent",
+            config=BaseConfig(role="TestAgent"),
             routes_to=[],  # Empty = no restrictions
         )
 
@@ -109,10 +112,10 @@ class TestAgentCard:
     def test_routes_to_restricted(self) -> None:
         """AgentCard with routes_to list restricts routing."""
         card = AgentCard(
-            role="ResearchAgent",
             description="Research",
             skills=["research"],
             agent_class="test.ResearchAgent",
+            config=BaseConfig(role="ResearchAgent"),
             routes_to=["WriterAgent", "AnalystAgent"],
         )
 
@@ -123,10 +126,10 @@ class TestAgentCard:
     def test_routes_to_default_empty(self) -> None:
         """AgentCard defaults to no routing restrictions."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="test.Agent",
+            config=BaseConfig(role="TestAgent"),
             # routes_to not specified - should default to []
         )
 
@@ -136,7 +139,6 @@ class TestAgentCard:
     def test_get_config_returns_independent_copies(self) -> None:
         """get_config() returns independent copies to prevent shared state."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="test.Agent",
@@ -167,30 +169,30 @@ class TestGetAgentClass:
     def test_returns_type_when_agent_class_is_type(self) -> None:
         """get_agent_class() returns the class directly when already a type."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class=Akgent,
+            config=BaseConfig(role="TestAgent"),
         )
         assert card.get_agent_class() is Akgent
 
     def test_resolves_fully_qualified_string(self) -> None:
         """get_agent_class() resolves a dotted string to the actual class."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="akgentic.core.Akgent",
+            config=BaseConfig(role="TestAgent"),
         )
         assert card.get_agent_class() is Akgent
 
     def test_raises_value_error_for_empty_string(self) -> None:
         """get_agent_class() raises ValueError for empty agent_class string."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="",
+            config=BaseConfig(role="TestAgent"),
         )
         with pytest.raises(ValueError, match="fully qualified dotted path"):
             card.get_agent_class()
@@ -198,10 +200,10 @@ class TestGetAgentClass:
     def test_raises_value_error_for_unqualified_name(self) -> None:
         """get_agent_class() raises ValueError for a bare class name with no dots."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="MyAgent",
+            config=BaseConfig(role="TestAgent"),
         )
         with pytest.raises(ValueError, match="fully qualified dotted path"):
             card.get_agent_class()
@@ -209,10 +211,10 @@ class TestGetAgentClass:
     def test_raises_import_error_for_missing_module(self) -> None:
         """get_agent_class() raises ImportError when the module doesn't exist."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="nonexistent.module.SomeAgent",
+            config=BaseConfig(role="TestAgent"),
         )
         with pytest.raises(ModuleNotFoundError):
             card.get_agent_class()
@@ -220,10 +222,10 @@ class TestGetAgentClass:
     def test_raises_attribute_error_for_missing_class(self) -> None:
         """get_agent_class() raises AttributeError when the class isn't in the module."""
         card = AgentCard(
-            role="TestAgent",
             description="Test",
             skills=["testing"],
             agent_class="akgentic.core.NonExistentClass",
+            config=BaseConfig(role="TestAgent"),
         )
         with pytest.raises(AttributeError):
             card.get_agent_class()
@@ -245,7 +247,6 @@ class TestOrchestratorCatalog:
 
             # Register profile
             card = AgentCard(
-                role="TestAgent",
                 description="Test agent",
                 skills=["testing"],
                 agent_class="test.TestAgent",
@@ -275,18 +276,18 @@ class TestOrchestratorCatalog:
             # Register multiple profiles
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="Agent1",
                     description="First agent",
                     skills=["skill1"],
                     agent_class="test.Agent1",
+                    config=BaseConfig(role="Agent1"),
                 )
             )
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="Agent2",
                     description="Second agent",
                     skills=["skill2"],
                     agent_class="test.Agent2",
+                    config=BaseConfig(role="Agent2"),
                 )
             )
 
@@ -312,26 +313,26 @@ class TestOrchestratorCatalog:
             # Register profiles with different skills
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="ResearchAgent",
                     description="Research",
                     skills=["web_search", "pdf_extraction"],
                     agent_class="test.ResearchAgent",
+                    config=BaseConfig(role="ResearchAgent"),
                 )
             )
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="WriterAgent",
                     description="Writer",
                     skills=["writing", "summarization"],
                     agent_class="test.WriterAgent",
+                    config=BaseConfig(role="WriterAgent"),
                 )
             )
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="AnalystAgent",
                     description="Analyst",
                     skills=["web_search", "analysis"],
                     agent_class="test.AnalystAgent",
+                    config=BaseConfig(role="AnalystAgent"),
                 )
             )
 
@@ -357,10 +358,20 @@ class TestOrchestratorCatalog:
             orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
 
             orch_proxy.register_agent_profile(
-                AgentCard(role="Agent1", description="A1", skills=[], agent_class="test.A1")
+                AgentCard(
+                    description="A1",
+                    skills=[],
+                    agent_class="test.A1",
+                    config=BaseConfig(role="Agent1"),
+                )
             )
             orch_proxy.register_agent_profile(
-                AgentCard(role="Agent2", description="A2", skills=[], agent_class="test.A2")
+                AgentCard(
+                    description="A2",
+                    skills=[],
+                    agent_class="test.A2",
+                    config=BaseConfig(role="Agent2"),
+                )
             )
 
             roles = orch_proxy.get_available_roles()
@@ -382,18 +393,18 @@ class TestOrchestratorCatalog:
 
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="Agent1",
                     description="A1",
                     skills=["skill1", "skill2"],
                     agent_class="test.A1",
+                    config=BaseConfig(role="Agent1"),
                 )
             )
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="Agent2",
                     description="A2",
                     skills=["skill2", "skill3"],
                     agent_class="test.A2",
+                    config=BaseConfig(role="Agent2"),
                 )
             )
 
@@ -426,10 +437,10 @@ class TestAgentDiscovery:
             orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="TestAgent",
                     description="Test",
                     skills=["testing"],
                     agent_class="test.TestAgent",
+                    config=BaseConfig(role="TestAgent"),
                 )
             )
 
@@ -461,10 +472,10 @@ class TestAgentDiscovery:
             orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="ResearchAgent",
                     description="Research",
                     skills=["web_search"],
                     agent_class="test.ResearchAgent",
+                    config=BaseConfig(role="ResearchAgent"),
                 )
             )
 
@@ -495,18 +506,18 @@ class TestAgentDiscovery:
             orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="Agent1",
                     description="A1",
                     skills=["skill1", "skill2"],
                     agent_class="test.A1",
+                    config=BaseConfig(role="Agent1"),
                 )
             )
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="Agent2",
                     description="A2",
                     skills=["skill2", "skill3"],
                     agent_class="test.A2",
+                    config=BaseConfig(role="Agent2"),
                 )
             )
 
@@ -564,18 +575,18 @@ class TestAgentDiscovery:
             orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="ResearchAgent",
                     description="Research",
                     skills=["web_search"],
                     agent_class="test.ResearchAgent",
+                    config=BaseConfig(role="ResearchAgent"),
                 )
             )
             orch_proxy.register_agent_profile(
                 AgentCard(
-                    role="WriterAgent",
                     description="Writer",
                     skills=["writing"],
                     agent_class="test.WriterAgent",
+                    config=BaseConfig(role="WriterAgent"),
                 )
             )
 

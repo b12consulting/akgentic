@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout workspace
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: b12consulting/akgentic-quick-start
           ref: master
@@ -29,7 +29,7 @@ jobs:
           git checkout FETCH_HEAD
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "latest"
 
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout workspace
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: b12consulting/akgentic-quick-start
           ref: master
@@ -87,7 +87,7 @@ jobs:
           git checkout FETCH_HEAD
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "latest"
 
@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout workspace
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: b12consulting/akgentic-quick-start
           ref: master
@@ -140,7 +140,7 @@ jobs:
           git checkout FETCH_HEAD
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "latest"
 
@@ -174,7 +174,7 @@ jobs:
 
       - name: Checkout workspace
         if: env.OPENAI_API_KEY != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: b12consulting/akgentic-quick-start
           ref: master
@@ -191,7 +191,7 @@ jobs:
 
       - name: Install uv
         if: env.OPENAI_API_KEY != ''
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "latest"
 

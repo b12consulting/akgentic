@@ -65,7 +65,10 @@ async def webhook(
     else:
         logger.warning("Unsupported content type: %s", content_type)
         raise HTTPException(status_code=415, detail="Unsupported content type")
-    message = await parser.parse(payload)
+    try:
+        message = await parser.parse(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if message.team_id is not None:
         # Reply flow

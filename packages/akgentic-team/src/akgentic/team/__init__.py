@@ -26,7 +26,7 @@ from akgentic.team.repositories import YamlEventStore
 from akgentic.team.restorer import TeamRestorer
 from akgentic.team.subscriber import PersistenceSubscriber
 
-__version__ = "1.0.0-alpha.1"
+__version__ = "1.0.0-alpha.2"
 
 __all__: list[str] = [
     "__version__",

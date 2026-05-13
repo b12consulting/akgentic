@@ -26,7 +26,6 @@ def _agent_dict(
         "id": id,
         "tool_ids": [],
         "card": {
-            "role": role,
             "description": description,
             "skills": skills,
             "agent_class": AGENT_CLASS,

@@ -360,3 +360,23 @@ class TestWebhookUnsupportedContentType:
 
         assert resp.status_code == 415
         assert "Unsupported content type" in resp.json()["detail"]
+
+
+class TestWebhookMalformedPayload:
+    """Parser-raised ValueError should surface as 400, not 500."""
+
+    def test_parser_value_error_returns_400(self, tmp_path: Path) -> None:
+        class RaisingParser(StubParser):
+            async def parse(self, payload: dict[str, JsonValue]) -> ChannelMessage:
+                del payload
+                raise ValueError("payload missing required field 'message'")
+
+        parser = RaisingParser()
+        ingestion = StubIngestion()
+        registry = YamlChannelRegistry(tmp_path / "registry.yaml")
+        client = TestClient(_build_app(parser, ingestion, registry))
+
+        resp = client.post("/webhook/test-channel", json={"update_id": 1})
+
+        assert resp.status_code == 400
+        assert "payload missing required field 'message'" in resp.json()["detail"]
