@@ -1,6 +1,6 @@
 [project]
 name = "akgentic"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 description = "Actor framework for building agent-based systems"
 readme = "README.md"
 authors = [

@@ -38,7 +38,7 @@ class TestAkgenticNamespace:
     def test_version_accessible(self) -> None:
         from akgentic.core import __version__
 
-        assert __version__ == "1.0.0-alpha.1"
+        assert __version__ == "1.0.0-alpha.2"
 
     def test_message_types_not_in_all(self) -> None:
         import akgentic.core
