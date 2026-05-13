@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-tool"
-version = "0.1.0"
+version = "1.0.0-alpha.2"
 description = "Tool interface and factory for Akgentic agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
