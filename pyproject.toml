@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-agent"
-version = "1.0.0-alpha.2"
+version = "1.2.0"
 description = "Collaborative agent patterns for the Akgentic framework"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -11,7 +11,7 @@ keywords = ["agents", "ai", "team", "collaboration", "pydantic-ai"]
 
 dependencies = [
     "pydantic>=2.0.0",
-    "akgentic",
+    "akgentic-core",
     "akgentic-llm",
     "akgentic-tool",
 ]
@@ -33,7 +33,7 @@ build-backend = "hatchling.build"
 packages = ["src/akgentic"]
 
 [tool.uv.sources]
-akgentic = { workspace = true }
+akgentic-core = { workspace = true }
 akgentic-llm = { workspace = true }
 
 # Tool configurations inherit from root workspace pyproject.toml
