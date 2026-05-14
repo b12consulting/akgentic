@@ -7,6 +7,7 @@ from akgentic.tool.mcp import MCPHTTPConnectionConfig, MCPTool
 from akgentic.tool.planning import PlanningTool, UpdatePlanning
 from akgentic.tool.sandbox import ExecTool
 from akgentic.tool.search import SearchTool, WebCrawl, WebFetch, WebSearch
+from akgentic.tool.vector_store import VectorStoreTool
 from akgentic.tool.workspace import WorkspaceTool
 
 search_tool = SearchTool(
@@ -14,6 +15,8 @@ search_tool = SearchTool(
     web_crawl=WebCrawl(timeout=150, max_depth=3, max_breadth=5, limit=10),
     web_fetch=WebFetch(timeout=30),
 )
+
+vector_store_tool = VectorStoreTool()
 
 knowledge_graph_tool = KnowledgeGraphTool()
 
@@ -45,4 +48,10 @@ github_tool = MCPTool(
     ),
 )
 
-tools = [search_tool, workspace_tool, sandbox_tool, planning_tool, knowledge_graph_tool]
+tools = [
+    search_tool,
+    workspace_tool,
+    vector_store_tool,
+    planning_tool,
+    knowledge_graph_tool,
+]
