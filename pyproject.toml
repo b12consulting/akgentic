@@ -9,7 +9,7 @@ authors = [
 ]
 
 dependencies = [
-    "akgentic",
+    "akgentic-core",
     "akgentic-llm",
     "akgentic-agent",
     "akgentic-tool",
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-akgentic = { workspace = true }
+akgentic-core = { workspace = true }
 akgentic-llm = { workspace = true }
 akgentic-agent = { workspace = true }
 akgentic-tool = { workspace = true }
