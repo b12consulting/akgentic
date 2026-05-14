@@ -9,7 +9,6 @@ from tools import tools
 LLM_MODEL = "gpt-5.2"
 
 manager_card = AgentCard(
-    role="Manager",
     description="Helpful manager coordinating team work",
     skills=["coordination", "delegation"],
     agent_class="akgentic.agent.BaseAgent",
@@ -19,7 +18,7 @@ manager_card = AgentCard(
         prompt=PromptTemplate(
             template="You are a helpful manager. Coordinate the team effectively.",
         ),
-        model_cfg=ModelConfig(provider="azure", model="gpt-4.1", temperature=0.3),
+        model_cfg=ModelConfig(provider="openai", model="gpt-4.1", temperature=0.3),
         usage_limits=UsageLimits(request_limit=20, total_tokens_limit=200000),
         runtime_cfg=RuntimeConfig(),
         tools=tools,
@@ -28,7 +27,6 @@ manager_card = AgentCard(
 )
 
 assistant_card = AgentCard(
-    role="Assistant",
     description="Helpful assistant providing support",
     skills=["research", "writing"],
     agent_class="akgentic.agent.BaseAgent",
@@ -45,7 +43,6 @@ assistant_card = AgentCard(
 )
 
 expert_card = AgentCard(
-    role="Expert",
     description="Helpful expert providing specialized knowledge",
     skills=["analysis", "problem-solving"],
     agent_class="akgentic.agent.BaseAgent",
