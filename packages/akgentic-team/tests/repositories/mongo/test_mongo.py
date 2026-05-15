@@ -15,7 +15,7 @@ once per backend. This module retains only Mongo-specific invariants:
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 from akgentic.team.repositories.mongo import MongoEventStore
@@ -100,6 +100,39 @@ class TestMongoEventStoreMongoSpecific:
         loaded = mongo_store.load_agent_states(team_id)
         assert len(loaded) == 1
         assert loaded[0].agent_id == "good-agent"
+
+    # --- user_id index presence ---------------------------------------------
+
+    def test_teams_user_id_index_created_on_init(
+        self, mongo_store: MongoEventStore, mongo_db: Any
+    ) -> None:
+        """``MongoEventStore.__init__`` creates ``teams_user_id_idx`` on ``teams``.
+
+        Asserts the index is present with a single-field ascending key spec
+        on ``user_id``. Backs the ``find({"user_id": ...})`` push-down in
+        ``list_teams`` (ADR-16 §5).
+        """
+        info = mongo_db["teams"].index_information()
+        assert "teams_user_id_idx" in info
+        assert info["teams_user_id_idx"]["key"] == [("user_id", 1)]
+
+    def test_teams_user_id_index_creation_is_idempotent(
+        self, mongo_store: MongoEventStore, mongo_db: Any
+    ) -> None:
+        """Re-running the constructor against the same database does not raise.
+
+        PyMongo's ``create_index`` returns silently when an index with the
+        same key spec already exists, so redeploys against a long-lived
+        MongoDB are safe (ADR-16 §5). After the second construction the
+        ``teams_user_id_idx`` entry is still present exactly once with the
+        same key spec.
+        """
+        # First construction already happened via the ``mongo_store`` fixture.
+        MongoEventStore(mongo_db)  # second construction — must not raise
+
+        info = mongo_db["teams"].index_information()
+        assert info["teams_user_id_idx"]["key"] == [("user_id", 1)]
+        assert list(info.keys()).count("teams_user_id_idx") == 1
 
     # --- Import guards ------------------------------------------------------
 

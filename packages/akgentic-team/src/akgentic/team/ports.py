@@ -63,10 +63,19 @@ class EventStore(Protocol):
         """
         ...
 
-    def list_teams(self) -> list[Process]:
-        """Load all team process snapshots.
+    def list_teams(self, user_id: str | None = None) -> list[Process]:
+        """Load team process snapshots.
 
-        Called by the CLI to enumerate all known teams.
+        Args:
+            user_id: If provided, return only snapshots whose ``Process.user_id``
+                matches. If ``None`` (default), return all snapshots — used by
+                the CLI to enumerate every team in the store.
+
+        Implementations MUST push the filter down to the backend (SQL WHERE,
+        Mongo find filter, directory-walk skip) rather than load-all-then-filter
+        in Python — the multi-tenant infra layer calls this on every request.
+
+        See ADR-16 §1 for the additive, backwards-compatible Protocol change.
         """
         ...
 

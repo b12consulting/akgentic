@@ -69,10 +69,30 @@ class NagraEventStore:
             return None
         return Process.model_validate(decode_jsonb_column(row[0]))
 
-    def list_teams(self) -> list[Process]:
-        """Return every persisted team process. Order is unspecified."""
+    def list_teams(self, user_id: str | None = None) -> list[Process]:
+        """Return persisted team processes. Order is unspecified.
+
+        When ``user_id`` is provided, the filter is pushed down to the
+        database via a JSONB extraction ``WHERE`` clause
+        (``WHERE (data ->> 'user_id') = %s``) backed by the functional
+        expression index ``team_process_user_id_idx`` created by
+        :func:`init_db`. ``user_id`` is bound through psycopg's ``%s``
+        placeholder — no f-strings, no string concatenation. See ADR-16 §4.
+
+        Args:
+            user_id: If provided, return only snapshots whose
+                ``Process.user_id`` matches. If ``None`` (default), return all
+                snapshots. See ADR-16 §1.
+        """
         with Transaction(self._conn_string) as trn:
-            cursor = trn.execute("SELECT data FROM team_process_entries")
+            if user_id is None:
+                cursor = trn.execute("SELECT data FROM team_process_entries")
+            else:
+                cursor = trn.execute(
+                    "SELECT data FROM team_process_entries "
+                    "WHERE (data ->> 'user_id') = %s",
+                    (user_id,),
+                )
             rows = cursor.fetchall()
         return [Process.model_validate(decode_jsonb_column(r[0])) for r in rows]
 

@@ -52,11 +52,17 @@ def _ensure_schema_loaded() -> None:
 
 
 def init_db(conn_string: str) -> None:
-    """Create missing tables against the target Postgres instance.
+    """Create missing tables and indexes against the target Postgres instance.
 
     Idempotent: calling twice against the same database succeeds both times
-    and does not create duplicate tables. Intended as a deployment hook —
-    NEVER called implicitly by ``NagraEventStore.__init__``.
+    and does not create duplicate tables or indexes — table creation is
+    handled by ``Schema.default.create_tables()`` (Nagra's ``CREATE TABLE
+    IF NOT EXISTS`` path); the ``team_process_user_id_idx`` functional
+    expression index is created with ``CREATE INDEX IF NOT EXISTS``. Both
+    DDL statements run inside the same transaction. See ADR-16 §4.
+
+    Intended as a deployment hook — NEVER called implicitly by
+    ``NagraEventStore.__init__``.
 
     Args:
         conn_string: Nagra-compatible Postgres connection string.
@@ -64,8 +70,12 @@ def init_db(conn_string: str) -> None:
     from nagra import Transaction
 
     _ensure_schema_loaded()
-    with Transaction(conn_string):
+    with Transaction(conn_string) as trn:
         Schema.default.create_tables()
+        trn.execute(
+            "CREATE INDEX IF NOT EXISTS team_process_user_id_idx "
+            "ON team_process_entries ((data ->> 'user_id'))"
+        )
 
 
 # Import the event store last so it can rely on _ensure_schema_loaded above.

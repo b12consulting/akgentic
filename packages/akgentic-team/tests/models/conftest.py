@@ -167,6 +167,7 @@ def make_process(
     team_id: uuid.UUID | None = None,
     team_card: TeamCard | None = None,
     status: TeamStatus = TeamStatus.RUNNING,
+    user_id: str | None = None,
 ) -> Process:
     """Create a Process with sensible defaults for testing.
 
@@ -174,16 +175,31 @@ def make_process(
         team_id: Optional team identifier.
         team_card: Optional pre-built TeamCard.
         status: Lifecycle status.
+        user_id: Optional owning user id. When ``None`` (default), the
+            ``user_id`` kwarg is omitted from the ``Process(...)`` call so
+            the underlying field falls back to its model default (``"cli"``
+            per ``Process.user_id``). When a string, it is passed through.
 
     Returns:
         A Process with the specified or default configuration.
     """
+    now = datetime.now(UTC)
+    if user_id is None:
+        # Omit user_id so the field defaults to "cli" per Process.user_id.
+        return Process(
+            team_id=team_id or uuid.uuid4(),
+            team_card=team_card or make_team_card(),
+            status=status,
+            created_at=now,
+            updated_at=now,
+        )
     return Process(
         team_id=team_id or uuid.uuid4(),
         team_card=team_card or make_team_card(),
         status=status,
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+        user_id=user_id,
+        created_at=now,
+        updated_at=now,
     )
 
 
