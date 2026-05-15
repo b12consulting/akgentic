@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 from akgentic.catalog.models.errors import EntryNotFoundError
@@ -42,6 +43,48 @@ def test_list_teams_filters_by_user(team_service: TeamService) -> None:
     assert len(alice_teams) == 1
     assert len(bob_teams) == 1
     assert alice_teams[0].user_id == "alice"
+
+
+def test_list_teams_delegates_to_event_store_with_user_id(team_service: TeamService) -> None:
+    """TeamService.list_teams MUST push user_id down to event_store.list_teams,
+    not load all teams and filter in Python. Regression-guard for the team-side
+    ADR-16 / Epic 19 push-down: if a future refactor restores the in-memory
+    filter pattern, this test fails even though the behavioural contract
+    (users see only their own teams) still passes.
+    """
+    mock_event_store = MagicMock()
+    mock_event_store.list_teams.return_value = []
+    # Swap in the mock event_store on the wired TierServices container.
+    # SkipValidation on the field allows direct assignment without re-validation.
+    team_service._services.event_store = mock_event_store  # type: ignore[assignment]
+
+    result = team_service.list_teams(user_id="alice")
+
+    # The delegating call shape — exactly one call, user_id="alice" as kwarg.
+    mock_event_store.list_teams.assert_called_once_with(user_id="alice")
+    # The call must NOT be a no-arg call followed by an in-Python filter.
+    assert mock_event_store.list_teams.call_args.args == ()
+    assert mock_event_store.list_teams.call_args.kwargs == {"user_id": "alice"}
+    # And the returned list is the event store's return value verbatim
+    # (no intermediate Python comprehension repacking it).
+    assert result == []
+
+
+def test_list_teams_passes_empty_string_user_id_verbatim(team_service: TeamService) -> None:
+    """user_id="" is a literal value, NOT a "list everything" sentinel.
+
+    The empty string is passed through verbatim to event_store.list_teams; the
+    backend applies its literal-match filter and returns only teams whose
+    Process.user_id == "". This locks in the natural behaviour of the
+    one-line delegating call.
+    """
+    mock_event_store = MagicMock()
+    mock_event_store.list_teams.return_value = []
+    team_service._services.event_store = mock_event_store  # type: ignore[assignment]
+
+    team_service.list_teams(user_id="")
+
+    mock_event_store.list_teams.assert_called_once_with(user_id="")
 
 
 def test_get_team_found(team_service: TeamService) -> None:
