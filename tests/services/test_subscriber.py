@@ -61,7 +61,10 @@ class TestPersistenceSubscriber:
     # -- 3.4: Agent state snapshot on StateChangedMessage ------------------
 
     def test_state_snapshot_on_state_changed_message(self) -> None:
-        """AC 1-3: StateChangedMessage writes snapshot only — no PersistedEvent, no sequence bump."""
+        """AC 1-3: StateChangedMessage writes snapshot only.
+
+        No ``PersistedEvent``, no sequence bump.
+        """
         sub, store, team_id = self._make_subscriber()
 
         sender = MagicMock(spec=ActorAddress)

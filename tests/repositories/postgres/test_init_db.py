@@ -117,3 +117,47 @@ class TestInitDbIntegration:
             after = {row[0] for row in cursor.fetchall()}
 
         assert before == after
+
+    def test_init_db_creates_user_id_functional_index(
+        self, postgres_initialized: str
+    ) -> None:
+        """After ``init_db``, ``team_process_user_id_idx`` exists in ``pg_indexes``.
+
+        Story 19.4 — the functional expression index
+        ``((data ->> 'user_id'))`` on ``team_process_entries`` backs the
+        ``WHERE (data ->> 'user_id') = %s`` push-down in
+        :meth:`NagraEventStore.list_teams`. See ADR-16 §4.
+        """
+        from nagra import Transaction
+
+        with Transaction(postgres_initialized) as trn:
+            cursor = trn.execute(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE indexname = 'team_process_user_id_idx'"
+            )
+            rows = cursor.fetchall()
+        assert len(rows) == 1
+
+    def test_init_db_user_id_index_creation_is_idempotent(
+        self, postgres_initialized: str
+    ) -> None:
+        """A second ``init_db`` call exercises the ``IF NOT EXISTS`` branch.
+
+        The session-scoped ``postgres_initialized`` fixture already ran
+        ``init_db`` once during setup; calling again here must not raise
+        and must not duplicate the index. Idempotency is delivered by the
+        ``CREATE INDEX IF NOT EXISTS`` clause. See ADR-16 §4.
+        """
+        from nagra import Transaction
+
+        from akgentic.team.repositories.postgres import init_db
+
+        init_db(postgres_initialized)  # must not raise
+
+        with Transaction(postgres_initialized) as trn:
+            cursor = trn.execute(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE indexname = 'team_process_user_id_idx'"
+            )
+            rows = cursor.fetchall()
+        assert len(rows) == 1
