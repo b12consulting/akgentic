@@ -58,9 +58,14 @@ class TeamService:
         return process
 
     def list_teams(self, user_id: str) -> list[Process]:
-        """List all teams for a given user."""
-        all_teams = self._services.event_store.list_teams()
-        return [t for t in all_teams if t.user_id == user_id]
+        """List all teams for a given user.
+
+        Pushes the ``user_id`` filter into the EventStore rather than loading
+        every team into Python and filtering here. Per-request cost scales with
+        the requesting user's team count, not with total teams across all
+        users. See team-package ADR-16 / Epic 19 for the Protocol change.
+        """
+        return self._services.event_store.list_teams(user_id=user_id)
 
     def get_team(self, team_id: uuid.UUID) -> Process | None:
         """Get a single team by ID."""
