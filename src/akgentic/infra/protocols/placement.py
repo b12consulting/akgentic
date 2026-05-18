@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -33,12 +34,21 @@ class PlacementStrategy(Protocol):
         automatically — surface the error to the user.
     """
 
-    def create_team(self, team_card: TeamCard, user_id: str) -> TeamHandle:
+    def create_team(
+        self,
+        team_card: TeamCard,
+        user_id: str,
+        user_email: str = "",
+        team_id: uuid.UUID | None = None,
+    ) -> TeamHandle:
         """Create a team on a worker instance and return a handle.
 
         Args:
             team_card: Team configuration card.
             user_id: ID of the user creating the team.
+            user_email: Email of the user creating the team.
+            team_id: Optional caller-supplied team identifier. When omitted, the
+                underlying TeamManager generates a fresh UUID.
 
         Returns:
             A TeamHandle for interacting with the newly created team.
