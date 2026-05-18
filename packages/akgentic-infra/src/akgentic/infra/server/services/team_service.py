@@ -30,8 +30,21 @@ class TeamService:
         self._services = services
         self._cache: RuntimeCache = services.runtime_cache
 
-    def create_team(self, catalog_entry_id: str, user_id: str) -> Process:
+    def create_team(
+        self,
+        catalog_entry_id: str,
+        user_id: str,
+        user_email: str = "",
+        team_id: uuid.UUID | None = None,
+    ) -> Process:
         """Resolve catalog entry and create a running team.
+
+        Args:
+            catalog_entry_id: Catalog entry ID to resolve into a TeamCard.
+            user_id: Identifier of the user creating the team.
+            user_email: Email of the user creating the team.
+            team_id: Optional caller-supplied team identifier; the placement
+                layer auto-generates a UUID when None.
 
         Raises:
             EntryNotFoundError: If catalog_entry_id is not found.
@@ -45,7 +58,9 @@ class TeamService:
             self._services.tool_catalog,
             self._services.template_catalog,
         )
-        handle = self._services.placement.create_team(team_card, user_id)
+        handle = self._services.placement.create_team(
+            team_card, user_id, user_email=user_email, team_id=team_id
+        )
         self._cache.store(handle.team_id, handle)
         # Consistency invariant: create_team() writes to event store, so
         # get_team() must find it immediately. If this fires, there is a bug

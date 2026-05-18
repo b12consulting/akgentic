@@ -28,6 +28,33 @@ def test_create_team_invalid_entry_raises(team_service: TeamService) -> None:
         team_service.create_team("nonexistent", user_id="anonymous")
 
 
+def test_create_team_forwards_user_email_and_team_id(team_service: TeamService) -> None:
+    """user_email and team_id flow through to placement.create_team verbatim."""
+    explicit_id = uuid.uuid4()
+    mock_placement = MagicMock()
+    # Match downstream contract: placement returns a handle whose team_id
+    # round-trips through the cache.
+    mock_placement.create_team.return_value.team_id = explicit_id
+    team_service._services.placement = mock_placement  # type: ignore[assignment]
+
+    try:
+        team_service.create_team(
+            "test-team",
+            user_id="alice",
+            user_email="alice@example.com",
+            team_id=explicit_id,
+        )
+    except Exception:
+        # Downstream worker_handle.get_team will fail because the mock placement
+        # never persists a Process — that's fine, we only care about the
+        # placement call shape.
+        pass
+
+    call = mock_placement.create_team.call_args
+    assert call.args[1] == "alice"
+    assert call.kwargs == {"user_email": "alice@example.com", "team_id": explicit_id}
+
+
 def test_list_teams_empty(team_service: TeamService) -> None:
     """Listing teams when none exist returns empty list."""
     result = team_service.list_teams(user_id="anonymous")

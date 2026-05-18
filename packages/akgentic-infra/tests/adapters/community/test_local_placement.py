@@ -32,23 +32,41 @@ class TestLocalPlacementProtocolCompliance:
         assert callable(adapter.create_team)
 
     def test_create_team_signature_matches_protocol(self) -> None:
-        """create_team has team_card and user_id parameters matching PlacementStrategy."""
+        """create_team has all parameters matching PlacementStrategy."""
         sig = inspect.signature(LocalPlacement.create_team)
         assert "team_card" in sig.parameters
         assert "user_id" in sig.parameters
+        assert "user_email" in sig.parameters
+        assert "team_id" in sig.parameters
 
 
 class TestLocalPlacementBehavior:
     """AC5: LocalPlacement delegates to TeamManager and returns LocalTeamHandle."""
 
     def test_create_team_delegates_to_team_manager(self) -> None:
-        """create_team calls TeamManager.create_team with correct args."""
+        """create_team calls TeamManager.create_team forwarding all args."""
         team_manager = MagicMock()
         service_registry = MagicMock()
         adapter = LocalPlacement(team_manager, service_registry)
         team_card = MagicMock()
         adapter.create_team(team_card, "user-1")
-        team_manager.create_team.assert_called_once_with(team_card, "user-1")
+        team_manager.create_team.assert_called_once_with(
+            team_card, "user-1", user_email="", team_id=None
+        )
+
+    def test_create_team_forwards_user_email_and_team_id(self) -> None:
+        """create_team forwards caller-supplied user_email and team_id verbatim."""
+        team_manager = MagicMock()
+        service_registry = MagicMock()
+        adapter = LocalPlacement(team_manager, service_registry)
+        team_card = MagicMock()
+        explicit_id = uuid.uuid4()
+        adapter.create_team(
+            team_card, "user-1", user_email="user@example.com", team_id=explicit_id
+        )
+        team_manager.create_team.assert_called_once_with(
+            team_card, "user-1", user_email="user@example.com", team_id=explicit_id
+        )
 
     def test_create_team_returns_local_team_handle(self) -> None:
         """create_team wraps TeamManager result in LocalTeamHandle."""
