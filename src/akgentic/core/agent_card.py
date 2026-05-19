@@ -121,7 +121,6 @@ class AgentCard(SerializableBaseModel):
 
     Example:
         >>> card = AgentCard(
-        ...     description="Performs web research and data gathering",
         ...     skills=["web_search", "pdf_extraction"],
         ...     agent_class="examples.multi_agent.ResearchAgent",
         ...     config=BaseConfig(name="research", role="ResearchAgent"),
@@ -137,7 +136,6 @@ class AgentCard(SerializableBaseModel):
         True
 
     Attributes:
-        description: Human-readable description of what this agent does
         skills: List of capabilities this agent provides
         agent_class: Fully qualified class name (str) or actual class (type) for instantiation
         config: Default BaseConfig (or subclass) for this profile — role lives here
@@ -150,11 +148,18 @@ class AgentCard(SerializableBaseModel):
         ``role`` is exposed as a ``@property`` that reads ``config.role`` — it is
         not a declared field. ``config.role`` is the single source of truth and
         must be non-empty; callers MUST set it via ``config=BaseConfig(role=...)``.
+        Human-readable description lives on the catalog ``Entry`` envelope, not
+        on the card payload.
     """
 
-    description: str
-    skills: list[str]
     agent_class: str | type
+    skills: list[str] = Field(
+        default_factory=list, 
+        description="List of capabilities used for the team's dynamic discovery"
+    )
+    description: str = Field(
+        ..., description="Description of the agent role used for the team's dynamic discovery"
+    )
     config: BaseConfig = Field(default_factory=BaseConfig)
     routes_to: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

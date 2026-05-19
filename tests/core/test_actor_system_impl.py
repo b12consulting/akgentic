@@ -188,6 +188,74 @@ class TestActorSystemListener:
 
         listener.stop()
 
+    def test_listener_address_serializes_to_actorsystem_identity(self) -> None:
+        """Listener address serializes without raising (AC #1, #2)."""
+        ctx = ExecutionContext()
+        address = ctx.myAddress
+
+        serialized = address.serialize()
+
+        assert serialized["name"] == "@ActorSystem"
+        assert serialized["role"] == "ActorSystem"
+        assert serialized["squad_id"] == ""
+        # team_id resolves to a well-formed UUID string, not an error
+        uuid.UUID(serialized["team_id"])
+        uuid.UUID(serialized["agent_id"])
+
+        ctx.shutdown()
+
+
+class TestListenerOriginSerialization:
+    """Tests for SentMessage whose sender is the internal listener (AC #1, #4)."""
+
+    def test_sent_message_from_listener_survives_snapshot(self) -> None:
+        """A SentMessage with a listener sender serializes via the orchestrator path."""
+        from akgentic.core.messages import SentMessage, UserMessage
+        from akgentic.core.orchestrator import Orchestrator
+
+        system = ActorSystem()
+        config = BaseConfig(name="recipient", role="Tester")
+        recipient = system.createActor(SimpleAgent, config=config)
+
+        ctx = ExecutionContext()
+        # tell() stamps message.sender with the listener address.
+        sent = SentMessage(message=UserMessage(content="hi"), recipient=recipient)
+        ctx.tell(recipient, sent)
+
+        # snapshot_for_subscribers must NOT raise on the listener-origin sender.
+        snapshot = Orchestrator.snapshot_for_subscribers(sent)
+        sender_dict = snapshot.sender.serialize()  # type: ignore[union-attr]
+
+        assert sender_dict["name"] == "@ActorSystem"
+        assert sender_dict["role"] == "ActorSystem"
+
+        ctx.shutdown()
+        system.shutdown()
+
+    def test_ordinary_actor_address_serialization_unchanged(self) -> None:
+        """An ordinary actor's address still serializes to the expected shape (AC #3)."""
+        system = ActorSystem()
+        config = BaseConfig(name="ordinary-agent", role="Worker")
+        address = system.createActor(SimpleAgent, config=config)
+
+        serialized = cast(ActorAddressImpl, address).serialize()
+
+        assert serialized["__actor_address__"] is True
+        assert serialized["name"] == "ordinary-agent"
+        assert serialized["role"] == "Worker"
+        assert set(serialized.keys()) == {
+            "__actor_address__",
+            "__actor_type__",
+            "agent_id",
+            "name",
+            "role",
+            "team_id",
+            "squad_id",
+            "user_message",
+        }
+
+        system.shutdown()
+
 
 class TestActorSystemEdgeCases:
     """Edge case tests for ActorSystem."""
