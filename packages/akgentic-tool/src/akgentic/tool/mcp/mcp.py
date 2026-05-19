@@ -230,11 +230,7 @@ async def list_mcp_tools(connection: MCPConnectionConfig) -> list[str]:
         ImportError: If pydantic-ai MCP extras are not installed.
         Exception: If connection fails or server is unreachable.
     """
-    tool = MCPTool(
-        name="mcp-probe",
-        description="Probe MCP endpoint",
-        connection=connection,
-    )
+    tool = MCPTool(connection=connection)
     print("## Creating MCP toolset for diagnostics...")
     toolsets = tool.get_toolsets()
     if not toolsets:

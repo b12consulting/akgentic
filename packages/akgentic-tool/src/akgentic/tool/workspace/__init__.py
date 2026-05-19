@@ -19,6 +19,8 @@ from akgentic.tool.workspace.readers import (
 )
 from akgentic.tool.workspace.tool import (
     ExpandMediaRefs,
+    Resource,
+    ResourceType,
     WorkspaceDelete,
     WorkspaceEdit,
     WorkspaceGlob,
@@ -58,6 +60,8 @@ __all__ = [
     "Workspace",
     "get_workspace",
     "ExpandMediaRefs",
+    "Resource",
+    "ResourceType",
     "WorkspaceView",
     "WorkspaceRead",
     "WorkspaceList",

@@ -105,15 +105,10 @@ class ToolCard(SerializableBaseModel, ABC):
     """Abstract base: tool configuration + callable factory in one class.
 
     Subclasses define typed fields for their capabilities and implement
-    the factory methods that produce LLM-callable functions.
-
-    Attributes:
-        name: Human-readable tool provider name.
-        description: Natural-language description of tool capabilities.
+    the factory methods that produce LLM-callable functions. Identity and
+    human-readable description live on the catalog ``Entry`` envelope, not
+    on the card payload.
     """
-
-    name: str
-    description: str
 
     @property
     def depends_on(self) -> list[str]:
@@ -212,8 +207,7 @@ def _topological_sort(cards: list[ToolCard]) -> list[ToolCard]:
         for dep in card.depends_on:
             if dep not in by_name:
                 raise ValueError(
-                    f"{type(card).__name__} depends on {dep} but it was not "
-                    f"found in the tool list"
+                    f"{type(card).__name__} depends on {dep} but it was not found in the tool list"
                 )
 
     # Build in-degree map keyed by class name (not instance — duplicates collapse).
@@ -249,9 +243,7 @@ def _topological_sort(cards: list[ToolCard]) -> list[ToolCard]:
 
     if len(ordered_names) < len(by_name):
         remaining = sorted(set(by_name) - set(ordered_names))
-        raise ValueError(
-            f"ToolCard dependency cycle detected: {remaining}"
-        )
+        raise ValueError(f"ToolCard dependency cycle detected: {remaining}")
 
     # Map sorted names back to ToolCard instances. Preserve input order for
     # duplicate class names: emit instances in the order they appeared in the

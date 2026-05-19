@@ -41,6 +41,8 @@ class Workspace(Protocol):
 
     def mkdir(self, path: str) -> None: ...
 
+    def exists(self, path: str) -> bool: ...
+
 
 class Filesystem:
     """Local filesystem backend for a single team workspace.
@@ -142,6 +144,16 @@ class Filesystem:
         """
         resolved = self._validate_path(path)
         resolved.mkdir(parents=True, exist_ok=True)
+
+    def exists(self, path: str) -> bool:
+        """Return ``True`` if *path* exists inside the workspace.
+
+        Directories count as existing — :meth:`Path.exists` is not file-only.
+
+        Raises:
+            PermissionError: if *path* escapes the workspace root.
+        """
+        return self._validate_path(path).exists()
 
 
 def get_workspace(workspace_name: str) -> Filesystem:

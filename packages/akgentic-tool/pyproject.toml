@@ -35,9 +35,11 @@ dev = [
     "numpy>=1.26.0",
 ]
 
-
-[tool.uv.sources]
-akgentic-core = { workspace = true }
+# Note: akgentic-* dependencies have NO [tool.uv.sources] entry here.
+# - Inside the akgentic-quick-start workspace, the workspace root's
+#   [tool.uv.sources] resolves them as editable workspace members.
+# - In standalone CI, they are built from RELEASE_BRANCH into a local
+#   wheelhouse and installed via `uv pip install --find-links` — see ci.yml.
 
 [build-system]
 requires = ["hatchling"]
@@ -55,6 +57,25 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+# Pre-existing type errors — exempted to keep CI green. New files in these
+# modules must pass strict mypy before the override is removed. Previously this
+# lived only in the akgentic-quick-start workspace root; moved here so the
+# package's own CI (which no longer checks out the workspace) sees it.
+[[tool.mypy.overrides]]
+module = [
+    "akgentic.tool.core",
+    "akgentic.tool.event",
+    "akgentic.tool.team.team",
+    "akgentic.tool.planning.planning",
+    "akgentic.tool.planning.planning_actor",
+    "akgentic.tool.knowledge_graph.kg_tool",
+    "akgentic.tool.search.search",
+    "akgentic.tool.mcp.mcp",
+    "akgentic.tool.sandbox.actor",
+    "akgentic.tool.workspace.readers",
+]
+ignore_errors = true
 
 [tool.ruff]
 target-version = "py312"

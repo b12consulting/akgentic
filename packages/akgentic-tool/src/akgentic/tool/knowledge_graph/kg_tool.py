@@ -90,9 +90,6 @@ class KnowledgeGraphTool(ToolCard):
     this tool only looks it up at actor-start time.
     """
 
-    name: str = "KnowledgeGraph"
-    description: str = "Knowledge graph tool for structured knowledge with semantic search"
-
     vector_store: bool | str = Field(
         default=True,
         description=(

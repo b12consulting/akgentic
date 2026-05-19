@@ -150,7 +150,8 @@ class MockActorToolObserver:
 
         # getChildrenOrCreate returns VS addr for #VectorStore, KG addr for #KnowledgeGraphTool
         def _get_children_or_create(
-            actor_class: type, config: object = None,
+            actor_class: type,
+            config: object = None,
         ) -> MockActorAddress:
             from akgentic.tool.vector_store.actor import VectorStoreActor as _VSActor
 
@@ -227,14 +228,6 @@ class TestParamResolve:
 
 class TestKnowledgeGraphToolDefaults:
     """KnowledgeGraphTool field defaults (2.1)."""
-
-    def test_default_name(self) -> None:
-        tool = KnowledgeGraphTool()
-        assert tool.name == "KnowledgeGraph"
-
-    def test_default_description(self) -> None:
-        tool = KnowledgeGraphTool()
-        assert "knowledge graph" in tool.description.lower()
 
     def test_default_get_graph_is_true(self) -> None:
         tool = KnowledgeGraphTool()
@@ -630,7 +623,6 @@ class TestSearchFactory:
         assert "Alice" in result
 
 
-
 # ===========================================================================
 # Story 1.4 — _format_graph_summary and prompt config tests
 # ===========================================================================
@@ -642,29 +634,41 @@ def _build_summary_view() -> GraphView:
 
     entities = [
         Entity(
-            name="Product", entity_type="Component", description="Main product platform",
+            name="Product",
+            entity_type="Component",
+            description="Main product platform",
             is_root=True,
         ),
         Entity(
-            name="AuthService", entity_type="Service",
-            description="Central authentication service", is_root=True,
+            name="AuthService",
+            entity_type="Service",
+            description="Central authentication service",
+            is_root=True,
         ),
         Entity(
-            name="UserDB", entity_type="Database",
-            description="Primary user data store", is_root=True,
+            name="UserDB",
+            entity_type="Database",
+            description="Primary user data store",
+            is_root=True,
         ),
         Entity(name="Cache", entity_type="Component", description="Redis cache layer"),
         Entity(name="Logger", entity_type="Service", description="Logging service"),
     ]
     relations = [
         Relation(
-            from_entity="Product", to_entity="AuthService", relation_type="DEPENDS_ON",
+            from_entity="Product",
+            to_entity="AuthService",
+            relation_type="DEPENDS_ON",
         ),
         Relation(
-            from_entity="AuthService", to_entity="UserDB", relation_type="STORES_IN",
+            from_entity="AuthService",
+            to_entity="UserDB",
+            relation_type="STORES_IN",
         ),
         Relation(
-            from_entity="Product", to_entity="Cache", relation_type="CONNECTS_TO",
+            from_entity="Product",
+            to_entity="Cache",
+            relation_type="CONNECTS_TO",
         ),
     ]
     return GraphView(entities=entities, relations=relations)
@@ -692,9 +696,7 @@ class TestFormatGraphSummary:
 
     def test_schema_disabled(self) -> None:
         view = _build_summary_view()
-        result = KnowledgeGraphTool._format_graph_summary(
-            view, include_schema=False
-        )
+        result = KnowledgeGraphTool._format_graph_summary(view, include_schema=False)
         assert "Entity types:" not in result
         assert "Relation types:" not in result
         # Counts and roots still present
@@ -703,9 +705,7 @@ class TestFormatGraphSummary:
 
     def test_roots_disabled(self) -> None:
         view = _build_summary_view()
-        result = KnowledgeGraphTool._format_graph_summary(
-            view, include_roots=False
-        )
+        result = KnowledgeGraphTool._format_graph_summary(view, include_roots=False)
         assert "Root entities:" not in result
         assert "Product (Component)" not in result
         # Counts and schema still present
@@ -733,7 +733,8 @@ class TestFormatGraphSummary:
         # Build graph with many entities but few types
         entities = [
             Entity(
-                name=f"E{i}", entity_type="TypeA" if i % 2 == 0 else "TypeB",
+                name=f"E{i}",
+                entity_type="TypeA" if i % 2 == 0 else "TypeB",
                 description=f"Entity {i}",
             )
             for i in range(50)
@@ -741,7 +742,9 @@ class TestFormatGraphSummary:
         entities[0].is_root = True
         relations = [
             Relation(
-                from_entity=f"E{i}", to_entity=f"E{i+1}", relation_type="REL",
+                from_entity=f"E{i}",
+                to_entity=f"E{i + 1}",
+                relation_type="REL",
             )
             for i in range(49)
         ]
@@ -769,17 +772,13 @@ class TestSystemPromptConfig:
     """Story 1.4 Task 4.3/4.5: prompt config passed through to summary."""
 
     def test_prompt_schema_disabled(self) -> None:
-        tool = KnowledgeGraphTool(
-            get_graph=GetGraph(prompt_include_schema=False)
-        )
+        tool = KnowledgeGraphTool(get_graph=GetGraph(prompt_include_schema=False))
         observer = MockActorToolObserver()
         actor = observer.setup_kg_actor()
         actor.update_graph(
             ManageGraph(
                 create_entities=[
-                    EntityCreate(
-                        name="X", entity_type="T", description="d", is_root=True
-                    ),
+                    EntityCreate(name="X", entity_type="T", description="d", is_root=True),
                 ]
             )
         )
@@ -790,17 +789,13 @@ class TestSystemPromptConfig:
         assert "Entities: 1" in result
 
     def test_prompt_roots_disabled(self) -> None:
-        tool = KnowledgeGraphTool(
-            get_graph=GetGraph(prompt_include_roots=False)
-        )
+        tool = KnowledgeGraphTool(get_graph=GetGraph(prompt_include_roots=False))
         observer = MockActorToolObserver()
         actor = observer.setup_kg_actor()
         actor.update_graph(
             ManageGraph(
                 create_entities=[
-                    EntityCreate(
-                        name="X", entity_type="T", description="d", is_root=True
-                    ),
+                    EntityCreate(name="X", entity_type="T", description="d", is_root=True),
                 ]
             )
         )
@@ -871,9 +866,7 @@ class TestKnowledgeGraphToolCollectionField:
 class TestKnowledgeGraphToolObserverCollection:
     """AC-4: observer() propagates the exact ``collection`` into ``KnowledgeGraphConfig``."""
 
-    def _run_observer(
-        self, tool: KnowledgeGraphTool
-    ) -> list[KnowledgeGraphConfig]:
+    def _run_observer(self, tool: KnowledgeGraphTool) -> list[KnowledgeGraphConfig]:
         captured: list[KnowledgeGraphConfig] = []
         mock_proxy = MagicMock()
 
@@ -1031,7 +1024,8 @@ class TestKnowledgeGraphToolObserverSearchFields:
     """AC-2: observer() propagates search_top_k and search_score_threshold."""
 
     def _run_observer(
-        self, tool: KnowledgeGraphTool,
+        self,
+        tool: KnowledgeGraphTool,
     ) -> list[KnowledgeGraphConfig]:
         from unittest.mock import MagicMock
 
@@ -1063,5 +1057,3 @@ class TestKnowledgeGraphToolObserverSearchFields:
         assert len(captured) == 1
         assert captured[0].search_top_k == 15
         assert captured[0].search_score_threshold == 0.4
-
-

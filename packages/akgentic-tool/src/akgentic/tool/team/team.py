@@ -165,9 +165,6 @@ class TeamTool(ToolCard):
     - Role profiles system prompt: Available roles and descriptions
     """
 
-    name: str = "Team"
-    description: str = "Team management tool for hiring, firing, and team awareness"
-
     hire_team_members: HireTeamMember | bool = Field(
         default=True, description="Enable hiring team members (default: True)"
     )

@@ -70,9 +70,6 @@ class PlanningTool(ToolCard):
     time.
     """
 
-    name: str = "Planning"
-    description: str = "Planning tool to manage team plans and tasks"
-
     vector_store: bool | str = Field(
         default=True,
         description=(
