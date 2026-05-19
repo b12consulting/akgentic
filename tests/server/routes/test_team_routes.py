@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Generator
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from akgentic.infra.server.auth import RequestUser, get_request_user
 
 
 def test_create_team_success(client: TestClient) -> None:
@@ -75,3 +79,44 @@ def test_delete_team_not_found(client: TestClient) -> None:
     """DELETE /teams/{id} returns 404 for unknown team."""
     resp = client.delete(f"/teams/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+# --- RequestUser identity seam (ADR-023 Story 26.1) ---
+
+
+def test_create_team_default_identity_anonymous(client: TestClient) -> None:
+    """With no override, POST /teams persists user_id == 'anonymous' (AC #5)."""
+    resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    assert resp.status_code == 201
+    assert resp.json()["user_id"] == "anonymous"
+
+
+@pytest.fixture()
+def overridden_user_client(app: FastAPI) -> Generator[TestClient, None, None]:
+    """TestClient with get_request_user overridden to a fixed identity."""
+    app.dependency_overrides[get_request_user] = lambda: RequestUser(
+        user_id="alice", email="alice@example.com"
+    )
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_create_team_uses_overridden_identity(
+    overridden_user_client: TestClient,
+) -> None:
+    """When get_request_user is overridden, POST /teams persists that user_id (AC #6)."""
+    resp = overridden_user_client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    assert resp.status_code == 201
+    assert resp.json()["user_id"] == "alice"
+
+
+def test_list_teams_filters_by_overridden_identity(
+    overridden_user_client: TestClient,
+) -> None:
+    """Under the override, GET /teams returns only the overridden user's teams (AC #6)."""
+    overridden_user_client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    resp = overridden_user_client.get("/teams/")
+    assert resp.status_code == 200
+    teams = resp.json()["teams"]
+    assert len(teams) == 1
+    assert teams[0]["user_id"] == "alice"
