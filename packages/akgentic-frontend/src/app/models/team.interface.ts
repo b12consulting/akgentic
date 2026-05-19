@@ -31,9 +31,9 @@ export interface EventListResponse {
   events: EventResponse[];
 }
 
-// Maps to Python CreateTeamRequest
+// Maps to Python CreateTeamRequest (akgentic.infra.server.models)
 export interface CreateTeamRequest {
-  catalog_entry_id: string;
+  catalog_namespace: string;
   params?: Record<string, string>;
 }
 

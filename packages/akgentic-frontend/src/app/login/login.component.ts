@@ -95,21 +95,17 @@ export class LoginComponent {
     this.error = null;
 
     this.authService.loginWithApiKey(this.apiKey).subscribe({
-      next: (response) => {
+      next: () => {
+        // A non-error response means the backend established the session
+        // cookie — the API key is never persisted client-side.
         this.loading = false;
-        if (response.success) {
-          // Store the API key for future requests
-          this.authService.setApiKey(this.apiKey);
-          // Navigate to home page
-          this.router.navigate(['/']);
-        } else {
-          this.error = response.error || 'Unknown authentication error';
-        }
+        this.router.navigate(['/']);
       },
       error: (err) => {
         this.loading = false;
         this.error =
-          err.error?.error ||
+          err?.error?.error ||
+          err?.message ||
           'Failed to authenticate with the provided API key';
       },
     });

@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, distinctUntilChanged, map, Observable } from 'rxjs';
 
-import { AkgenticMessage } from '../models/message.types';
+import { AkgenticMessage, isWelcomeAnnouncement } from '../models/message.types';
 
 /**
  * Story 6.4 (AC4) — pure selector over the log producing the inputs for
@@ -16,7 +16,9 @@ export function messageListFold(log: AkgenticMessage[]): AkgenticMessage[] {
       !!m.__model__ &&
       (m.__model__.includes('SentMessage') ||
         m.__model__.includes('ErrorMessage')) &&
-      m.sender?.role !== 'ActorSystem',
+      // ADR-011 Decision 2: the welcome announcement carries an `ActorSystem`
+      // transport sender, but is admitted via the structural exception.
+      (m.sender?.role !== 'ActorSystem' || isWelcomeAnnouncement(m)),
   );
 }
 

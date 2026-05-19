@@ -52,25 +52,44 @@ export class AuthService {
     return this.currentUserSubject.value;
   }
 
-  /** @deprecated Use OAuth flow instead. */
-  loginWithApiKey(_apiKey: string): Observable<any> {
-    return of({ success: true, user: this.currentUserValue });
-  }
-
-  /** @deprecated */
-  setApiKey(_apiKey: string): void {}
-
-  /** @deprecated */
-  clearApiKey(): void {}
-
-  /** @deprecated */
-  getApiKey(): string | null {
-    return null;
-  }
-
-  /** @deprecated */
-  getAuthHeaders(): any {
-    return {};
+  /**
+   * Authenticate with an API key against the backend.
+   *
+   * Drives `GET /auth/login/apikey?apikey=<key>` with `credentials: 'include'`
+   * so the backend's `Set-Cookie` session response is stored by the browser.
+   * The same endpoint contract is exposed by both the Department and Enterprise
+   * tiers, so this single code path covers both — no tier-specific branching.
+   *
+   * The API key is sent once as a query parameter and is NEVER persisted in the
+   * browser; the session cookie set by the backend is the sole post-login
+   * credential, exactly as on the OAuth path.
+   *
+   * On an HTTP `2xx` response the backend returns a `200` JSON body
+   * (`{"success": true, "user": {...}}`) — no redirect. The JSON body itself
+   * is the success signal: its `user` is used to refresh `currentUserSubject`
+   * and the observable completes with that user. On a non-OK response (e.g.
+   * HTTP 401 for an invalid, unknown, or expired key) the observable errors so
+   * the caller can surface the message.
+   */
+  loginWithApiKey(apiKey: string): Observable<any> {
+    const url = `${this.config.api}/auth/login/apikey?apikey=${encodeURIComponent(apiKey)}`;
+    const options: RequestInit = { credentials: 'include' };
+    return from(
+      fetch(url, options).then(async (r) => {
+        // A 401 (invalid/unknown/expired key) is not ok — error the observable.
+        if (!r.ok) {
+          throw new Error('Invalid API key');
+        }
+        // Success: the backend binds the session and returns a 200 JSON body.
+        const body = await r.json();
+        const user = body?.user ?? ANONYMOUS_USER;
+        if (user && !user.name) {
+          user.name = user.email || user.user_id || 'User';
+        }
+        this.currentUserSubject.next(user);
+        return user;
+      })
+    );
   }
 
   /** Logout: redirect to backend logout which clears session and redirects to IdP logout. */

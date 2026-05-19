@@ -24,6 +24,8 @@ export class ChatMessageComponent {
 
   onToggleCollapse(): void {
     const msg = this.message();
+    // Rule 5 (welcome) is behaviourally inert (ADR-011 Decision 3).
+    if (msg.rule === 5) return;
     if (msg.rule === 3 || msg.rule === 4) {
       this.toggleCollapse.emit(msg);
     }
@@ -31,6 +33,8 @@ export class ChatMessageComponent {
 
   onLabelClick(): void {
     const msg = this.message();
+    // Rule 5 (welcome) is behaviourally inert (ADR-011 Decision 3).
+    if (msg.rule === 5) return;
     if (msg.rule !== 1) {
       this.messageSelected.emit(msg);
     }
@@ -39,6 +43,8 @@ export class ChatMessageComponent {
   onBubbleClick(event: Event): void {
     event.stopPropagation();
     const msg = this.message();
+    // Rule 5 (welcome) is behaviourally inert (ADR-011 Decision 3).
+    if (msg.rule === 5) return;
     switch (msg.rule) {
       case 1:
       case 2:

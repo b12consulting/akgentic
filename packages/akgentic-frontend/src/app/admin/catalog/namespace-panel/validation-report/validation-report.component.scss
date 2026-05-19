@@ -1,0 +1,71 @@
+// Story 11.7 AC 25 — bound the findings pane height (NFR10) so a long
+// findings list cannot push Monaco below the fold. min(30vh, 240px)
+// caps at 30% of the viewport height OR 240 px, whichever is smaller —
+// scrolling kicks in via overflow-y: auto when the bound is reached.
+// Applied at :host scope (the simplest, most-resilient selector — the
+// component's internals all render inside the host, so capping the host
+// height is equivalent to capping the rendered findings list).
+:host {
+  display: block;
+  max-height: min(30vh, 240px);
+  overflow-y: auto;
+}
+
+.validation-report {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  h4 {
+    margin: 0;
+  }
+
+  &--ok {
+    border: 1px solid #81c784;
+    background: #f3fff3;
+  }
+
+  &--issues,
+  &--raw {
+    border: 1px solid #e57373;
+    background: #fff3f3;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 1.25rem;
+  }
+
+  &__global-list,
+  &__entry-list {
+    li {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.25rem;
+    }
+  }
+
+  &__entry-errors {
+    flex-basis: 100%;
+    margin-top: 0.25rem;
+    padding-left: 1.5rem;
+    font-size: 0.9rem;
+  }
+
+  &__msg,
+  &__entry-id {
+    word-break: break-word;
+  }
+
+  pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.85rem;
+    margin: 0;
+  }
+}

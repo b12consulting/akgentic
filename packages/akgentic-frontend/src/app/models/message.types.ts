@@ -103,6 +103,17 @@ export interface ResultMessage extends BaseMessage {
   content: string;
 }
 
+/**
+ * Synthetic team startup greeting announced by the orchestrator on the team
+ * event stream (akgentic-team ADR-17). On the chat path it only ever appears
+ * as the inner `SentMessage.message` payload — see `isWelcomeAnnouncement`.
+ * See ADR-011 (Welcome Message Chat Rendering) Decision 1.
+ */
+export interface WelcomeMessage extends BaseMessage {
+  __model__: 'akgentic.team.messages.WelcomeMessage';
+  content: string;
+}
+
 // Union type for all possible messages
 export type AkgenticMessage =
   | SentMessage
@@ -158,4 +169,27 @@ export function isUserMessage(msg: BaseMessage): msg is UserMessage {
 
 export function isResultMessage(msg: BaseMessage): msg is ResultMessage {
   return msg.__model__.includes('ResultMessage');
+}
+
+/**
+ * Inner-payload check: true when the message itself is a `WelcomeMessage`.
+ * Consistent with the other `is*` guards — matches on `__model__`.
+ */
+export function isWelcomeMessage(msg: BaseMessage): msg is WelcomeMessage {
+  return msg.__model__.includes('WelcomeMessage');
+}
+
+/**
+ * Envelope check (ADR-011 Decision 1): true only when `msg` is a `SentMessage`
+ * whose inner `message` is a `WelcomeMessage` AND that inner payload carries
+ * `display_type === 'other'`. Both signals are required (belt-and-suspenders):
+ * `__model__` is the precise type identity, `display_type === 'other'`
+ * confirms the render category.
+ */
+export function isWelcomeAnnouncement(msg: BaseMessage): boolean {
+  if (!isSentMessage(msg)) return false;
+  const inner = (msg as SentMessage).message;
+  return (
+    !!inner && isWelcomeMessage(inner) && inner.display_type === 'other'
+  );
 }
