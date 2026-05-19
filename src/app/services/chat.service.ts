@@ -20,6 +20,7 @@ import {
   isProcessedMessage,
   isReceivedMessage,
   isSentMessage,
+  isWelcomeAnnouncement,
   ProcessedMessage,
   ReceivedMessage,
   SentMessage,
@@ -138,7 +139,13 @@ export function computePendingNotifications(
  * the classification previously performed by `ChatPanelComponent.ngOnInit`.
  */
 function messageFromSent(msg: SentMessage): ChatMessage | null {
-  if (msg.sender.role === ACTOR_SYSTEM_ROLE) return null;
+  // ADR-011 Decision 3: the welcome announcement carries an `ActorSystem`
+  // transport sender but must reach the chat panel — admit it via the
+  // structural exception. `applySentToThinking` deliberately keeps the plain
+  // `ACTOR_SYSTEM_ROLE` early-return so the welcome message spawns no
+  // thinking bubble.
+  if (msg.sender.role === ACTOR_SYSTEM_ROLE && !isWelcomeAnnouncement(msg))
+    return null;
   if (msg.message.content == null || msg.message.content === '') return null;
   return classifyMessage(msg);
 }

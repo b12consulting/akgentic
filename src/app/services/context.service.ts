@@ -103,8 +103,8 @@ export class ContextService {
     await this.router.navigate(['/']);
   }
 
-  async createTeamAndNavigate(catalogEntryId: string) {
-    const response = await this.apiService.createTeam(catalogEntryId);
+  async createTeamAndNavigate(namespace: string) {
+    const response = await this.apiService.createTeam(namespace);
     const newTeam = toTeamContext(response);
     const prev = this._context$.value;
     this._context$.next([...prev, newTeam]);

@@ -5,7 +5,7 @@ export const environment = {
   api: 'http://localhost:8000',
   logo: 'b12.png',
   autoRedirectContext: 'Business team',
-  welcomeMessage: 'Welcome to the B12 Akgentic Framework',
+  welcomeMessage: 'Welcome to the Akgentic Framework',
   hideHome: false,
   hideLogin: true,
   initRightPanelCollapsed: false,

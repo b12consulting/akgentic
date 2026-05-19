@@ -43,7 +43,7 @@
     <div class="bubble-header">
       <button
         class="label-pill"
-        [disabled]="message().rule === 1"
+        [disabled]="message().rule === 1 || message().rule === 5"
         (click)="onLabelClick(); $event.stopPropagation()"
       >
         {{ message().label }}

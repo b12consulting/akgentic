@@ -5,6 +5,7 @@ import {
   classifyMessage,
   ENTRY_POINT_NAME,
   ChatMessage,
+  SYSTEM_MESSAGE_LABEL,
 } from './chat-message.model';
 import { ActorAddress, SentMessage, BaseMessage } from './message.types';
 
@@ -52,9 +53,34 @@ function makeSentMessage(overrides: Partial<SentMessage> = {}): SentMessage {
   };
 }
 
+/** A welcome `SentMessage`: outer `ActorSystem` sender, inner `WelcomeMessage`
+ *  payload with `display_type === 'other'` (Story 2.6, ADR-011). */
+function makeWelcomeSent(overrides: Partial<SentMessage> = {}): SentMessage {
+  return makeSentMessage({
+    id: 'welcome-outer-1',
+    sender: makeAddress({ name: '@ActorSystem', role: 'ActorSystem' }),
+    recipient: makeAddress({ name: '@Human', role: 'Human' }),
+    display_type: 'other',
+    message: makeBaseMessage({
+      id: 'welcome-inner-1',
+      sender: makeAddress({ name: '@Orchestrator', role: 'Orchestrator' }),
+      display_type: 'other',
+      content: 'Welcome to the agent team !',
+      __model__: 'akgentic.team.messages.WelcomeMessage',
+    }),
+    ...overrides,
+  });
+}
+
 describe('ENTRY_POINT_NAME', () => {
   it('should be @Human', () => {
     expect(ENTRY_POINT_NAME).toBe('@Human');
+  });
+});
+
+describe('SYSTEM_MESSAGE_LABEL', () => {
+  it('should be "System message"', () => {
+    expect(SYSTEM_MESSAGE_LABEL).toBe('System message');
   });
 });
 
@@ -105,6 +131,36 @@ describe('classifyRule', () => {
       recipient: makeAddress({ name: '@Human', role: 'Human' }),
     });
     expect(classifyRule(msg)).toBe(2);
+  });
+
+  // Story 2.6 (AC4) — Rule 5 is checked FIRST
+  it('Rule 5: welcome announcement classifies as 5', () => {
+    expect(classifyRule(makeWelcomeSent())).toBe(5);
+  });
+
+  it('Rule 5 is checked first: outer recipient @Human does NOT make it Rule 2', () => {
+    // The welcome event's outer recipient is @Human — without the first-match
+    // it would classify as Rule 2.
+    expect(classifyRule(makeWelcomeSent())).toBe(5);
+  });
+
+  it('ordinary SentMessage still classifies as Rule 1-4 (Rule 5 unchanged)', () => {
+    expect(
+      classifyRule(
+        makeSentMessage({
+          sender: makeAddress({ name: '@Human', role: 'Human' }),
+          recipient: makeAddress({ name: '@Manager', role: 'Manager' }),
+        }),
+      ),
+    ).toBe(1);
+    expect(
+      classifyRule(
+        makeSentMessage({
+          sender: makeAddress({ name: '@Worker', role: 'Worker' }),
+          recipient: makeAddress({ name: '@Manager', role: 'Manager' }),
+        }),
+      ),
+    ).toBe(4);
   });
 });
 
@@ -163,6 +219,12 @@ describe('buildLabel', () => {
     });
     const label = buildLabel(msg, 2);
     expect(label.endsWith('⇒ You')).toBe(true);
+  });
+
+  it('Rule 5: returns the fixed SYSTEM_MESSAGE_LABEL (Story 2.6)', () => {
+    const label = buildLabel(makeWelcomeSent(), 5);
+    expect(label).toBe(SYSTEM_MESSAGE_LABEL);
+    expect(label).not.toContain('⇒');
   });
 });
 
@@ -381,5 +443,40 @@ describe('classifyMessage', () => {
     });
     const result = classifyMessage(msg);
     expect(result.timestamp instanceof Date).toBe(true);
+  });
+
+  // Story 2.6 (AC5) — Rule 5 ChatMessage
+  it('Rule 5: builds a ChatMessage with rule 5, left alignment, Rule-4 blue, not collapsed', () => {
+    const result = classifyMessage(makeWelcomeSent());
+    expect(result.rule).toBe(5);
+    expect(result.alignment).toBe('left');
+    expect(result.color).toBe('#9ebbcb');
+    expect(result.collapsed).toBe(false);
+    expect(result.label).toBe(SYSTEM_MESSAGE_LABEL);
+  });
+
+  it('Rule 5: sender is taken from the INNER WelcomeMessage.sender, not the outer envelope', () => {
+    const result = classifyMessage(makeWelcomeSent());
+    // Inner sender is @Orchestrator; outer envelope sender is @ActorSystem.
+    expect(result.sender.name).toBe('@Orchestrator');
+    expect(result.sender.role).toBe('Orchestrator');
+  });
+
+  it('Rule 5: content is taken from the inner WelcomeMessage.content', () => {
+    const result = classifyMessage(makeWelcomeSent());
+    expect(result.content).toBe('Welcome to the agent team !');
+  });
+
+  it('non-Rule-5 messages still read the OUTER envelope sender', () => {
+    const result = classifyMessage(
+      makeSentMessage({
+        sender: makeAddress({ name: '@Manager', role: 'Manager' }),
+        recipient: makeAddress({ name: '@Human', role: 'Human' }),
+        message: makeBaseMessage({
+          sender: makeAddress({ name: '@Inner', role: 'Worker' }),
+        }),
+      }),
+    );
+    expect(result.sender.name).toBe('@Manager');
   });
 });

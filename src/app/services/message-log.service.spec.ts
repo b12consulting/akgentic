@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 
-import { AkgenticMessage } from '../models/message.types';
+import { AkgenticMessage, SentMessage } from '../models/message.types';
 import { MessageLogService, messageListFold } from './message-log.service';
 
 function msg(
@@ -26,6 +26,56 @@ function msg(
     content: null,
     __model__: `akgentic.core.messages.orchestrator.${model}`,
   } as AkgenticMessage;
+}
+
+/** A welcome `SentMessage`: outer `ActorSystem` sender, inner `WelcomeMessage`
+ *  payload with `display_type === 'other'` (ADR-011 Story 2.6). */
+function welcomeSent(id: string): SentMessage {
+  return {
+    id,
+    parent_id: null,
+    team_id: 'team-1',
+    timestamp: '2026-05-18T00:00:00Z',
+    sender: {
+      __actor_address__: true,
+      name: '@ActorSystem',
+      role: 'ActorSystem',
+      agent_id: 'sys',
+      team_id: 'team-1',
+      squad_id: 's',
+      user_message: false,
+    },
+    display_type: 'other',
+    content: null,
+    __model__: 'akgentic.core.messages.orchestrator.SentMessage',
+    recipient: {
+      __actor_address__: true,
+      name: '@Human',
+      role: 'Human',
+      agent_id: 'human',
+      team_id: 'team-1',
+      squad_id: 's',
+      user_message: false,
+    },
+    message: {
+      id: `${id}-inner`,
+      parent_id: null,
+      team_id: 'team-1',
+      timestamp: '2026-05-18T00:00:00Z',
+      sender: {
+        __actor_address__: true,
+        name: '@Orchestrator',
+        role: 'Orchestrator',
+        agent_id: 'orch',
+        team_id: 'team-1',
+        squad_id: 's',
+        user_message: false,
+      },
+      display_type: 'other',
+      content: 'Welcome to the agent team !',
+      __model__: 'akgentic.team.messages.WelcomeMessage',
+    },
+  };
 }
 
 describe('MessageLogService (Story 6.1)', () => {
@@ -153,6 +203,21 @@ describe('messageListFold (Story 6.4, AC4)', () => {
       msg('d', 'SentMessage'),
     ];
     expect(messageListFold(log).map((m) => m.id)).toEqual(['a', 'c', 'd']);
+  });
+
+  // Story 2.6 (AC2) — welcome announcement exception
+  it('admits the welcome announcement despite its ActorSystem outer sender', () => {
+    const out = messageListFold([welcomeSent('w1')]);
+    expect(out.map((m) => m.id)).toEqual(['w1']);
+  });
+
+  it('still excludes ordinary ActorSystem-sender messages alongside an admitted welcome', () => {
+    const log: AkgenticMessage[] = [
+      welcomeSent('w1'),
+      msg('s1', 'SentMessage', 'ActorSystem'),
+      msg('s2', 'SentMessage', 'Worker'),
+    ];
+    expect(messageListFold(log).map((m) => m.id)).toEqual(['w1', 's2']);
   });
 });
 

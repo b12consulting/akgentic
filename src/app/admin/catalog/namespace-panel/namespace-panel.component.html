@@ -1,0 +1,264 @@
+<div class="namespace-panel">
+  <!-- Loading spinner branch -->
+  <div *ngIf="loading" class="namespace-panel__loading">
+    <i class="pi pi-spinner pi-spin"></i>
+    <span>Loading namespace…</span>
+  </div>
+
+  <!-- Empty / error branch: no server YAML and not loading -->
+  <div
+    *ngIf="!loading && serverYaml === ''"
+    class="namespace-panel__empty"
+  >
+    Unable to load namespace '{{ namespace }}'
+  </div>
+
+  <!-- Editor branch: we have content -->
+  <ng-container *ngIf="!loading && serverYaml !== ''">
+    <!--
+      ngModel is split into [ngModel] + (ngModelChange) so the change
+      handler can invalidate the edit-mode Validate-buffer success flash
+      as soon as the user modifies the YAML — a clean-report ack should
+      not outlive the buffer it validated.
+    -->
+    <nu-monaco-editor
+      class="namespace-panel__editor"
+      [options]="editorOptions"
+      [ngModel]="buffer"
+      (ngModelChange)="onBufferChange($event)"
+      [height]="'calc(90vh - 240px)'"
+    ></nu-monaco-editor>
+
+    <!--
+      Action row.
+      VIEW mode order (post-review UX refinement): Validate · Edit · Clone.
+      EDIT mode order (post-review UX refinement): Validate · Save · Reset · Cancel.
+      Clone is NO LONGER rendered in edit mode — "Save As from a dirty buffer" was a
+      confusing mental model (the clone captures in-memory state, not the server
+      state the operator sees in view mode). Operators save first, then clone.
+    -->
+    <div class="namespace-panel__actions">
+      <!-- VIEW mode: Validate · Edit · Clone (in that order) -->
+
+      <!-- Validate persisted state. Flash-to-green pattern on clean report
+           via `[class.p-button-success]` — PrimeNG's own `[severity]`
+           binding does not strip the prior class on revert, so we toggle
+           the class explicitly. -->
+      <button
+        *ngIf="mode === 'view'"
+        pButton
+        type="button"
+        size="small"
+        [class.p-button-success]="validationFlashPersisted"
+        label="Validate persisted state"
+        [icon]="validationFlashPersisted ? 'pi pi-check' : 'pi pi-check-circle'"
+        [disabled]="validating"
+        (click)="onValidatePersistedClick()"
+        data-test="validate-persisted-btn"
+      ></button>
+
+      <!-- Edit. Post-review refinement: re-fetches the server namespace
+           on click and prompts the operator to reload if it drifted since
+           the initial load. Shows a spinner while the drift check is in
+           flight. See `onEditClick()` in the component. -->
+      <button
+        *ngIf="mode === 'view'"
+        pButton
+        type="button"
+        size="small"
+        label="Edit"
+        [icon]="refreshingForEdit ? 'pi pi-spinner pi-spin' : 'pi pi-pencil'"
+        [disabled]="refreshingForEdit"
+        (click)="onEditClick()"
+        data-test="edit-btn"
+      ></button>
+
+      <!-- Clone. VIEW-MODE ONLY per post-review UX refinement. -->
+      <button
+        *ngIf="mode === 'view'"
+        #cloneBtn
+        pButton
+        type="button"
+        size="small"
+        severity="secondary"
+        label="Clone"
+        icon="pi pi-copy"
+        [disabled]="cloning || isCloneGated"
+        [pTooltip]="cloneTooltip"
+        (click)="onCloneClick()"
+        data-test="clone-btn"
+      ></button>
+
+      <!-- EDIT mode: Validate · Save · Reset · Cancel (in that order) -->
+
+      <!-- Validate buffer. Same flash pattern as the view-mode counterpart. -->
+      <button
+        *ngIf="mode === 'edit'"
+        pButton
+        type="button"
+        size="small"
+        [class.p-button-success]="validationFlashBuffer"
+        label="Validate buffer"
+        [icon]="validationFlashBuffer ? 'pi pi-check' : 'pi pi-check-square'"
+        [disabled]="saving || validating"
+        (click)="onValidateBufferClick()"
+        data-test="validate-buffer-btn"
+      ></button>
+
+      <!-- Save. Disabled when the buffer matches serverYaml, during save,
+           or when the FR14 gate is active (known-bad validation). -->
+      <button
+        *ngIf="mode === 'edit'"
+        pButton
+        type="button"
+        size="small"
+        label="Save"
+        [icon]="saving ? 'pi pi-spinner pi-spin' : 'pi pi-save'"
+        [disabled]="buffer === serverYaml || saving || isSaveGated"
+        [pTooltip]="saveTooltip"
+        (click)="onSaveClick()"
+        data-test="save-btn"
+      ></button>
+
+      <!-- Reset. Post-review new feature — revert the buffer to the last
+           server snapshot WITHOUT exiting edit mode. Dirty buffer triggers
+           a confirm (same "Discard unsaved changes?" prompt as Cancel);
+           clean buffer is a no-op and the button is disabled. -->
+      <button
+        *ngIf="mode === 'edit'"
+        pButton
+        type="button"
+        size="small"
+        severity="secondary"
+        label="Reset"
+        icon="pi pi-undo"
+        [disabled]="buffer === serverYaml || saving"
+        (click)="onResetClick()"
+        data-test="reset-btn"
+      ></button>
+
+      <!-- Cancel. Same dirty-state guard as the dialog-close X (Story 11.3). -->
+      <button
+        *ngIf="mode === 'edit'"
+        pButton
+        type="button"
+        size="small"
+        severity="secondary"
+        label="Cancel"
+        icon="pi pi-times"
+        [disabled]="saving"
+        (click)="onCancelClick()"
+        data-test="cancel-btn"
+      ></button>
+    </div>
+
+    <!-- Validation-report sub-component (11.4 AC 9): renders the clean
+         pass / findings / unstructured fallback / nothing branches. The
+         clearRequested output nulls both parent fields on click. -->
+    <app-validation-report
+      [report]="lastValidation"
+      [rawError]="rawSaveError"
+      (clearRequested)="onClearValidationClick()"
+    ></app-validation-report>
+  </ng-container>
+
+  <!-- Story 11.5 — Clone sub-dialog (AC 3). Kept INSIDE the panel to
+       preserve NFR6 (host-agnostic): the panel owns the dialog, the form,
+       the validation, and the confirm handler. The host supplies only
+       `[existingNamespaces]` for the pre-flight collision check. -->
+  <!--
+    Story 11.7 AC 16 — `(onShow)` defers focus to the destination input
+    after PrimeNG mounts the overlay (programmatic focus from the host
+    component, fallback for [focusOnShow] which requires the input to be
+    the first focusable in the dialog tree).
+    Story 11.7 AC 18, 19, 21 — `(onHide)` runs the cleanup (clears
+    `cloneDestNs` + `cloneInlineError`) and returns focus to the outer
+    Clone button.
+  -->
+  <p-dialog
+    [visible]="cloneDialogVisible"
+    (visibleChange)="onCloneDialogVisibleChange($event)"
+    (onShow)="onCloneDialogShow()"
+    (onHide)="onCloneDialogHide()"
+    [modal]="true"
+    [style]="{ width: '30rem' }"
+    header="Clone namespace"
+    data-test="clone-dialog"
+  >
+    <div class="namespace-panel__clone-body">
+      <label for="clone-dest-ns-input">Destination namespace name</label>
+      <input
+        #cloneDestInput
+        id="clone-dest-ns-input"
+        type="text"
+        pInputText
+        name="cloneDestNs"
+        [(ngModel)]="cloneDestNs"
+        (ngModelChange)="onCloneDestNsChange()"
+        data-test="clone-destns-input"
+        autocomplete="off"
+      />
+      <div
+        *ngIf="cloneValidationError"
+        class="namespace-panel__clone-error"
+        data-test="clone-validation-error"
+      >
+        {{ cloneValidationError }}
+      </div>
+      <!-- Story 11.7 AC 21 — inline alert for the unstructured-422 branch.
+           role="alert" implies aria-live="assertive" + aria-atomic="true"
+           so the message is announced as soon as the element appears. -->
+      <small
+        *ngIf="cloneInlineError !== null"
+        class="namespace-panel__clone-inline-error"
+        role="alert"
+        data-test="clone-inline-error"
+      >{{ cloneInlineError }}</small>
+    </div>
+    <div class="namespace-panel__clone-actions">
+      <button
+        pButton
+        type="button"
+        size="small"
+        severity="secondary"
+        label="Cancel"
+        [disabled]="cloning"
+        (click)="onCloneCancelClick()"
+        data-test="clone-cancel-btn"
+      ></button>
+      <button
+        pButton
+        type="button"
+        size="small"
+        label="Confirm"
+        [icon]="cloning ? 'pi pi-spinner pi-spin' : 'pi pi-copy'"
+        [disabled]="cloneConfirmDisabled"
+        [pTooltip]="cloneTooltip"
+        (click)="onCloneConfirmClick()"
+        data-test="clone-confirm-btn"
+      ></button>
+    </div>
+  </p-dialog>
+
+  <!--
+    Story 11.7 AC 11–15 — visually-hidden polite live region (FR16).
+    role="status" + aria-live="polite" is the WCAG-recommended pattern
+    for non-disruptive operator feedback. aria-atomic="true" forces a
+    full re-announce on every text change (avoids partial diff
+    announcements on some screen readers). The element stays in the
+    DOM and accessibility tree but is clipped from view via the
+    .namespace-panel__a11y-live class.
+  -->
+  <div
+    class="namespace-panel__a11y-live"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    data-test="a11y-live-region"
+  >{{ a11yAnnouncement }}</div>
+
+  <!-- PrimeNG ConfirmDialog — scoped to this component via `providers:
+       [ConfirmationService]` so the dialog and future route presentations
+       both get an instance without app-root wiring. -->
+  <p-confirmDialog></p-confirmDialog>
+</div>

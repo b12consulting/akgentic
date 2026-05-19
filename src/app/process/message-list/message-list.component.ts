@@ -13,6 +13,7 @@ import { UtilService } from '../../services/utils.service';
 import { combineLatest, Subscription } from 'rxjs';
 import { AkgentService } from '../../services/akgent.service';
 import { MessageLogService } from '../../services/message-log.service';
+import { isWelcomeAnnouncement } from '../../models/message.types';
 import { CopyButtonComponent } from '../copy-button/copy-button.component';
 
 @Component({
@@ -63,11 +64,15 @@ export class MessageListComponent {
       this.messages = messages;
       this.filteredMessages = messages.filter(
         (message) =>
-          !selectedCategories ||
-          (message.sender?.squad_id &&
-            selectedCategories[
-              this.categoryService.squadDict[message.sender.squad_id]
-            ])
+          // ADR-011 Decision 4: the welcome announcement is admitted by
+          // `messageListFold` but excluded from the process message-list
+          // table — it belongs to the chat panel only.
+          !isWelcomeAnnouncement(message) &&
+          (!selectedCategories ||
+            (message.sender?.squad_id &&
+              selectedCategories[
+                this.categoryService.squadDict[message.sender.squad_id]
+              ]))
       );
 
       setTimeout(() => this.scroll(), 0);

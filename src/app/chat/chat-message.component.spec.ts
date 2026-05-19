@@ -636,6 +636,83 @@ describe('ChatMessageComponent', () => {
     });
   });
 
+  describe('Rule 5 (welcome / system message) — Story 2.6', () => {
+    function makeRule5(): ChatMessage {
+      return makeChatMessage({
+        rule: 5,
+        alignment: 'left',
+        color: '#9ebbcb',
+        collapsed: false,
+        label: 'System message',
+        sender: makeAddress({ name: '@Orchestrator', role: 'Orchestrator' }),
+        content: 'Welcome to the agent team !',
+      });
+    }
+
+    it('renders as a left-aligned expanded bubble (no collapsed line)', () => {
+      fixture.componentRef.setInput('message', makeRule5());
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement;
+      expect(el.querySelector('.message.left')).toBeTruthy();
+      expect(el.querySelector('.message-bubble')).toBeTruthy();
+      expect(el.querySelector('.collapsed-line')).toBeNull();
+    });
+
+    it('renders the label pill disabled', () => {
+      fixture.componentRef.setInput('message', makeRule5());
+      fixture.detectChanges();
+
+      const btn = fixture.nativeElement.querySelector('.label-pill');
+      expect(btn.textContent.trim()).toBe('System message');
+      expect(btn.disabled).toBe(true);
+    });
+
+    it('shows no notification icon and no Reply button', () => {
+      fixture.componentRef.setInput('message', makeRule5());
+      fixture.componentRef.setInput('notification', true);
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement;
+      expect(el.querySelector('.notification-icon')).toBeNull();
+      expect(el.querySelector('.pi-bell')).toBeNull();
+      expect(el.querySelector('.open-button')).toBeNull();
+    });
+
+    it('onBubbleClick is a no-op for Rule 5', () => {
+      fixture.componentRef.setInput('message', makeRule5());
+      fixture.detectChanges();
+
+      spyOn(component.bubbleClicked, 'emit');
+      spyOn(component.toggleCollapse, 'emit');
+      const messageEl = fixture.nativeElement.querySelector('.message');
+      messageEl.click();
+
+      expect(component.bubbleClicked.emit).not.toHaveBeenCalled();
+      expect(component.toggleCollapse.emit).not.toHaveBeenCalled();
+    });
+
+    it('onLabelClick is a no-op for Rule 5', () => {
+      fixture.componentRef.setInput('message', makeRule5());
+      fixture.detectChanges();
+
+      spyOn(component.messageSelected, 'emit');
+      component.onLabelClick();
+
+      expect(component.messageSelected.emit).not.toHaveBeenCalled();
+    });
+
+    it('onToggleCollapse is a no-op for Rule 5', () => {
+      fixture.componentRef.setInput('message', makeRule5());
+      fixture.detectChanges();
+
+      spyOn(component.toggleCollapse, 'emit');
+      component.onToggleCollapse();
+
+      expect(component.toggleCollapse.emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Rule 2 label — @Sender ⇒ You (Story 4.3)', () => {
     it('renders label pill ending with "⇒ You" for Rule 2', () => {
       const msg = makeChatMessage({

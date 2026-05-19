@@ -147,6 +147,38 @@ function makeEvent(
   };
 }
 
+/** A welcome `SentMessage`: outer `ActorSystem` sender, inner `WelcomeMessage`
+ *  payload with `display_type === 'other'` (Story 2.6, ADR-011). */
+function makeWelcomeSent(overrides: Partial<SentMessage> = {}): SentMessage {
+  return {
+    id: 'welcome-outer-1',
+    parent_id: null,
+    team_id: 'team-1',
+    timestamp: '2026-05-18T10:00:00Z',
+    sender: makeAddress({
+      name: '@ActorSystem',
+      role: 'ActorSystem',
+      agent_id: 'sys-1',
+    }),
+    display_type: 'other',
+    content: null,
+    __model__: 'akgentic.core.messages.orchestrator.SentMessage',
+    message: makeInnerBase({
+      id: 'welcome-inner-1',
+      sender: makeAddress({
+        name: '@Orchestrator',
+        role: 'Orchestrator',
+        agent_id: 'orch-1',
+      }),
+      display_type: 'other',
+      content: 'Welcome to the agent team !',
+      __model__: 'akgentic.team.messages.WelcomeMessage',
+    }),
+    recipient: makeAddress({ name: '@Human', role: 'Human', agent_id: 'human-1' }),
+    ...overrides,
+  };
+}
+
 function makeUnknown(): AkgenticMessage {
   return {
     id: 'unk',
@@ -373,6 +405,41 @@ describe('chatFold / chatStep (pure)', () => {
     const after = chatStep(before, makeStateChanged());
     expect(after).toBe(before);
   });
+
+  // Story 2.6 (AC3) — welcome announcement reaches the chat panel
+  it('welcome announcement is admitted into messages despite ActorSystem outer sender', () => {
+    const state = chatFold([makeWelcomeSent()]);
+    expect(state.messages.length).toBe(1);
+    expect(state.messages[0].id).toBe('welcome-outer-1');
+    expect(state.messages[0].rule).toBe(5);
+  });
+
+  it('welcome announcement with empty content is still dropped (empty-content guard)', () => {
+    const msg = makeWelcomeSent({
+      message: makeInnerBase({
+        content: '',
+        display_type: 'other',
+        __model__: 'akgentic.team.messages.WelcomeMessage',
+      }),
+    });
+    expect(chatFold([msg]).messages.length).toBe(0);
+  });
+
+  it('welcome announcement does NOT spawn or finalise a thinking bubble', () => {
+    const rcv = makeReceived();
+    const state = chatFold([rcv, makeWelcomeSent()]);
+    // The Received agent's thinking bubble is untouched by the welcome message.
+    expect(state.thinkingAgents.length).toBe(1);
+    expect(state.thinkingAgents[0].agent_id).toBe('agent-1');
+    expect(state.thinkingAgents[0].final).toBe(false);
+  });
+
+  it('ordinary ActorSystem SentMessage is still dropped from messages', () => {
+    const msg = makeSent({
+      sender: makeAddress({ role: 'ActorSystem', name: '@ActorSystem' }),
+    });
+    expect(chatFold([msg]).messages.length).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -481,6 +548,13 @@ describe('ChatService (selector over log$)', () => {
     expect((await firstValueFrom(service.thinkingAgents$)).length).toBe(1);
     log.reset();
     expect((await firstValueFrom(service.thinkingAgents$)).length).toBe(0);
+  });
+
+  it('(Story 2.6, AC3) welcome announcement reaches messages$', async () => {
+    log.append(makeWelcomeSent());
+    const msgs = await firstValueFrom(service.messages$);
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].rule).toBe(5);
   });
 
   it('pendingNotifications$ reacts to Rule 3 messages via the derived messages$', async () => {

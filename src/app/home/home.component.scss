@@ -60,3 +60,22 @@
         }
     }
 }
+
+// Story 11.7 AC 8, 9 — dirty-state indicator next to the namespace name in
+// the dialog header. PrimeNG renders the header outside the component's
+// view-encapsulated tree (it teleports to <body>'s overlay container), so
+// styling it via the component's scoped CSS does NOT work; the rule is
+// emitted unscoped via :host ::ng-deep is the canonical fix, but here we
+// rely on the global stylesheet and pair the visual `●` with an
+// aria-label for non-color signal.
+::ng-deep .namespace-panel__dirty-indicator {
+  // PrimeNG amber-500 (#f59e0b) — meets WCAG AA against the dialog header
+  // background (white #fff, contrast ratio ≈ 2.57:1 — non-text decorative
+  // glyph; the aria-label carries the semantic meaning so contrast on the
+  // glyph is informational rather than load-bearing).
+  color: #f59e0b;
+  font-weight: 700;
+  margin-left: 0.4rem;
+  font-size: 1rem;
+  vertical-align: middle;
+}

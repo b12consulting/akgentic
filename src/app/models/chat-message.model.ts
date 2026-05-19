@@ -1,9 +1,18 @@
-import { ActorAddress, SentMessage } from './message.types';
+import {
+  ActorAddress,
+  isWelcomeAnnouncement,
+  SentMessage,
+} from './message.types';
 import { makeAgentNameUserFriendly } from '../lib/util';
 
 export const ENTRY_POINT_NAME = '@Human';
 
-export type MessageRule = 1 | 2 | 3 | 4;
+/** Fixed label for Rule 5 (welcome) messages. Defined in exactly one place so
+ *  it is updatable / i18n-ready without touching `buildLabel` logic
+ *  (ADR-011 Decision 3, AC6). */
+export const SYSTEM_MESSAGE_LABEL = 'System message';
+
+export type MessageRule = 1 | 2 | 3 | 4 | 5;
 
 export interface ChatMessage {
   /** Outer `SentMessage` envelope id — used to route human replies back to
@@ -28,13 +37,19 @@ export interface ChatMessage {
 }
 
 /**
- * Classify a SentMessage into one of 4 rules (first-match wins):
+ * Classify a SentMessage into one of 5 rules (first-match wins):
+ *   Rule 5: welcome announcement -> left-aligned, system-labelled, inert
  *   Rule 1: sender is @Human -> right-aligned, persona color
  *   Rule 2: recipient is @Human -> left-aligned, blue
  *   Rule 3: recipient role is Human but not @Human -> left-aligned, blue, notification
  *   Rule 4: everything else (AI-to-AI) -> left-aligned, blue, collapsed
+ *
+ * Rule 5 is checked FIRST (ADR-011 Decision 3): the welcome event's outer
+ * `recipient` is `@Human`, so without the first-match it would classify as
+ * Rule 2 and expose the `@ActorSystem` transport envelope.
  */
 export function classifyRule(msg: SentMessage): MessageRule {
+  if (isWelcomeAnnouncement(msg)) return 5;
   if (msg.sender.name === ENTRY_POINT_NAME) return 1;
   if (msg.recipient.name === ENTRY_POINT_NAME) return 2;
   if (msg.recipient.role === 'Human' && msg.recipient.name !== ENTRY_POINT_NAME) return 3;
@@ -47,6 +62,7 @@ export function classifyRule(msg: SentMessage): MessageRule {
  *   Rule 2: "@{sender} ⇒ You" (recipient expanded explicitly for multi-human teams)
  *   Rule 3: "@{sender} ⇒ @{recipient}"
  *   Rule 4: "@{sender} ⇒ @{recipient}"
+ *   Rule 5: fixed `SYSTEM_MESSAGE_LABEL` (ADR-011 Decision 3) — not conversational
  */
 export function buildLabel(msg: SentMessage, rule: MessageRule): string {
   const senderName = makeAgentNameUserFriendly(msg.sender.name);
@@ -60,6 +76,8 @@ export function buildLabel(msg: SentMessage, rule: MessageRule): string {
     case 3:
     case 4:
       return `${senderName} ⇒ ${recipientName}`;
+    case 5:
+      return SYSTEM_MESSAGE_LABEL;
   }
 }
 
@@ -68,6 +86,7 @@ const RULE_COLORS: Record<MessageRule, string> = {
   2: '#9ebbcb',
   3: '#9ebbcb',
   4: '#9ebbcb',
+  5: '#9ebbcb', // reuses the Rule 4 blue (ADR-011 Decision 3)
 };
 
 /**
@@ -126,12 +145,19 @@ export function buildPreview(
  */
 export function classifyMessage(msg: SentMessage): ChatMessage {
   const rule = classifyRule(msg);
+  // ASYMMETRY (ADR-011 Decision 3): every rule reads the OUTER `msg.sender`,
+  // but Rule 5 alone reads the INNER `msg.message.sender` — the welcome
+  // announcement's outer envelope sender is the `@ActorSystem` transport
+  // listener; the semantically meaningful sender is the inner
+  // `WelcomeMessage.sender` (`@Orchestrator`). `recipient` stays on the outer
+  // envelope (unused for Rule 5 rendering).
+  const sender = rule === 5 ? msg.message.sender : msg.sender;
   return {
     id: msg.id,
     message_id: msg.message.id,
     parent_id: msg.message.parent_id,
     content: msg.message.content ?? '',
-    sender: msg.sender,
+    sender,
     recipient: msg.recipient,
     timestamp: new Date(msg.timestamp),
     rule,
