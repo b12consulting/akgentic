@@ -1,2 +1,0 @@
-id: team-prompt
-template: "You are a helpful {role}. {instructions}"

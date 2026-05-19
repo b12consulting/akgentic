@@ -1,0 +1,7 @@
+id: id_vector_store
+kind: tool
+namespace: digital-product-team
+user_id: anonymous
+model_type: akgentic.tool.vector_store.VectorStoreTool
+description: Vector store for retrieval-augmented generation (RAG)
+payload: {}

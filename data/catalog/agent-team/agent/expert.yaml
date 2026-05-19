@@ -1,0 +1,26 @@
+id: expert
+kind: agent
+namespace: agent-team
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Helpful expert providing specialized knowledge
+payload:
+  agent_class: akgentic.agent.BaseAgent
+  description: Helpful expert providing specialized knowledge
+  skills:
+  - analysis
+  - problem-solving
+  config:
+    name: '@Expert'
+    role: Expert
+    prompt:
+      __ref__: id_team_prompt
+      params:
+        role: expert
+        instructions: Provide deep specialized knowledge.
+    model_cfg:
+      __ref__: global.id_gpt_41
+    tools:
+    - __ref__: global.id_web_search
+    - __ref__: global.id_planning
+    - __ref__: global.id_workspace

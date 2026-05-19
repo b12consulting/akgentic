@@ -1,0 +1,13 @@
+id: _meta
+kind: meta
+namespace: global
+user_id: admin
+model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
+description: ''
+payload:
+  name: Global Library
+  description: Shared model configs and tool definitions referenced cross-namespace
+    via global.id_xxx
+  properties: {}
+  shareable: true
+  public: true

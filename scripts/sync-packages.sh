@@ -2,7 +2,7 @@
 
 ORG="b12consulting"
 PARENT_DIR="packages"
-BRANCH="version-1.x"
+BRANCH="master"
 DEFAULT_PACKAGES=(core llm tool agent catalog team infra)
 
 usage() {

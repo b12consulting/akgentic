@@ -1,0 +1,9 @@
+id: id_gpt_54
+kind: model
+namespace: global
+user_id: admin
+model_type: akgentic.llm.ModelConfig
+description: GPT-5.4 via OpenAI — shared model configuration
+payload:
+  provider: openai
+  model: gpt-5.4

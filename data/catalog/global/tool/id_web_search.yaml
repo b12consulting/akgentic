@@ -1,0 +1,17 @@
+id: id_web_search
+kind: tool
+namespace: global
+user_id: admin
+model_type: akgentic.tool.search.SearchTool
+description: Web search + crawl + fetch over Tavily
+payload:
+  name: Web Search
+  web_search:
+    max_results: 5
+  web_crawl:
+    timeout: 150.0
+    max_depth: 3
+    max_breadth: 5
+    limit: 10
+  web_fetch:
+    timeout: 30.0

@@ -1,0 +1,23 @@
+id: product_connector
+kind: agent
+namespace: digital-product-team
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Analyzes product connectivity to user, environment and cloud
+payload:
+  description: Analyzes product connectivity to user, environment and cloud
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - connectivity
+  - integration
+  config:
+    name: '@ProductConnector'
+    role: Product Connector
+    prompt:
+      __ref__: id_connector_prompt
+    model_cfg:
+      __ref__: global.id_gpt_41
+    tools:
+    - __ref__: global.id_web_search
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_vector_store

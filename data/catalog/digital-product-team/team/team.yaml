@@ -1,0 +1,50 @@
+id: team
+kind: team
+namespace: digital-product-team
+user_id: anonymous
+model_type: akgentic.team.TeamCard
+description: Product Manager coordinating a product digitization team
+payload:
+  welcome_message: |
+    ## Introduction to the ***Product Digitalization Support*** AI Assistant
+
+    I'm here to help you apply the Product Digitalization Framework to identify digitalization opportunities for any product, whether it's a traditional physical product or a service.
+
+    Since a product may be usable in different contexts, a good place to start in the process is the identification of some use contexts. You can start with a prompt such as:
+    > *I would like to explore digital enhancement opportunities for a &lt;insert product&gt;. Can you identify some use contexts for this product? For each context, please describe the intended user, when the context is applicable, and what the likely outcomes of the product's use are.*
+
+    Select one of the use contexts and then prompt the tool to decompose the product into its key sub-systems and components. This decomposition helps to see exactly where digital technologies can make the most impact.
+
+    **Notice** that the system generates a knowledge graph, showing the different sub-systems and components. The graph can be refreshed at any time by hitting the *Refresh* button.
+
+    Using additional prompts, you can ask the user whether they want to:
+    - explore the digital capabilities and connectivity opportunities for any of the various sub-systems and components;
+    - use the current information to explore the digital enhancements of any additional subsystems of components they have identified themselves;
+    - drill down the composition hierarchy to identify more detailed sub-systems and components;
+    - pose questions to any of the agents in the tool (e.g., product capability engineers, product composers, product connectors)
+    - explore issues such as cost estimates and potential markets;
+    - integrate the information in the form of tables and reports.
+
+    Let's start !
+  entry_point:
+    card:
+      __ref__: human_proxy
+  members:
+  - card:
+      __ref__: manager
+    members:
+    - card:
+        __ref__: product_composer
+    - card:
+        __ref__: product_connector
+    - card:
+        __ref__: product_capability_engineer
+    - card:
+        __ref__: product_context_manager
+  message_types:
+  - __type__: akgentic.agent.messages.AgentMessage
+  agent_profiles:
+  - __ref__: product_composer
+  - __ref__: product_connector
+  - __ref__: product_capability_engineer
+  - __ref__: product_context_manager

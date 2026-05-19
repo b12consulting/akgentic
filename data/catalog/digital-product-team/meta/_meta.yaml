@@ -1,0 +1,15 @@
+id: _meta
+kind: meta
+namespace: digital-product-team
+user_id: anonymous
+model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
+description: ''
+payload:
+  name: Digital Product Team
+  description: Product Manager-led team applying the Product Digitization Framework
+    — Composer, Connector, Capability Engineer and Context Manager, backed by a knowledge
+    graph
+  properties:
+    user_name: Geoff
+  shareable: false
+  public: false

@@ -1,11 +1,14 @@
-id: planning
-tool_class: akgentic.tool.planning.PlanningTool
-tool:
+id: id_planning
+kind: tool
+namespace: global
+user_id: admin
+model_type: akgentic.tool.planning.PlanningTool
+description: Planning tool to manage team plans and tasks
+payload:
   name: Planning
-  description: Planning tool to manage team plans and tasks
-  vector_store: true
+  vector_store: false
   update_planning:
-    instructions: |-
+    instructions: |
       CRITICAL: Always keep the plan updated.
       Create tasks when your task involves other team members
       or is complex enough to require multiple steps.

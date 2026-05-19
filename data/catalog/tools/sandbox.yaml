@@ -1,5 +1,0 @@
-id: sandbox
-tool_class: akgentic.tool.sandbox.ExecTool
-tool:
-  workspace_id: cli-catalog
-  

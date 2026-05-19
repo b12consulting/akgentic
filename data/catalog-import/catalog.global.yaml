@@ -1,0 +1,75 @@
+namespace: global
+user_id: admin
+name: Global Library
+description: Shared model configs and tool definitions referenced cross-namespace
+  via global.id_xxx
+properties: {}
+shareable: true
+public: true
+entries:
+
+  #### ─── Tools ────────────────────────────────────────────────────────── ####
+  id_planning:
+    kind: tool
+    model_type: akgentic.tool.planning.PlanningTool
+    description: Planning tool to manage team plans and tasks
+    payload:
+      name: Planning
+      vector_store: false
+      update_planning:
+        instructions: |
+          CRITICAL: Always keep the plan updated.
+          Create tasks when your task involves other team members
+          or is complex enough to require multiple steps.
+          Update task status when you make progress.
+          Record outputs when you complete work.
+          Do not finish your turn if the plan is stale.
+
+  id_web_search:
+    kind: tool
+    model_type: akgentic.tool.search.SearchTool
+    description: Web search + crawl + fetch over Tavily
+    payload:
+      name: Web Search
+      web_search:
+        max_results: 5
+      web_crawl:
+        timeout: 150.0
+        max_depth: 3
+        max_breadth: 5
+        limit: 10
+      web_fetch:
+        timeout: 30.0
+
+  id_workspace:
+    kind: tool
+    model_type: akgentic.tool.workspace.WorkspaceTool
+    description: Workspace tool for managing agent interactions and data
+    payload:
+      name: Workspace
+
+  #### ─── Models ───────────────────────────────────────────────────────── ####
+  id_gpt_41:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-4.1 via OpenAI — shared model configuration
+    payload:
+      provider: openai
+      model: gpt-4.1
+      temperature: 0.3
+
+  id_gpt_52:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-5.2 via OpenAI — shared model configuration
+    payload:
+      provider: openai
+      model: gpt-5.2
+
+  id_gpt_54:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-5.4 via OpenAI — shared model configuration
+    payload:
+      provider: openai
+      model: gpt-5.4

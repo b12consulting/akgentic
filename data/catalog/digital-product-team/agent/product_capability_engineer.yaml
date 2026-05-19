@@ -1,0 +1,23 @@
+id: product_capability_engineer
+kind: agent
+namespace: digital-product-team
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Identifies new digital capabilities for the product
+payload:
+  description: Identifies new digital capabilities for the product
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - capability-engineering
+  - digital-transformation
+  config:
+    name: '@ProductCapabilityEngineer'
+    role: Product Capability Engineer
+    prompt:
+      __ref__: id_capability_prompt
+    model_cfg:
+      __ref__: global.id_gpt_41
+    tools:
+    - __ref__: global.id_web_search
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_vector_store

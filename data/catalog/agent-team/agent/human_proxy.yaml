@@ -1,0 +1,13 @@
+id: human_proxy
+kind: agent
+namespace: agent-team
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Human user interface — primary entry point
+payload:
+  agent_class: akgentic.agent.HumanProxy
+  description: Human user interface — primary entry point
+  skills: []
+  config:
+    name: '@Human'
+    role: Human

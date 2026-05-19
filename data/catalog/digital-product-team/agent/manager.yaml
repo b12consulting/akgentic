@@ -1,0 +1,24 @@
+id: manager
+kind: agent
+namespace: digital-product-team
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Product Manager guiding the team through product digitization
+payload:
+  description: Product Manager guiding the team through product digitization
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - coordination
+  - knowledge-graph
+  - product-strategy
+  config:
+    name: '@ProductManager'
+    role: Product Manager
+    prompt:
+      __ref__: id_manager_prompt
+    model_cfg:
+      __ref__: global.id_gpt_41
+    tools:
+    - __ref__: global.id_web_search
+    - __ref__: id_knowledge_graph
+    - __ref__: id_vector_store
