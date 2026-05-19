@@ -59,10 +59,16 @@ class TeamCard(SerializableBaseModel):
         entry_point: The member that serves as the team's external interface.
         members: Top-level members of the team (excluding the entry point).
         message_types: Message classes the team handles; first is the default.
+        welcome_message: Optional static greeting announced on the team's event
+            stream when the team is first created. ``None`` disables it.
     """
 
-    name: str = Field(description="Unique name identifying this team definition")
-    description: str = Field(description="Human-readable summary of what the team does")
+    name: str | None = Field(
+        default=None, description="Unique name identifying this team definition"
+    )
+    description: str | None = Field(
+        default=None, description="Human-readable summary of what the team does"
+    )
     entry_point: TeamCardMember = Field(
         description="The member that serves as the team's external interface",
     )
@@ -77,6 +83,13 @@ class TeamCard(SerializableBaseModel):
     agent_profiles: list[AgentCard] = Field(
         default_factory=list,
         description="AgentCards available for runtime hiring, not instantiated at startup",
+    )
+    welcome_message: str | None = Field(
+        default=None,
+        description=(
+            "Optional static greeting announced on the team's event stream when "
+            "the team is first created. None disables it."
+        ),
     )
 
     @property
@@ -412,6 +425,13 @@ class Process(SerializableBaseModel):
     user_email: str = Field(default="", description="Email of the user who owns this team")
     created_at: datetime = Field(description="Timestamp when the team was created")
     updated_at: datetime = Field(description="Timestamp of the last status change")
+    catalog_namespace: str | None = Field(
+        default=None,
+        description=(
+            "Optional opaque catalog-namespace tag recorded when this team was "
+            "instantiated from a catalog. Not interpreted by akgentic-team."
+        ),
+    )
 
 
 class PersistedEvent(SerializableBaseModel):

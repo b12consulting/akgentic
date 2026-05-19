@@ -10,7 +10,9 @@ from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
+from akgentic.core.messages.orchestrator import SentMessage
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
+from akgentic.team.messages import WelcomeMessage
 from akgentic.team.models import TeamCard, TeamCardMember, TeamRuntime
 
 logger = logging.getLogger(__name__)
@@ -115,6 +117,24 @@ class TeamFactory:
                 name = card.config.name
                 if name in addrs:
                     supervisor_addrs[name] = addrs[name]
+
+            # 5.b Announce the team's welcome message
+            # Hand the orchestrator a SentMessage wrapping a WelcomeMessage.
+            # The orchestrator's receiveMsg_SentMessage records it on the event
+            # log and broadcasts it to every subscriber (CLI printer,
+            # persistence, WebSocket -> frontend). Skipped when no greeting set.
+            if team_card.welcome_message:
+                actor_system.tell(
+                    orchestrator_addr,
+                    SentMessage(
+                        message=WelcomeMessage(
+                            content=team_card.welcome_message,
+                            sender=orchestrator_addr,
+                            team_id=team_id,
+                        ),
+                        recipient=entry_addr,
+                    ),
+                )
 
             # 6. Build and return TeamRuntime
             return TeamRuntime(
