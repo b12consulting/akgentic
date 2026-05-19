@@ -3,7 +3,7 @@
 ORG="b12consulting"
 PARENT_DIR="packages"
 BRANCH="master"
-DEFAULT_PACKAGES=(core llm tool agent catalog team infra)
+DEFAULT_PACKAGES=(core llm tool agent catalog team infra frontend)
 
 usage() {
     cat <<EOF

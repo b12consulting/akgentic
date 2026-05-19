@@ -189,7 +189,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "akgentic-catalog"
-version = "1.2.0"
+version = "2.0.0"
 source = { editable = "packages/akgentic-catalog" }
 dependencies = [
     { name = "akgentic-core" },
@@ -209,11 +209,11 @@ cli = [
     { name = "typer" },
 ]
 dev = [
+    { name = "akgentic-agent" },
+    { name = "akgentic-llm" },
     { name = "httpx" },
     { name = "mongomock" },
     { name = "mypy" },
-    { name = "nagra" },
-    { name = "psycopg", extra = ["binary"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -231,16 +231,16 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
+    { name = "akgentic-agent", marker = "extra == 'dev'", editable = "packages/akgentic-agent" },
     { name = "akgentic-core", editable = "packages/akgentic-core" },
+    { name = "akgentic-llm", marker = "extra == 'dev'", editable = "packages/akgentic-llm" },
     { name = "akgentic-team", editable = "packages/akgentic-team" },
     { name = "akgentic-tool", editable = "packages/akgentic-tool" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.100.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "mongomock", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
-    { name = "nagra", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "nagra", marker = "extra == 'postgres'", specifier = ">=0.5" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'dev'", specifier = ">=3.1" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pymongo", marker = "extra == 'mongo'", specifier = ">=4.0.0" },
@@ -259,7 +259,7 @@ provides-extras = ["api", "cli", "mongo", "postgres", "dev"]
 
 [[package]]
 name = "akgentic-core"
-version = "1.2.0"
+version = "1.2.1"
 source = { editable = "packages/akgentic-core" }
 dependencies = [
     { name = "pydantic" },
@@ -289,7 +289,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "akgentic-framework"
-version = "1.2.0"
+version = "2.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "akgentic-agent" },
@@ -314,7 +314,7 @@ requires-dist = [
 
 [[package]]
 name = "akgentic-infra"
-version = "1.2.0"
+version = "1.2.2"
 source = { editable = "packages/akgentic-infra" }
 dependencies = [
     { name = "akgentic-agent" },
@@ -343,6 +343,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "python-dotenv" },
     { name = "ruff" },
+    { name = "types-pyyaml" },
 ]
 
 [package.metadata]
@@ -367,6 +368,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "textual", specifier = ">=1.0.0" },
     { name = "typer", extras = ["all"], specifier = ">=0.9.0" },
+    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "websockets", specifier = ">=12.0" },
     { name = "wsproto", specifier = ">=1.2.0" },
 ]
@@ -374,7 +376,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "akgentic-llm"
-version = "1.2.0"
+version = "1.2.1"
 source = { editable = "packages/akgentic-llm" }
 dependencies = [
     { name = "httpx" },
@@ -391,6 +393,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "types-pyyaml" },
 ]
 
 [package.metadata]
@@ -405,16 +408,18 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "tenacity", specifier = ">=8.0.0" },
+    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "akgentic-team"
-version = "1.2.0"
+version = "1.2.2"
 source = { editable = "packages/akgentic-team" }
 dependencies = [
     { name = "akgentic-core" },
     { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -433,6 +438,7 @@ dev = [
     { name = "python-dotenv" },
     { name = "ruff" },
     { name = "testcontainers" },
+    { name = "types-pyyaml" },
 ]
 mongo = [
     { name = "pymongo" },
@@ -457,10 +463,12 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.9.0" },
+    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
 provides-extras = ["mongo", "postgres", "cli", "dev"]
 
