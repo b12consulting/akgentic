@@ -49,7 +49,7 @@ def poll_until(
 
 def create_team(client: httpx.Client) -> str:
     """Create a team and return team_id."""
-    resp = client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+    resp = client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
     assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
     data: dict[str, Any] = resp.json()
     assert data["status"] == "running"

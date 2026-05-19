@@ -14,7 +14,7 @@ from akgentic.infra.server.auth import RequestUser, get_request_user
 
 def test_create_team_success(client: TestClient) -> None:
     """POST /teams with valid catalog entry returns 201."""
-    resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
     assert resp.status_code == 201
     data = resp.json()
     assert "team_id" in data
@@ -24,7 +24,7 @@ def test_create_team_success(client: TestClient) -> None:
 
 def test_create_team_invalid_entry(client: TestClient) -> None:
     """POST /teams with unknown catalog entry returns 404."""
-    resp = client.post("/teams/", json={"catalog_entry_id": "nonexistent"})
+    resp = client.post("/teams/", json={"catalog_namespace": "nonexistent"})
     assert resp.status_code == 404
 
 
@@ -37,7 +37,7 @@ def test_list_teams_empty(client: TestClient) -> None:
 
 def test_list_teams_after_create(client: TestClient) -> None:
     """GET /teams returns created teams."""
-    client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    client.post("/teams/", json={"catalog_namespace": "test-team"})
     resp = client.get("/teams/")
     assert resp.status_code == 200
     teams = resp.json()["teams"]
@@ -47,7 +47,7 @@ def test_list_teams_after_create(client: TestClient) -> None:
 
 def test_get_team_success(client: TestClient) -> None:
     """GET /teams/{id} returns team detail."""
-    create_resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    create_resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
     team_id = create_resp.json()["team_id"]
     resp = client.get(f"/teams/{team_id}")
     assert resp.status_code == 200
@@ -66,7 +66,7 @@ def test_get_team_not_found(client: TestClient) -> None:
 )
 def test_delete_team_success(client: TestClient) -> None:
     """DELETE /teams/{id} returns 204 and removes team."""
-    create_resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    create_resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
     team_id = create_resp.json()["team_id"]
     resp = client.delete(f"/teams/{team_id}")
     assert resp.status_code == 204
@@ -86,7 +86,7 @@ def test_delete_team_not_found(client: TestClient) -> None:
 
 def test_create_team_default_identity_anonymous(client: TestClient) -> None:
     """With no override, POST /teams persists user_id == 'anonymous' (AC #5)."""
-    resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
     assert resp.status_code == 201
     assert resp.json()["user_id"] == "anonymous"
 
@@ -105,7 +105,7 @@ def test_create_team_uses_overridden_identity(
     overridden_user_client: TestClient,
 ) -> None:
     """When get_request_user is overridden, POST /teams persists that user_id (AC #6)."""
-    resp = overridden_user_client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    resp = overridden_user_client.post("/teams/", json={"catalog_namespace": "test-team"})
     assert resp.status_code == 201
     assert resp.json()["user_id"] == "alice"
 
@@ -114,7 +114,7 @@ def test_list_teams_filters_by_overridden_identity(
     overridden_user_client: TestClient,
 ) -> None:
     """Under the override, GET /teams returns only the overridden user's teams (AC #6)."""
-    overridden_user_client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    overridden_user_client.post("/teams/", json={"catalog_namespace": "test-team"})
     resp = overridden_user_client.get("/teams/")
     assert resp.status_code == 200
     teams = resp.json()["teams"]

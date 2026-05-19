@@ -27,12 +27,21 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 class WorkerCreateTeamRequest(BaseModel):
     """Request body for POST /teams on the worker.
 
-    The worker receives the already-resolved TeamCard and user_id from the
-    server — catalog resolution happens server-side.
+    The worker receives the already-resolved TeamCard and user identity from
+    the server — catalog resolution happens server-side.
     """
 
     team_card: TeamCard = Field(description="Pre-resolved TeamCard for team creation")
     user_id: str = Field(description="Authenticated user identifier (from server)")
+    user_email: str = Field(default="", description="Authenticated user email (from server)")
+    team_id: uuid.UUID | None = Field(
+        default=None,
+        description="Caller-supplied team identifier; worker auto-generates a UUID when None",
+    )
+    catalog_namespace: str | None = Field(
+        default=None,
+        description="Catalog namespace the team was instantiated from; None if not catalog-sourced",
+    )
 
 
 def get_services(request: Request) -> WorkerServices:
@@ -42,9 +51,10 @@ def get_services(request: Request) -> WorkerServices:
 
 def _process_to_response(process: Process) -> TeamResponse:
     """Convert a Process model to a TeamResponse."""
+    team_name = process.team_card.name or process.catalog_namespace or str(process.team_id)
     return TeamResponse(
         team_id=process.team_id,
-        name=process.team_card.name,
+        name=team_name,
         status=process.status.value,
         user_id=process.user_id,
         created_at=process.created_at,
@@ -72,13 +82,16 @@ def create_team(
 ) -> TeamResponse:
     """Create a new team from a pre-resolved TeamCard.
 
-    The server resolves catalog_entry_id to a TeamCard and forwards it
+    The server resolves the catalog namespace to a TeamCard and forwards it
     to the worker. The worker calls team_manager.create_team() directly.
     """
     logger.info("POST /teams — user_id=%s", body.user_id)
     runtime: TeamRuntime = services.team_manager.create_team(
         team_card=body.team_card,
         user_id=body.user_id,
+        user_email=body.user_email,
+        team_id=body.team_id,
+        catalog_namespace=body.catalog_namespace,
     )
     process = services.worker_handle.get_team(runtime.id)
     if process is None:  # pragma: no cover

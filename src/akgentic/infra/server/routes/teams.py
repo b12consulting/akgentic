@@ -34,9 +34,10 @@ def get_team_service(request: Request) -> TeamService:
 
 def _process_to_response(process: Process) -> TeamResponse:
     """Convert a Process model to a TeamResponse."""
+    team_name = process.team_card.name or process.catalog_namespace or str(process.team_id)
     return TeamResponse(
         team_id=process.team_id,
-        name=process.team_card.name,
+        name=team_name,
         status=process.status.value,
         user_id=process.user_id,
         created_at=process.created_at,
@@ -50,17 +51,20 @@ def create_team(
     user: RequestUser = Depends(get_request_user),
     service: TeamService = Depends(get_team_service),
 ) -> TeamResponse:
-    """Create a new team from a catalog entry."""
-    logger.info("POST /teams — catalog_entry=%s", body.catalog_entry_id)
+    """Create a new team from a catalog namespace."""
+    logger.info("POST /teams — catalog_namespace=%s", body.catalog_namespace)
     try:
         process = service.create_team(
-            catalog_entry_id=body.catalog_entry_id,
+            catalog_namespace=body.catalog_namespace,
             user_id=user.user_id,
             user_email=user.email,
         )
     except EntryNotFoundError:
-        logger.warning("Team creation failed: catalog entry %s not found", body.catalog_entry_id)
-        raise HTTPException(status_code=404, detail="Catalog entry not found") from None
+        logger.warning(
+            "Team creation failed: catalog namespace %s not found",
+            body.catalog_namespace,
+        )
+        raise HTTPException(status_code=404, detail="Catalog namespace not found") from None
     return _process_to_response(process)
 
 
@@ -142,9 +146,7 @@ def send_message_from_to(
     service: TeamService = Depends(get_team_service),
 ) -> None:
     """Send a message from a specific agent to another agent in a running team."""
-    logger.info(
-        "POST /teams/%s/message/from/%s/to/%s", team_id, sender_name, recipient_name
-    )
+    logger.info("POST /teams/%s/message/from/%s/to/%s", team_id, sender_name, recipient_name)
     try:
         service.send_message_from_to(team_id, sender_name, recipient_name, body.content)
     except ValueError as exc:

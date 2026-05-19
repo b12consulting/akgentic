@@ -46,6 +46,7 @@ class LocalPlacement:
         user_id: str,
         user_email: str = "",
         team_id: uuid.UUID | None = None,
+        catalog_namespace: str | None = None,
     ) -> TeamHandle:
         """Create a team in the local process and return a handle.
 
@@ -55,15 +56,26 @@ class LocalPlacement:
             user_email: Email of the user creating the team.
             team_id: Optional caller-supplied team identifier; TeamManager
                 auto-generates a UUID when None.
+            catalog_namespace: Opaque tag identifying the catalog namespace
+                the team was instantiated from. Forwarded verbatim to
+                ``TeamManager.create_team`` so the persisted ``Process``
+                records it. ``None`` for teams not sourced from a catalog.
 
         Returns:
             A LocalTeamHandle for interacting with the newly created team.
         """
         logger.debug(
-            "LocalPlacement creating team: user_id=%s, team_id=%s", user_id, team_id
+            "LocalPlacement creating team: user_id=%s, catalog_namespace=%s, team_id=%s",
+            user_id,
+            catalog_namespace,
+            team_id,
         )
         runtime = self._team_manager.create_team(
-            team_card, user_id, user_email=user_email, team_id=team_id
+            team_card,
+            user_id,
+            user_email=user_email,
+            team_id=team_id,
+            catalog_namespace=catalog_namespace,
         )
         logger.debug("Team created locally: team_id=%s", runtime.id)
         return LocalTeamHandle(runtime)

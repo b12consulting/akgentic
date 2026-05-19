@@ -141,7 +141,7 @@ class TestChannelReply:
     ) -> None:
         create_resp = channel_client.post(
             "/teams/",
-            json={"catalog_entry_id": "test-team"},
+            json={"catalog_namespace": "test-team"},
         )
         assert create_resp.status_code == 201
         team_id = create_resp.json()["team_id"]
@@ -242,7 +242,7 @@ class TestDispatcherRestoreSuppression:
     ) -> None:
         create_resp = channel_client.post(
             "/teams/",
-            json={"catalog_entry_id": "test-team"},
+            json={"catalog_namespace": "test-team"},
         )
         assert create_resp.status_code == 201
         team_id = create_resp.json()["team_id"]

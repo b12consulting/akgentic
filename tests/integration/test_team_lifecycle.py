@@ -59,7 +59,7 @@ def _has_llm_content(events: list[dict[str, object]]) -> bool:
 
 def _create_team(client: TestClient) -> str:
     """POST /teams and return the team_id."""
-    resp = client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+    resp = client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
     assert resp.status_code == 201
     data = resp.json()
     assert data["status"] == "running"

@@ -38,6 +38,8 @@ class TestLocalPlacementProtocolCompliance:
         assert "user_id" in sig.parameters
         assert "user_email" in sig.parameters
         assert "team_id" in sig.parameters
+        assert "catalog_namespace" in sig.parameters
+        assert sig.parameters["catalog_namespace"].default is None
 
 
 class TestLocalPlacementBehavior:
@@ -51,7 +53,18 @@ class TestLocalPlacementBehavior:
         team_card = MagicMock()
         adapter.create_team(team_card, "user-1")
         team_manager.create_team.assert_called_once_with(
-            team_card, "user-1", user_email="", team_id=None
+            team_card, "user-1", user_email="", team_id=None, catalog_namespace=None
+        )
+
+    def test_create_team_forwards_catalog_namespace(self) -> None:
+        """create_team forwards catalog_namespace to TeamManager.create_team."""
+        team_manager = MagicMock()
+        service_registry = MagicMock()
+        adapter = LocalPlacement(team_manager, service_registry)
+        team_card = MagicMock()
+        adapter.create_team(team_card, "user-1", catalog_namespace="ns-abc")
+        team_manager.create_team.assert_called_once_with(
+            team_card, "user-1", user_email="", team_id=None, catalog_namespace="ns-abc"
         )
 
     def test_create_team_forwards_user_email_and_team_id(self) -> None:
@@ -65,7 +78,11 @@ class TestLocalPlacementBehavior:
             team_card, "user-1", user_email="user@example.com", team_id=explicit_id
         )
         team_manager.create_team.assert_called_once_with(
-            team_card, "user-1", user_email="user@example.com", team_id=explicit_id
+            team_card,
+            "user-1",
+            user_email="user@example.com",
+            team_id=explicit_id,
+            catalog_namespace=None,
         )
 
     def test_create_team_returns_local_team_handle(self) -> None:

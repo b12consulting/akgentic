@@ -109,12 +109,9 @@ def _cleanup_team(server_url: str, team_id: str) -> None:
         api.close()
 
 
-async def _wait_for_ws_event(
-    conn: ConnectionManager | WsClient,
-    timeout: float = POLL_TIMEOUT_S,
-) -> object:
-    """Wait for a single WebSocket event with timeout."""
-    return await asyncio.wait_for(conn.receive_event(), timeout=timeout)
+async def _wait_for_ws_event(conn: ConnectionManager | WsClient) -> object:
+    """Wait for a single WebSocket event, bounded by ``POLL_TIMEOUT_S``."""
+    return await asyncio.wait_for(conn.receive_event(), timeout=POLL_TIMEOUT_S)
 
 
 def _poll_events_have_content(server_url: str, team_id: str) -> bool:
@@ -491,7 +488,7 @@ class TestCommandsOnStoppedTeam:
         """CS1: /info on a stopped team → returns info."""
         team_id = _create_team(smoke_server)
         _stop_team(smoke_server, team_id)
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
         try:
             session = _make_session(smoke_server, team_id)
             await _info_handler("", session)
@@ -508,7 +505,7 @@ class TestCommandsOnStoppedTeam:
         """CS2: /events on a stopped team → returns persisted events."""
         team_id = _create_team(smoke_server)
         _stop_team(smoke_server, team_id)
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
         try:
             session = _make_session(smoke_server, team_id)
             await _events_handler("", session)
@@ -525,7 +522,7 @@ class TestCommandsOnStoppedTeam:
         """CS3: Send message to stopped team → error."""
         team_id = _create_team(smoke_server)
         _stop_team(smoke_server, team_id)
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
         try:
             session = _make_session(smoke_server, team_id)
 

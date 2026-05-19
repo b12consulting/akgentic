@@ -12,11 +12,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from akgentic.core.messages.message import Message
+from akgentic.core.utils.deserializer import deserialize_object
 from fastapi.testclient import TestClient
 from rich.console import Console
 
-from akgentic.core.messages.message import Message
-from akgentic.core.utils.deserializer import deserialize_object
 from akgentic.infra.cli.renderers import RichRenderer
 from akgentic.infra.cli.repl import _render_event_impl
 
@@ -74,27 +74,21 @@ def _delete_team(client: TestClient, team_id: str) -> None:
 
 
 def test_smoke_list_catalog_teams(smoke_client: TestClient) -> None:
-    """GET /admin/catalog/teams returns the seeded catalog."""
-    resp = smoke_client.get("/admin/catalog/teams")
+    """GET /admin/catalog/team/{namespace}/resolve returns the seeded TeamCard."""
+    resp = smoke_client.get(f"/admin/catalog/team/{CATALOG_ENTRY_ID}/resolve")
     assert resp.status_code == 200
-    teams = resp.json()
-    assert isinstance(teams, list)
-    assert len(teams) >= 1
+    card = resp.json()
 
-    # Find our seeded entry
-    entry = next((t for t in teams if t["id"] == CATALOG_ENTRY_ID), None)
-    assert entry is not None, f"Expected catalog entry '{CATALOG_ENTRY_ID}' not found"
-
-    # Validate response shape (AC #5: validate rendered CLI output / data shape)
-    for field in ("id", "name", "entry_point", "members"):
-        assert field in entry, f"Missing field '{field}' in catalog entry"
+    # Validate TeamCard response shape (AC #5: data shape)
+    for field in ("name", "entry_point", "members"):
+        assert field in card, f"Missing field '{field}' in resolved TeamCard"
 
 
 def test_smoke_create_team(smoke_client: TestClient) -> None:
     """POST /teams/ creates a running team."""
     team_id: str | None = None
     try:
-        resp = smoke_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = smoke_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         data = resp.json()
         assert data["status"] == "running"

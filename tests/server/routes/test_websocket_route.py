@@ -138,7 +138,7 @@ class TestWebSocketRoute:
         client: TestClient,
     ) -> None:
         """AC #1, #2: Running team pushes events via EventStream."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -153,7 +153,7 @@ class TestWebSocketRoute:
         client: TestClient,
     ) -> None:
         """AC #3: Stopped team accepts connection (idle)."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         team_id = resp.json()["team_id"]
         client.post(f"/teams/{team_id}/stop")
 
@@ -166,7 +166,7 @@ class TestWebSocketRoute:
         client: TestClient,
     ) -> None:
         """AC #1: __model__ discriminator in event JSON."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         team_id = resp.json()["team_id"]
 
         with client.websocket_connect(f"/ws/{team_id}") as ws:
@@ -179,7 +179,7 @@ class TestWebSocketRoute:
         client: TestClient,
     ) -> None:
         """AC #4: Client disconnect calls reader.close()."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         team_id = resp.json()["team_id"]
 
         # Connect and immediately disconnect -- should not raise
@@ -188,7 +188,7 @@ class TestWebSocketRoute:
 
     def test_ws_restore_scenario(self, client: TestClient) -> None:
         """AC #6: Idle connection starts receiving events after restore."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         team_id = resp.json()["team_id"]
         client.post(f"/teams/{team_id}/stop")
 
@@ -310,7 +310,7 @@ class TestEventStreamWsIntegration:
         client: TestClient,
     ) -> None:
         """AC #1, #9: WS connect to running team receives replayed events (cursor=0)."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -327,7 +327,7 @@ class TestEventStreamWsIntegration:
         client: TestClient,
     ) -> None:
         """AC #4: WS disconnect -> reader.close() is called (no exceptions)."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         team_id = resp.json()["team_id"]
 
         with client.websocket_connect(f"/ws/{team_id}"):
@@ -349,7 +349,7 @@ class TestFastDisconnectDetection:
         the handler must exit within a few hundred ms. The 500 ms bound here
         is the looser CI-safe upper bound prescribed by AC 13.
         """
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         team_id = resp.json()["team_id"]
 
         start = time.monotonic()

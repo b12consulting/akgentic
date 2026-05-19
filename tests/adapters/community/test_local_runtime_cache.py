@@ -5,9 +5,10 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock
 
+from akgentic.team.models import Process, TeamStatus
+
 from akgentic.infra.adapters.community.local_runtime_cache import LocalRuntimeCache
 from akgentic.infra.protocols.runtime_cache import RuntimeCache
-from akgentic.team.models import Process, TeamStatus
 
 
 class TestLocalRuntimeCacheProtocolConformance:

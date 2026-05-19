@@ -3,24 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, model_validator
 
-from akgentic.catalog.models import AgentEntry, TeamEntry, TemplateEntry, ToolEntry
+from akgentic.catalog.models import Entry
 from akgentic.core.messages.message import Message
 from akgentic.core.utils.deserializer import deserialize_object
 
-# Typed admin-catalog entry union (ADR-022 §D4 response side).
-CatalogEntry = TemplateEntry | ToolEntry | AgentEntry | TeamEntry
-
-_ENTITY_MODELS: dict[str, type[BaseModel]] = {
-    "templates": TemplateEntry,
-    "tools": ToolEntry,
-    "agents": AgentEntry,
-    "teams": TeamEntry,
-}
+# Typed admin-catalog entry alias (ADR-023 §D4 response side — unified v2 Entry).
+CatalogEntry = Entry
 
 _log = logging.getLogger(__name__)
 
@@ -127,6 +120,25 @@ def _require_json_object(body: object) -> dict[str, Any]:
     return dict(body)
 
 
+# Structured API keys are minted with this prefix (``ak_<key_id>_<secret>``);
+# servers validate them via the ``X-API-Key`` header, not OIDC bearer auth.
+_API_KEY_PREFIX = "ak_"
+
+
+def _auth_headers(credential: str | None) -> dict[str, str]:
+    """Map a CLI credential to the correct auth header.
+
+    A structured API key (``ak_`` prefix) goes in ``X-API-Key``; anything
+    else is treated as a pre-resolved OIDC bearer token and goes in
+    ``Authorization: Bearer``. An empty/absent credential yields no header.
+    """
+    if not credential:
+        return {}
+    if credential.startswith(_API_KEY_PREFIX):
+        return {"X-API-Key": credential}
+    return {"Authorization": f"Bearer {credential}"}
+
+
 class ApiClient:
     """Thin HTTP client mapping CLI commands to server endpoints.
 
@@ -163,12 +175,9 @@ class ApiClient:
             self._owns_client = False
         else:
             assert base_url is not None  # narrowed by the guards above
-            headers: dict[str, str] = {}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
             self._client = httpx.Client(
                 base_url=base_url,
-                headers=headers,
+                headers=_auth_headers(api_key),
                 follow_redirects=True,
                 timeout=httpx.Timeout(30.0, connect=10.0),
             )
@@ -235,12 +244,15 @@ class ApiClient:
         *,
         content: bytes,
         content_type: str,
+        params: dict[str, str] | None = None,
     ) -> httpx.Response:
         """Send a raw body with an explicit ``Content-Type`` header.
 
         Reuses the same timeout / connect-error / non-2xx translation as
         :meth:`_request` but bypasses the ``json=...`` shortcut so the caller
         can post YAML (or any other encoding) without double-serialization.
+        An optional ``params`` mapping is forwarded as the URL query string
+        (v2 per-entry routes need ``?namespace=<ns>``).
         """
         try:
             resp = self._client.request(
@@ -248,6 +260,7 @@ class ApiClient:
                 path,
                 content=content,
                 headers={"Content-Type": content_type},
+                params=params,
             )
         except httpx.TimeoutException as exc:
             raise ApiError(0, f"Request timed out: {method} {path}") from exc
@@ -261,9 +274,27 @@ class ApiClient:
     # -- catalog endpoints --
 
     def list_catalog_teams(self) -> list[CatalogTeamInfo]:
-        """GET /admin/catalog/teams → list of CatalogTeamInfo models."""
-        resp = self._request("GET", "/admin/catalog/teams")
-        return [CatalogTeamInfo.model_validate(entry) for entry in resp.json()]
+        """GET /admin/catalog/team -> list of CatalogTeamInfo models.
+
+        Targets the v2 unified router mounted under /admin (ADR-023 §D1). The
+        v2 catalog returns one ``Entry`` per (namespace, id). The CLI
+        surfaces one ``CatalogTeamInfo`` per entry; ``id`` is the entry's
+        namespace (since the v1 ``catalog_namespace=<id>`` workflow is what
+        callers expect), ``name`` is the entry payload name when available
+        and falls back to the namespace, and ``description`` is the entry
+        description (empty string when absent).
+        """
+        resp = self._request("GET", "/admin/catalog/team")
+        teams: list[CatalogTeamInfo] = []
+        for entry in resp.json():
+            payload = entry.get("payload") or {}
+            namespace = entry.get("namespace") or entry.get("id") or ""
+            name = payload.get("name") or namespace
+            description = entry.get("description") or payload.get("description") or ""
+            teams.append(
+                CatalogTeamInfo(id=namespace, name=name, description=description),
+            )
+        return teams
 
     # -- team endpoints --
 
@@ -276,9 +307,16 @@ class ApiClient:
         """GET /teams/{team_id} → TeamInfo model."""
         return TeamInfo.model_validate(self._request("GET", f"/teams/{team_id}").json())
 
-    def create_team(self, catalog_entry_id: str) -> TeamInfo:
-        """POST /teams → created TeamInfo model."""
-        resp = self._request("POST", "/teams", json={"catalog_entry_id": catalog_entry_id})
+    def create_team(self, catalog_namespace: str) -> TeamInfo:
+        """POST /teams → created TeamInfo model.
+
+        ``catalog_namespace`` is the v2 namespace holding the team entry.
+        The parameter name on the CLI entry points still reads as
+        ``catalog_entry_id`` for backward-compatibility; callers forward
+        the value verbatim and the server interprets it as a namespace
+        under v2 semantics.
+        """
+        resp = self._request("POST", "/teams", json={"catalog_namespace": catalog_namespace})
         return TeamInfo.model_validate(resp.json())
 
     def stop_team(self, team_id: str) -> None:
@@ -329,74 +367,117 @@ class ApiClient:
         resp = self._request("GET", f"/workspace/{team_id}/file", params={"path": path})
         return resp.content
 
-    # -- admin catalog (thin wire — server is validation point, ADR-022 §D4) --
+    # -- admin catalog (thin wire — server is validation point, ADR-023 §D4) --
 
     def admin_catalog_list(
         self,
-        entity: str,
-        q: str | None = None,
+        kind: str,
+        *,
+        namespace: str | None = None,
     ) -> list[CatalogEntry]:
-        """GET /admin/catalog/<entity> → list of typed entries.
+        """GET /admin/catalog/<kind> → list of v2 ``Entry`` models.
 
-        ``q`` is forwarded as ``?q=<text>`` when supplied. Malformed responses
-        (non-list top-level) raise :class:`ApiError` — no silent empty-list
-        fallback.
+        ``namespace`` is forwarded as ``?namespace=<ns>`` when supplied; when
+        omitted the server returns entries across every namespace visible to
+        the authenticated principal. Malformed responses (non-list top-level)
+        raise :class:`ApiError` — no silent empty-list fallback.
         """
-        params: dict[str, str] = {"q": q} if q is not None else {}
-        resp = self._request("GET", f"/admin/catalog/{entity}", params=params or None)
+        params: dict[str, str] = {"namespace": namespace} if namespace is not None else {}
+        resp = self._request("GET", f"/admin/catalog/{kind}", params=params or None)
         body = resp.json()
         if not isinstance(body, list):
             raise ApiError(0, "unexpected response shape: expected JSON array")
-        model = _ENTITY_MODELS[entity]
-        return [cast(CatalogEntry, model.model_validate(item)) for item in body]
+        return [Entry.model_validate(item) for item in body]
 
-    def admin_catalog_get(self, entity: str, entry_id: str) -> CatalogEntry:
-        """GET /admin/catalog/<entity>/<id> → typed entry."""
-        resp = self._request("GET", f"/admin/catalog/{entity}/{entry_id}")
+    def admin_catalog_get(
+        self, kind: str, entry_id: str, *, namespace: str
+    ) -> CatalogEntry:
+        """GET /admin/catalog/<kind>/<id>?namespace=<ns> → v2 ``Entry`` model."""
+        resp = self._request(
+            "GET",
+            f"/admin/catalog/{kind}/{entry_id}",
+            params={"namespace": namespace},
+        )
         body = _require_json_object(resp.json())
-        return cast(CatalogEntry, _ENTITY_MODELS[entity].model_validate(body))
+        return Entry.model_validate(body)
 
     def admin_catalog_create(
         self,
-        entity: str,
+        kind: str,
         body: bytes,
         content_type: str,
     ) -> CatalogEntry:
-        """POST /admin/catalog/<entity> → created typed entry.
+        """POST /admin/catalog/<kind> → created v2 ``Entry`` model.
 
         ``body`` is forwarded unchanged; ``content_type`` is one of
         ``application/json`` or ``application/yaml``. The server is the
-        validation point — the CLI does not parse the outbound payload.
+        validation point — the CLI does not parse the outbound payload. The
+        body must carry a ``namespace`` field (v2 ``Entry`` shape); no query
+        parameter is needed on create.
         """
         resp = self._raw_request(
             "POST",
-            f"/admin/catalog/{entity}",
+            f"/admin/catalog/{kind}",
             content=body,
             content_type=content_type,
         )
         data = _require_json_object(resp.json())
-        return cast(CatalogEntry, _ENTITY_MODELS[entity].model_validate(data))
+        return Entry.model_validate(data)
+
+    def admin_catalog_import_namespace(self, body: bytes) -> list[CatalogEntry]:
+        """POST /admin/catalog/namespace/import → imported v2 ``Entry`` models.
+
+        ``body`` is a single namespace-bundle YAML document (the format
+        produced by ``GET /admin/catalog/namespace/<ns>/export``), forwarded
+        unchanged with ``Content-Type: application/yaml``. The import is an
+        atomic namespace replacement; the server is the single validation
+        point. Malformed responses (non-list top-level) raise
+        :class:`ApiError`.
+        """
+        resp = self._raw_request(
+            "POST",
+            "/admin/catalog/namespace/import",
+            content=body,
+            content_type="application/yaml",
+        )
+        data = resp.json()
+        if not isinstance(data, list):
+            raise ApiError(0, "unexpected response shape: expected JSON array")
+        return [Entry.model_validate(item) for item in data]
 
     def admin_catalog_update(
         self,
-        entity: str,
+        kind: str,
         entry_id: str,
         body: bytes,
         content_type: str,
+        *,
+        namespace: str,
     ) -> CatalogEntry:
-        """PUT /admin/catalog/<entity>/<id> → updated typed entry."""
+        """PUT /admin/catalog/<kind>/<id>?namespace=<ns> → updated v2 ``Entry``.
+
+        URL namespace/id pair is authoritative; the server rejects bodies
+        whose ``namespace``/``id`` disagree with the URL.
+        """
         resp = self._raw_request(
             "PUT",
-            f"/admin/catalog/{entity}/{entry_id}",
+            f"/admin/catalog/{kind}/{entry_id}",
             content=body,
             content_type=content_type,
+            params={"namespace": namespace},
         )
         data = _require_json_object(resp.json())
-        return cast(CatalogEntry, _ENTITY_MODELS[entity].model_validate(data))
+        return Entry.model_validate(data)
 
-    def admin_catalog_delete(self, entity: str, entry_id: str) -> None:
-        """DELETE /admin/catalog/<entity>/<id> — 204 on success."""
-        self._request("DELETE", f"/admin/catalog/{entity}/{entry_id}")
+    def admin_catalog_delete(
+        self, kind: str, entry_id: str, *, namespace: str
+    ) -> None:
+        """DELETE /admin/catalog/<kind>/<id>?namespace=<ns> — 204 on success."""
+        self._request(
+            "DELETE",
+            f"/admin/catalog/{kind}/{entry_id}",
+            params={"namespace": namespace},
+        )
 
     # -- admin channels (thin wire — ADR-022 §D5) --
 

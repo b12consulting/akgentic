@@ -1,4 +1,12 @@
-"""FastAPI application factory for the akgentic-infra server."""
+"""FastAPI application factory for the akgentic-infra server.
+
+Per ADR-023: the ``/admin/catalog/*`` HTTP surface IS the v2 unified router
+(``akgentic.catalog.api.router.build_router``) with ``AuthStrategy`` wired
+as a FastAPI dependency. The v1-shaped ``admin_catalog`` router is gone; the
+catalog package itself owns request/response validation, error mapping, and
+CRUD semantics. Infra owns only the mount point, the auth gate, and the
+structured mutation log middleware.
+"""
 
 from __future__ import annotations
 
@@ -6,14 +14,19 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from akgentic.catalog.api import add_exception_handlers
+from akgentic.catalog.api._settings import CatalogRouterSettings
+from akgentic.catalog.api.router import build_router as build_catalog_router
+from akgentic.catalog.api.router import set_catalog as set_unified_catalog
 from akgentic.infra.server.deps import TierServices
 from akgentic.infra.server.logging_config import configure_logging
-from akgentic.infra.server.routes.admin_catalog import router as admin_catalog_router
+from akgentic.infra.server.routes._admin_mutation_log import AdminCatalogMutationLogMiddleware
+from akgentic.infra.server.routes._auth_dep import require_authenticated_principal
 from akgentic.infra.server.routes.frontend_adapter import load_frontend_adapter
 from akgentic.infra.server.routes.readiness import router as readiness_router
 from akgentic.infra.server.routes.teams import router as teams_router
@@ -46,7 +59,11 @@ def create_app(
     settings = settings or ServerSettings()
     configure_logging(settings.log_level)
     logger.info("Logging configured: level=%s", settings.log_level)
-    team_service = TeamService(services)
+    # ``workspaces_root`` is declared on ``CommunitySettings``; base
+    # ``ServerSettings`` callers fall back to the same default the field
+    # declares so ``TeamService`` always has a valid FS-cleanup root.
+    workspaces_root = getattr(settings, "workspaces_root", Path("workspaces"))
+    team_service = TeamService(services, workspaces_root=workspaces_root)
     _wire_ingestion(services, team_service)
     return _build_app(services, team_service, settings)
 
@@ -127,7 +144,17 @@ def _build_app(
     app = FastAPI(title="Akgentic Platform API", lifespan=_lifespan)
     _add_cors(app, settings.cors_origins)
     _store_state(app, services, team_service, settings)
+    # Inject the v2 catalog into the unified router's module-level slot before
+    # any request arrives — see ADR-023 §D1 and akgentic-catalog ADR-09.
+    set_unified_catalog(services.catalog)
     _mount_routes(app, settings)
+    # Mutation-log middleware must be added AFTER route mounting so that its
+    # dispatch wraps every admin-catalog response (see ADR-023 §D5).
+    # BaseHTTPMiddleware subclasses don't structurally match FastAPI's
+    # _MiddlewareFactory protocol (constructor returns None, not the app);
+    # the runtime contract is identical — the type ignore is purely
+    # Starlette's protocol vs. a concrete class mismatch.
+    app.add_middleware(AdminCatalogMutationLogMiddleware)  # type: ignore[arg-type]
     add_exception_handlers(app)
     return app
 
@@ -167,13 +194,29 @@ def _store_state(
 
 
 def _mount_routes(app: FastAPI, settings: ServerSettings) -> None:
-    """Mount all API routers and optional frontend adapter."""
+    """Mount all API routers and optional frontend adapter.
+
+    Route mount order (ADR-023 §D2): readiness, teams, workspace, ws, webhook,
+    admin-catalog, then optional frontend adapter. Admin-catalog is mounted
+    last among API routers so its ``/admin`` prefix cannot accidentally
+    shadow any other route.
+    """
     app.include_router(readiness_router)
     app.include_router(teams_router)
     app.include_router(workspace_router)
     app.include_router(ws_router)
     app.include_router(webhook_router)
-    app.include_router(admin_catalog_router)
+
+    # v2 unified catalog router, exposed under /admin/catalog/* with the
+    # generic kind-CRUD family enabled and gated by the wired AuthStrategy.
+    admin_catalog_router = build_catalog_router(
+        CatalogRouterSettings(expose_generic_kind_crud=True),
+    )
+    app.include_router(
+        admin_catalog_router,
+        prefix="/admin",
+        dependencies=[Depends(require_authenticated_principal)],
+    )
     logger.info("Building app: routes mounted")
 
     if settings.frontend_adapter:
@@ -181,4 +224,3 @@ def _mount_routes(app: FastAPI, settings: ServerSettings) -> None:
         adapter.register_routes(app)
         app.state.frontend_adapter = adapter
         logger.debug("Building app: Frontend adapter loaded: %s", settings.frontend_adapter)
-

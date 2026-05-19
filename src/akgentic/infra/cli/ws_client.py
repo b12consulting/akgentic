@@ -11,6 +11,7 @@ import websockets.exceptions
 
 from akgentic.core.messages.message import Message
 from akgentic.core.utils.deserializer import deserialize_object
+from akgentic.infra.cli.client import _auth_headers
 
 _log = logging.getLogger(__name__)
 
@@ -30,9 +31,7 @@ class WsClient:
     def __init__(self, base_url: str, team_id: str, api_key: str | None = None) -> None:
         ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://")
         self._url = f"{ws_url}/ws/{team_id}"
-        self._headers: list[tuple[str, str]] = []
-        if api_key:
-            self._headers.append(("Authorization", f"Bearer {api_key}"))
+        self._headers: list[tuple[str, str]] = list(_auth_headers(api_key).items())
         self._ws: websockets.asyncio.client.ClientConnection | None = None
         self._v1_warned: bool = False
 

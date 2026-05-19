@@ -6,12 +6,10 @@ import json
 import uuid
 
 import httpx
-
 from akgentic.core.actor_address_impl import ActorAddressProxy
 from akgentic.core.messages.orchestrator import SentMessage
 
 from akgentic.infra.adapters.shared.telegram_adapter import TelegramChannelAdapter
-
 
 # ---------------------------------------------------------------------------
 # Helpers (following test_channel_dispatcher.py patterns)

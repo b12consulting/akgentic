@@ -51,10 +51,10 @@ class TestReplTeamLifecycle:
     ) -> None:
         """AC #1: /teams lists teams with status indicators."""
         # Create 2 teams via REST
-        resp1 = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp1 = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp1.status_code == 201
         team1_id = resp1.json()["team_id"]
-        resp2 = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp2 = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp2.status_code == 201
         team2_id = resp2.json()["team_id"]
 
@@ -92,7 +92,7 @@ class TestReplTeamLifecycle:
     ) -> None:
         """AC #2: /create creates team and auto-switches session to it."""
         # Create initial team
-        resp = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         initial_team_id = resp.json()["team_id"]
 
@@ -126,7 +126,7 @@ class TestReplTeamLifecycle:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """AC #3: /delete deletes team after confirmation."""
-        resp = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -156,7 +156,7 @@ class TestReplTeamLifecycle:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """AC #4: /info shows current team details."""
-        resp = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -185,10 +185,10 @@ class TestReplTeamLifecycle:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """AC #4: /info <team_id> shows a different team's details."""
-        resp1 = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp1 = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp1.status_code == 201
         team1_id = resp1.json()["team_id"]
-        resp2 = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp2 = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp2.status_code == 201
         team2_id = resp2.json()["team_id"]
 
@@ -216,7 +216,7 @@ class TestReplTeamLifecycle:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """AC #5: /events shows raw team events."""
-        resp = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -255,10 +255,10 @@ class TestReplTeamLifecycle:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """AC #6: /restore restores a stopped team and auto-switches."""
-        resp1 = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp1 = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp1.status_code == 201
         team1_id = resp1.json()["team_id"]
-        resp2 = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp2 = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp2.status_code == 201
         team2_id = resp2.json()["team_id"]
 
@@ -302,7 +302,7 @@ class TestReplCatalog:
     ) -> None:
         """AC #7: /catalog lists available team templates."""
         # Need a team for the session
-        resp = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -337,7 +337,7 @@ class TestReplImplicitReply:
         integration_client: TestClient,
     ) -> None:
         """AC #8: _render_event sets pending reply state on HumanInput event."""
-        resp = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -375,7 +375,7 @@ class TestReplImplicitReply:
         integration_client: TestClient,
     ) -> None:
         """AC #8: pending reply state is consumed when plain text is sent."""
-        resp = integration_client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+        resp = integration_client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 

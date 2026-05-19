@@ -4,18 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from akgentic.catalog.repositories.yaml import (
-    YamlAgentCatalogRepository,
-    YamlTeamCatalogRepository,
-    YamlTemplateCatalogRepository,
-    YamlToolCatalogRepository,
-)
-from akgentic.catalog.services import (
-    AgentCatalog,
-    TeamCatalog,
-    TemplateCatalog,
-    ToolCatalog,
-)
+from akgentic.catalog import Catalog, YamlEntryRepository
 from akgentic.core import ActorSystem, EventSubscriber
 from akgentic.infra.adapters.community.local_event_stream import LocalEventStream
 from akgentic.infra.adapters.community.local_ingestion import LocalIngestion
@@ -55,7 +44,7 @@ def wire_community(settings: CommunitySettings) -> CommunityServices:
     service_registry = NullServiceRegistry()
     event_stream = LocalEventStream()
     actor_system, team_manager = _build_actor_layer(event_store, service_registry, event_stream)
-    catalogs = _build_catalogs(settings)
+    catalog = _build_catalog(settings)
 
     local_placement = LocalPlacement(team_manager, service_registry)
     local_worker_handle = LocalWorkerHandle(team_manager, service_registry, actor_system)
@@ -85,10 +74,7 @@ def wire_community(settings: CommunitySettings) -> CommunityServices:
         actor_system=actor_system,
         team_manager=team_manager,
         channel_parser_registry=ChannelParserRegistry(channels_config={}),
-        team_catalog=catalogs[0],
-        agent_catalog=catalogs[1],
-        tool_catalog=catalogs[2],
-        template_catalog=catalogs[3],
+        catalog=catalog,
     )
 
 
@@ -117,25 +103,7 @@ def _build_actor_layer(
     return actor_system, team_manager
 
 
-def _build_catalogs(
-    settings: CommunitySettings,
-) -> tuple[TeamCatalog, AgentCatalog, ToolCatalog, TemplateCatalog]:
-    """Build YAML-backed catalog services."""
-    catalog_root = settings.catalog_path
-    logger.debug("Building catalogs from %s", catalog_root)
-    template_catalog = TemplateCatalog(
-        repository=YamlTemplateCatalogRepository(catalog_dir=catalog_root / "templates"),
-    )
-    tool_catalog = ToolCatalog(
-        repository=YamlToolCatalogRepository(catalog_dir=catalog_root / "tools"),
-    )
-    agent_catalog = AgentCatalog(
-        repository=YamlAgentCatalogRepository(catalog_dir=catalog_root / "agents"),
-        template_catalog=template_catalog,
-        tool_catalog=tool_catalog,
-    )
-    team_catalog = TeamCatalog(
-        repository=YamlTeamCatalogRepository(catalog_dir=catalog_root / "teams"),
-        agent_catalog=agent_catalog,
-    )
-    return team_catalog, agent_catalog, tool_catalog, template_catalog
+def _build_catalog(settings: CommunitySettings) -> Catalog:
+    """Build the v2 unified ``Catalog`` service backed by ``YamlEntryRepository``."""
+    logger.debug("Building unified catalog from %s", settings.catalog_path)
+    return Catalog(repository=YamlEntryRepository(root=settings.catalog_path))

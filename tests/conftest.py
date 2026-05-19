@@ -34,54 +34,77 @@ def _write_yaml(path: Path, data: dict[str, object]) -> None:
 
 
 def _seed_catalog(catalog_root: Path) -> None:
-    """Create minimal YAML catalog entries for a test team."""
-    _write_yaml(
-        catalog_root / "agents" / "human-proxy.yaml",
-        {
-            "id": "human-proxy",
-            "tool_ids": [],
+    """Create minimal YAML catalog entries for a test team.
+
+    Seeds the v2 per-namespace layout (``{catalog_root}/{namespace}/{kind}/{id}.yaml``)
+    only. After Story 18.3 the community-tier wiring exposes a single unified
+    ``Catalog`` — the legacy v1 per-kind layout is no longer consumed.
+    Namespace ``test-team`` matches what tests post via
+    ``catalog_namespace="test-team"``.
+    """
+    _seed_v2_namespace(catalog_root, namespace="test-team")
+
+
+_TEAM_CARD_TYPE = "akgentic.team.models.TeamCard"
+
+
+def _seed_v2_namespace(catalog_root: Path, namespace: str) -> None:
+    """Write a minimal v2 team-namespace bundle into ``catalog_root``.
+
+    The ``TeamCard`` payload shape is taken from
+    ``akgentic.team.models.TeamCard``; every agent_class / model_type
+    string satisfies the v2 allowlist (``akgentic.*``).
+
+    The member configs use plain ``akgentic.core.agent.Akgent`` (which
+    expects ``BaseConfig``) because the v2 resolver hydrates
+    ``AgentCard.config`` against the declared annotation (``BaseConfig``).
+    Upgrading v2 to per-agent-class config types is tracked as part of
+    Epic 19's v1 removal. Tests that only need the agents to *exist*
+    and route messages by name work with the plain base class.
+    """
+    team_payload = {
+        "name": "Test Team",
+        "description": "v2 test team for infra tests",
+        "entry_point": {
             "card": {
                 "role": "Human",
                 "description": "Human user interface",
                 "skills": [],
-                "agent_class": "akgentic.agent.HumanProxy",
+                "agent_class": "akgentic.core.agent.Akgent",
                 "config": {"name": "@Human", "role": "Human"},
                 "routes_to": ["@Manager"],
             },
+            "headcount": 1,
+            "members": [],
         },
-    )
-    _write_yaml(
-        catalog_root / "agents" / "manager.yaml",
-        {
-            "id": "manager",
-            "tool_ids": [],
-            "card": {
-                "role": "Manager",
-                "description": "Test manager agent",
-                "skills": ["coordination"],
-                "agent_class": "akgentic.agent.BaseAgent",
-                "config": {"name": "@Manager", "role": "Manager"},
-                "routes_to": [],
+        "members": [
+            {
+                "card": {
+                    "role": "Manager",
+                    "description": "Test manager agent",
+                    "skills": ["coordination"],
+                    "agent_class": "akgentic.core.agent.Akgent",
+                    "config": {"name": "@Manager", "role": "Manager"},
+                    "routes_to": [],
+                },
+                "headcount": 1,
+                "members": [],
             },
-        },
-    )
+        ],
+        "message_types": [{"__type__": "akgentic.core.messages.UserMessage"}],
+        "agent_profiles": [],
+    }
     _write_yaml(
-        catalog_root / "teams" / "test-team.yaml",
+        catalog_root / namespace / "team" / "team.yaml",
         {
-            "id": "test-team",
-            "name": "Test Team",
-            "entry_point": "human-proxy",
-            "message_types": ["akgentic.core.messages.UserMessage"],
-            "members": [
-                {"agent_id": "human-proxy"},
-                {"agent_id": "manager"},
-            ],
-            "profiles": [],
+            "id": "team",
+            "kind": "team",
+            "namespace": namespace,
+            "model_type": _TEAM_CARD_TYPE,
+            "description": "v2 test team namespace bundle",
+            "payload": team_payload,
         },
     )
-    # Empty dirs for templates and tools (no entries needed for this team)
-    (catalog_root / "templates").mkdir(parents=True, exist_ok=True)
-    (catalog_root / "tools").mkdir(parents=True, exist_ok=True)
 
 
 @pytest.fixture(autouse=True)
@@ -124,9 +147,15 @@ def community_services(
 
 
 @pytest.fixture()
-def team_service(community_services: CommunityServices) -> TeamService:
+def team_service(
+    community_services: CommunityServices,
+    seeded_settings: CommunitySettings,
+) -> TeamService:
     """TeamService wired to community services."""
-    return TeamService(services=community_services)
+    return TeamService(
+        services=community_services,
+        workspaces_root=seeded_settings.workspaces_root,
+    )
 
 
 @pytest.fixture()

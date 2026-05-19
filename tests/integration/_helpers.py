@@ -89,7 +89,7 @@ def make_integration_session(cli_server_url: str, team_id: str) -> ChatSession:
 
 def create_team(client: TestClient) -> str:
     """POST /teams and return the team_id."""
-    resp = client.post("/teams/", json={"catalog_entry_id": CATALOG_ENTRY_ID})
+    resp = client.post("/teams/", json={"catalog_namespace": CATALOG_ENTRY_ID})
     assert resp.status_code == 201
     data = resp.json()
     assert data["status"] == "running"
@@ -124,15 +124,38 @@ def _write_yaml(path: Path, data: dict[str, object]) -> None:
 
 
 def seed_integration_catalog(catalog_root: Path) -> None:
-    """Seed YAML catalog with an LLM-capable agent for integration testing.
+    """Seed the v2 unified catalog with an LLM-capable team for integration tests.
 
-    Uses gpt-4o-mini for fast, cheap LLM calls.
+    Uses gpt-4o-mini for fast, cheap LLM calls. Layout is the v2 per-namespace
+    bundle (``{catalog_root}/{namespace}/{kind}/{id}.yaml``).
     """
-    _write_yaml(
-        catalog_root / "agents" / "human-proxy.yaml",
-        {
-            "id": "human-proxy",
-            "tool_ids": [],
+    _seed_v2_integration_namespace(catalog_root, namespace="test-team")
+
+
+_INTEGRATION_TEAM_CARD_TYPE = "akgentic.team.models.TeamCard"
+
+
+def _seed_v2_integration_namespace(catalog_root: Path, namespace: str) -> None:
+    """Seed a v2 team-namespace bundle matching the v1 integration team.
+
+    Laid out under ``{catalog_root}/{namespace}/team/team.yaml`` so
+    ``YamlEntryRepository.list_by_namespace(namespace)`` can resolve
+    ``Catalog.load_team(namespace)`` to a ``TeamCard`` equivalent to the
+    v1 fixture above.
+    """
+    # v2 does not upgrade ``AgentCard.config`` to the agent-class's
+    # ConfigType subclass the way v1's ``AgentEntry.resolve_config``
+    # validator does. To get an ``AgentConfig`` instance (with
+    # ``prompt`` / ``model_cfg`` fields) on a member card, this fixture
+    # uses the ``__model__`` serialization marker
+    # (``akgentic.core.utils.deserializer.deserialize_object``) which
+    # imports the declared class and constructs it before pydantic
+    # finalises the ``AgentCard`` instance. Subclass assignment is
+    # then accepted because ``AgentConfig`` is a ``BaseConfig``.
+    team_payload = {
+        "name": "Integration Test Team",
+        "description": "v2 integration test team",
+        "entry_point": {
             "card": {
                 "role": "Human",
                 "description": "Human user interface",
@@ -141,56 +164,56 @@ def seed_integration_catalog(catalog_root: Path) -> None:
                 "config": {"name": "@Human", "role": "Human"},
                 "routes_to": ["@Manager"],
             },
+            "headcount": 1,
+            "members": [],
         },
-    )
-    _write_yaml(
-        catalog_root / "agents" / "manager.yaml",
-        {
-            "id": "manager",
-            "tool_ids": [],
-            "card": {
-                "role": "Manager",
-                "description": "Integration test manager agent",
-                "skills": ["coordination"],
-                "agent_class": "akgentic.agent.BaseAgent",
-                "config": {
-                    "name": "@Manager",
+        "members": [
+            {
+                "card": {
                     "role": "Manager",
-                    "prompt": {
-                        "template": (
-                            "You are a helpful assistant. Reply concisely in one or two sentences."
-                        ),
+                    "description": "Integration test manager agent",
+                    "skills": ["coordination"],
+                    "agent_class": "akgentic.agent.BaseAgent",
+                    "config": {
+                        "__model__": "akgentic.agent.config.AgentConfig",
+                        "name": "@Manager",
+                        "role": "Manager",
+                        "prompt": {
+                            "template": (
+                                "You are a helpful assistant. "
+                                "Reply concisely in one or two sentences."
+                            ),
+                        },
+                        "model_cfg": {
+                            "provider": "openai",
+                            "model": "gpt-4o-mini",
+                            "temperature": 0.0,
+                        },
+                        "usage_limits": {
+                            "request_limit": 5,
+                            "total_tokens_limit": 10000,
+                        },
                     },
-                    "model_cfg": {
-                        "provider": "openai",
-                        "model": "gpt-4o-mini",
-                        "temperature": 0.0,
-                    },
-                    "usage_limits": {
-                        "request_limit": 5,
-                        "total_tokens_limit": 10000,
-                    },
+                    "routes_to": [],
                 },
-                "routes_to": [],
+                "headcount": 1,
+                "members": [],
             },
-        },
-    )
+        ],
+        "message_types": [{"__type__": "akgentic.agent.AgentMessage"}],
+        "agent_profiles": [],
+    }
     _write_yaml(
-        catalog_root / "teams" / "test-team.yaml",
+        catalog_root / namespace / "team" / "team.yaml",
         {
-            "id": "test-team",
-            "name": "Integration Test Team",
-            "entry_point": "human-proxy",
-            "message_types": ["akgentic.agent.AgentMessage"],
-            "members": [
-                {"agent_id": "human-proxy"},
-                {"agent_id": "manager"},
-            ],
-            "profiles": [],
+            "id": "team",
+            "kind": "team",
+            "namespace": namespace,
+            "model_type": _INTEGRATION_TEAM_CARD_TYPE,
+            "description": "v2 integration test team namespace bundle",
+            "payload": team_payload,
         },
     )
-    (catalog_root / "templates").mkdir(parents=True, exist_ok=True)
-    (catalog_root / "tools").mkdir(parents=True, exist_ok=True)
 
 
 def poll_until(

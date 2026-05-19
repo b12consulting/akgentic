@@ -26,17 +26,14 @@ pytestmark = [pytest.mark.e2e]
 
 
 def test_e2e_list_catalog_teams(e2e_http_client: httpx.Client) -> None:
-    """AC #1: GET /admin/catalog/teams returns expected shape and content."""
-    resp = e2e_http_client.get("/admin/catalog/teams")
+    """AC #1: GET /admin/catalog/team/{namespace}/resolve returns the TeamCard."""
+    resp = e2e_http_client.get(f"/admin/catalog/team/{CATALOG_ENTRY_ID}/resolve")
     assert resp.status_code == 200
-    teams = resp.json()
-    assert isinstance(teams, list)
-    assert len(teams) >= 1
+    card = resp.json()
 
-    # Verify response shape
-    for team in teams:
-        for field in ("id", "name", "entry_point", "members"):
-            assert field in team, f"Missing field '{field}' in catalog team entry"
+    # Verify TeamCard shape
+    for field in ("name", "entry_point", "members"):
+        assert field in card, f"Missing field '{field}' in resolved TeamCard"
 
 
 def test_e2e_create_team(e2e_http_client: httpx.Client) -> None:
@@ -45,7 +42,7 @@ def test_e2e_create_team(e2e_http_client: httpx.Client) -> None:
     try:
         resp = e2e_http_client.post(
             "/teams/",
-            json={"catalog_entry_id": CATALOG_ENTRY_ID},
+            json={"catalog_namespace": CATALOG_ENTRY_ID},
         )
         assert resp.status_code == 201
         data = resp.json()

@@ -284,7 +284,7 @@ class TestWebSocketAdapterIntegration:
 
     def test_ws_sends_v2_format_without_adapter(self, client: TestClient) -> None:
         """AC #1: No adapter — events sent in V2 format (existing behavior)."""
-        resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+        resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]
 
@@ -301,7 +301,7 @@ class TestWebSocketAdapterIntegration:
         """AC #1: Adapter present — wrap_ws_event is called."""
         resp = client_with_adapter.post(
             "/teams/",
-            json={"catalog_entry_id": "test-team"},
+            json={"catalog_namespace": "test-team"},
         )
         assert resp.status_code == 201
         team_id = resp.json()["team_id"]

@@ -24,9 +24,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic_ai.models.test import TestModel
 
-from akgentic.infra.adapters.shared.channel_parser_registry import ChannelParserRegistry
 from akgentic.infra.adapters.community.local_ingestion import LocalIngestion
 from akgentic.infra.adapters.community.yaml_channel_registry import YamlChannelRegistry
+from akgentic.infra.adapters.shared.channel_parser_registry import ChannelParserRegistry
 from akgentic.infra.server.app import _build_app, create_app
 from akgentic.infra.server.deps import CommunityServices
 from akgentic.infra.server.services.team_service import TeamService
@@ -126,9 +126,13 @@ def integration_services(
 @pytest.fixture()
 def integration_team_service(
     integration_services: CommunityServices,
+    integration_settings: CommunitySettings,
 ) -> TeamService:
     """TeamService wired to integration services."""
-    return TeamService(services=integration_services)
+    return TeamService(
+        services=integration_services,
+        workspaces_root=integration_settings.workspaces_root,
+    )
 
 
 @pytest.fixture()

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import websockets.exceptions
-
 from akgentic.core.messages.message import Message
+
 from akgentic.infra.cli.ws_client import WsClient, WsConnectionError
 
 
@@ -25,9 +25,14 @@ class TestUrlConversion:
         client = WsClient("http://host:9090", "t3")
         assert client.url == "ws://host:9090/ws/t3"
 
-    def test_api_key_stored(self) -> None:
+    def test_bearer_token_stored_as_authorization_header(self) -> None:
         client = WsClient("http://localhost:8000", "t1", api_key="secret")
         assert ("Authorization", "Bearer secret") in client._headers
+
+    def test_structured_api_key_stored_as_x_api_key_header(self) -> None:
+        client = WsClient("http://localhost:8000", "t1", api_key="ak_abc_def")
+        assert ("X-API-Key", "ak_abc_def") in client._headers
+        assert not any(h[0] == "Authorization" for h in client._headers)
 
     def test_no_api_key(self) -> None:
         client = WsClient("http://localhost:8000", "t1")
