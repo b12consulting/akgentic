@@ -1135,3 +1135,158 @@ class TestAutoAttachedStopSubscriber:
             and r.levelno >= logging.WARNING
         ]
         assert bad == [], f"unexpected warnings from subscriber: {bad}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: catalog_namespace (Story 18.1)
+# ---------------------------------------------------------------------------
+
+
+class TestTeamManagerCatalogNamespace:
+    """Story 18.1: optional catalog_namespace tag on Process."""
+
+    def test_create_team_default_catalog_namespace_is_none(
+        self,
+        manager: TeamManager,
+    ) -> None:
+        """Omitting catalog_namespace leaves it None on the persisted Process."""
+        tc = _make_team_card()
+        runtime = manager.create_team(tc, user_id="u", user_email="u@e")
+
+        persisted = manager.get_team(runtime.id)
+        assert persisted is not None
+        assert persisted.catalog_namespace is None
+
+    def test_create_team_with_catalog_namespace_persists(
+        self,
+        manager: TeamManager,
+    ) -> None:
+        """Explicit catalog_namespace propagates into the persisted Process."""
+        tc = _make_team_card()
+        runtime = manager.create_team(tc, user_id="u", user_email="u@e", catalog_namespace="ns-abc")
+
+        persisted = manager.get_team(runtime.id)
+        assert persisted is not None
+        assert persisted.catalog_namespace == "ns-abc"
+
+    def test_resume_preserves_catalog_namespace(
+        self,
+        manager: TeamManager,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """create(ns) -> stop -> resume keeps catalog_namespace intact."""
+        tc = _make_team_card()
+        # Pre-populate events required by restorer
+        team_id = _create_and_stop_team_with_namespace(manager, event_store, tc, "ns-abc")
+
+        manager.resume_team(team_id)
+        persisted = manager.get_team(team_id)
+        assert persisted is not None
+        assert persisted.status == TeamStatus.RUNNING
+        assert persisted.catalog_namespace == "ns-abc"
+
+    def test_stop_preserves_catalog_namespace(
+        self,
+        manager: TeamManager,
+    ) -> None:
+        """stop_team keeps catalog_namespace set on create."""
+        tc = _make_team_card()
+        runtime = manager.create_team(tc, user_id="u", user_email="u@e", catalog_namespace="ns-xyz")
+        manager.stop_team(runtime.id)
+
+        persisted = manager.get_team(runtime.id)
+        assert persisted is not None
+        assert persisted.status == TeamStatus.STOPPED
+        assert persisted.catalog_namespace == "ns-xyz"
+
+
+def _create_and_stop_team_with_namespace(
+    manager: TeamManager,
+    event_store: InMemoryEventStore,
+    team_card: TeamCard,
+    catalog_namespace: str,
+) -> uuid.UUID:
+    """Create a team with a catalog_namespace, inject StartMessage events, stop it.
+
+    Mirrors the helper ``_create_and_stop_team`` above but threads
+    ``catalog_namespace`` through ``create_team`` so resume round-trip
+    tests can assert preservation.
+    """
+    from datetime import UTC, datetime
+
+    from akgentic.core.actor_address_impl import ActorAddressProxy
+    from akgentic.core.messages.orchestrator import StartMessage
+    from akgentic.core.orchestrator import Orchestrator
+    from akgentic.core.utils.deserializer import ActorAddressDict
+
+    from akgentic.team.models import PersistedEvent
+
+    runtime = manager.create_team(
+        team_card, user_id="test-user", catalog_namespace=catalog_namespace
+    )
+    team_id = runtime.id
+    seq = 0
+
+    seq += 1
+    orch_addr_dict: ActorAddressDict = {
+        "__actor_address__": True,
+        "__actor_type__": f"{Orchestrator.__module__}.{Orchestrator.__name__}",
+        "agent_id": str(runtime.orchestrator_addr.agent_id),
+        "name": "orchestrator",
+        "role": "Orchestrator",
+        "team_id": str(team_id),
+        "squad_id": str(uuid.uuid4()),
+        "user_message": False,
+    }
+    orch_start = StartMessage(
+        config=BaseConfig(name="@Orchestrator", role="Orchestrator"),
+    )
+    orch_start.sender = ActorAddressProxy(orch_addr_dict)
+    orch_start.team_id = team_id
+    event_store.save_event(
+        PersistedEvent(
+            team_id=team_id,
+            sequence=seq,
+            event=orch_start,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    def _inject_member(member: TeamCardMember) -> None:
+        nonlocal seq
+        name = member.card.config.name
+        role = member.card.config.role
+        agent_class = member.card.get_agent_class()
+        addr = runtime.addrs.get(name)
+        agent_id = addr.agent_id if addr else uuid.uuid4()
+        seq += 1
+        addr_dict: ActorAddressDict = {
+            "__actor_address__": True,
+            "__actor_type__": f"{agent_class.__module__}.{agent_class.__name__}",
+            "agent_id": str(agent_id),
+            "name": name,
+            "role": role,
+            "team_id": str(team_id),
+            "squad_id": str(uuid.uuid4()),
+            "user_message": False,
+        }
+        sm = StartMessage(config=member.card.get_config_copy())
+        sm.sender = ActorAddressProxy(addr_dict)
+        sm.team_id = team_id
+        event_store.save_event(
+            PersistedEvent(
+                team_id=team_id,
+                sequence=seq,
+                event=sm,
+                timestamp=datetime.now(UTC),
+            )
+        )
+        for child in member.members:
+            _inject_member(child)
+
+    _inject_member(team_card.entry_point)
+    for m in team_card.members:
+        _inject_member(m)
+
+    manager.stop_team(team_id)
+    return team_id

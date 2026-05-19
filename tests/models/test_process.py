@@ -104,6 +104,30 @@ class TestProcess:
         restored = Process.model_validate(data)
         assert restored.status == TeamStatus.DELETED
 
+    def test_catalog_namespace_defaults_to_none(self) -> None:
+        process = make_process()
+        assert process.catalog_namespace is None
+
+    def test_catalog_namespace_round_trip(self) -> None:
+        process = make_process(catalog_namespace="ns-abc")
+        data = process.model_dump()
+        restored = Process.model_validate(data)
+        assert restored.catalog_namespace == "ns-abc"
+
+    def test_catalog_namespace_default_round_trip(self) -> None:
+        process = make_process()
+        data = process.model_dump()
+        restored = Process.model_validate(data)
+        assert restored.catalog_namespace is None
+
+    def test_legacy_persisted_data_without_catalog_namespace(self) -> None:
+        """Pre-existing persisted teams without the field validate cleanly."""
+        process = make_process()
+        data = process.model_dump()
+        data.pop("catalog_namespace", None)
+        restored = Process.model_validate(data)
+        assert restored.catalog_namespace is None
+
 
 class TestPersistedEvent:
     """Tests for PersistedEvent model."""

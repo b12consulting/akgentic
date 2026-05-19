@@ -11,6 +11,7 @@ keywords = ["agents", "ai", "akgentic", "teams", "lifecycle"]
 
 dependencies = [
     "pydantic>=2.0.0",
+    "pyyaml>=6.0",
     "akgentic-core",
 ]
 
@@ -29,6 +30,7 @@ dev = [
     "nagra>=0.5",
     "psycopg[binary]>=3.1",
     "testcontainers[postgres]>=4.0.0",
+    "types-PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -38,8 +40,11 @@ ak-team = "akgentic.team.cli.main:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv.sources]
-akgentic-core = { workspace = true }
+# Note: akgentic-* dependencies have NO [tool.uv.sources] entry here.
+# - Inside the akgentic-quick-start workspace, the workspace root's
+#   [tool.uv.sources] resolves them as editable workspace members.
+# - In standalone CI, they are built from RELEASE_BRANCH into a local
+#   wheelhouse and installed via `uv pip install --find-links` — see ci.yml.
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akgentic"]
@@ -59,7 +64,10 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 markers = ["integration: Full lifecycle tests requiring real LLM and API keys"]
-addopts = "-m 'not integration'"
+# --ignore: integration tests import akgentic.agent (not a dependency of
+# akgentic-team); skip collecting them so the import does not error before the
+# 'not integration' marker filter is applied.
+addopts = "-m 'not integration' --ignore=tests/integration"
 
 [tool.ruff]
 target-version = "py312"

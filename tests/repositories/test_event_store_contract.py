@@ -68,6 +68,22 @@ class TestEventStoreContract:
         assert loaded is not None
         assert loaded.status == TeamStatus.STOPPED
 
+    def test_catalog_namespace_round_trips(self, event_store: EventStore) -> None:
+        """Story 18.1: ``Process.catalog_namespace`` persists through save/load."""
+        process = make_process(catalog_namespace="ns-contract")
+        event_store.save_team(process)
+        loaded = event_store.load_team(process.team_id)
+        assert loaded is not None
+        assert loaded.catalog_namespace == "ns-contract"
+
+    def test_catalog_namespace_default_round_trips(self, event_store: EventStore) -> None:
+        """Story 18.1: default ``None`` catalog_namespace also survives a round trip."""
+        process = make_process()
+        event_store.save_team(process)
+        loaded = event_store.load_team(process.team_id)
+        assert loaded is not None
+        assert loaded.catalog_namespace is None
+
     # --- list_teams -------------------------------------------------------
 
     def test_list_teams_returns_all(self, event_store: EventStore) -> None:

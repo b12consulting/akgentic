@@ -168,6 +168,7 @@ def make_process(
     team_card: TeamCard | None = None,
     status: TeamStatus = TeamStatus.RUNNING,
     user_id: str | None = None,
+    catalog_namespace: str | None = None,
 ) -> Process:
     """Create a Process with sensible defaults for testing.
 
@@ -179,6 +180,7 @@ def make_process(
             ``user_id`` kwarg is omitted from the ``Process(...)`` call so
             the underlying field falls back to its model default (``"cli"``
             per ``Process.user_id``). When a string, it is passed through.
+        catalog_namespace: Optional catalog-namespace tag.
 
     Returns:
         A Process with the specified or default configuration.
@@ -192,6 +194,7 @@ def make_process(
             status=status,
             created_at=now,
             updated_at=now,
+            catalog_namespace=catalog_namespace,
         )
     return Process(
         team_id=team_id or uuid.uuid4(),
@@ -200,6 +203,7 @@ def make_process(
         user_id=user_id,
         created_at=now,
         updated_at=now,
+        catalog_namespace=catalog_namespace,
     )
 
 
