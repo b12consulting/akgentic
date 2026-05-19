@@ -13,8 +13,16 @@ inner ModelRequest/ModelResponse as raw dicts.
 
 from datetime import datetime, timezone
 
-from akgentic.core.utils.deserializer import deserialize_object
-from akgentic.core.utils.serializer import serialize
+import pytest
+
+# akgentic-core is a sibling workspace package, NOT a declared dependency of
+# standalone akgentic-llm. On a standalone CI checkout it is unavailable, so
+# this cross-package serialization test is skipped rather than erroring out
+# during collection. It still runs in the workspace context.
+pytest.importorskip("akgentic.core")
+
+from akgentic.core.utils.deserializer import deserialize_object  # noqa: E402
+from akgentic.core.utils.serializer import serialize  # noqa: E402
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
