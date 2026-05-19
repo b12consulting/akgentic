@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-catalog"
-version = "1.2.0"
+version = "2.0.0"
 description = "Collaborative agent patterns for the Akgentic framework"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -42,9 +42,13 @@ dev = [
     "types-PyYAML>=6.0",
     "mongomock>=4.0.0",
     "httpx>=0.24.0",
-    "nagra>=0.5",
-    "psycopg[binary]>=3.1",
     "testcontainers[postgres]>=4.0.0",
+    # Test-only: resolver fixtures (agent-team-v1, sibling-overrides-v1) name
+    # classes from akgentic-llm and akgentic-agent that import_class loads at
+    # resolve time. These are NOT runtime dependencies of akgentic-catalog —
+    # they stay out of [project.dependencies] to preserve the module boundary.
+    "akgentic-llm",
+    "akgentic-agent",
 ]
 
 [project.scripts]
@@ -63,13 +67,24 @@ packages = ["src/akgentic"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/akgentic/catalog/repositories/postgres/schema.toml" = "akgentic/catalog/repositories/postgres/schema.toml"
 
-[tool.uv.sources]
-akgentic-core = { workspace = true }
-akgentic-tool = { workspace = true }
-akgentic-team = { workspace = true }
+# Note: akgentic-* dependencies have NO [tool.uv.sources] entry here.
+# - Inside the akgentic-quick-start workspace, the workspace root's
+#   [tool.uv.sources] resolves them as editable workspace members.
+# - In standalone CI, they are built from RELEASE_BRANCH into a local
+#   wheelhouse and installed via `uv pip install --find-links` — see ci.yml.
+#   This includes the test-only akgentic-llm / akgentic-agent deps used by
+#   the resolver fixtures.
 
 # Tool configurations inherit from root workspace pyproject.toml
 # Only override when package-specific behavior is needed
+
+# Previously inherited from the akgentic-quick-start workspace root; the
+# standalone-package CI no longer checks out the workspace, so async tests
+# need asyncio_mode declared here.
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -46,9 +46,7 @@ class TestResolveEnvVars:
         # ${1VAR} is not a valid identifier per the regex
         assert resolve_env_vars("${1VAR}") == "${1VAR}"
 
-    def test_empty_env_var_value_resolves_to_empty(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_empty_env_var_value_resolves_to_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("EMPTY_VAR", "")
         assert resolve_env_vars("prefix-${EMPTY_VAR}-suffix") == "prefix--suffix"
 

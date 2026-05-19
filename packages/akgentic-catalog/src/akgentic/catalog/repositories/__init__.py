@@ -1,54 +1,26 @@
-"""Public API surface for catalog repositories.
+"""Public API surface for catalog v2 repositories.
 
-Re-exports abstract repository interfaces (TemplateCatalogRepository,
-ToolCatalogRepository, AgentCatalogRepository, TeamCatalogRepository)
-and their YAML-backed implementations. MongoDB backend exports are
-conditionally available when pymongo is installed.
+Re-exports the structural ``EntryRepository`` protocol and the concrete
+YAML-backed implementation. The MongoDB-backed implementation is conditionally
+re-exported when ``pymongo`` is installed.
 """
 
 from __future__ import annotations
 
-from akgentic.catalog.repositories.base import (
-    AgentCatalogRepository,
-    TeamCatalogRepository,
-    TemplateCatalogRepository,
-    ToolCatalogRepository,
-)
-from akgentic.catalog.repositories.yaml.agent_repo import YamlAgentCatalogRepository
-from akgentic.catalog.repositories.yaml.team_repo import YamlTeamCatalogRepository
-from akgentic.catalog.repositories.yaml.template_repo import YamlTemplateCatalogRepository
-from akgentic.catalog.repositories.yaml.tool_repo import YamlToolCatalogRepository
+from akgentic.catalog.repositories.base import EntryRepository
+from akgentic.catalog.repositories.yaml import YamlEntryRepository
 
 __all__ = [
-    "AgentCatalogRepository",
-    "TeamCatalogRepository",
-    "TemplateCatalogRepository",
-    "ToolCatalogRepository",
-    "YamlAgentCatalogRepository",
-    "YamlTeamCatalogRepository",
-    "YamlTemplateCatalogRepository",
-    "YamlToolCatalogRepository",
+    "EntryRepository",
+    "YamlEntryRepository",
 ]
 
 try:
-    from akgentic.catalog.repositories.mongo import (
-        MongoAgentCatalogRepository,
-        MongoCatalogConfig,
-        MongoTeamCatalogRepository,
-        MongoTemplateCatalogRepository,
-        MongoToolCatalogRepository,
-        from_document,
-        to_document,
-    )
+    from akgentic.catalog.repositories.mongo import MongoCatalogConfig, MongoEntryRepository
 
     __all__ += [
-        "MongoAgentCatalogRepository",
         "MongoCatalogConfig",
-        "MongoTeamCatalogRepository",
-        "MongoTemplateCatalogRepository",
-        "MongoToolCatalogRepository",
-        "from_document",
-        "to_document",
+        "MongoEntryRepository",
     ]
 except ImportError:
     pass

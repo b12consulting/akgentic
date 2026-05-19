@@ -1,0 +1,20 @@
+id: assistant
+kind: agent
+namespace: sibling-overrides-v1
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Assistant sharing the team prompt with its own params.
+payload:
+  role: Assistant
+  description: Assistant sharing the team prompt with its own params.
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+    - research
+  config:
+    name: "@Assistant"
+    role: Assistant
+    prompt:
+      __ref__: id_team_prompt
+      params:
+        role: Assistant
+        instructions: Provide clear answers.

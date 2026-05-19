@@ -1,1 +1,3 @@
-"""Runnable entry points for deployment-time catalog operations."""
+"""Runnable entry-point modules for Akgentic catalog deployment."""
+
+from __future__ import annotations

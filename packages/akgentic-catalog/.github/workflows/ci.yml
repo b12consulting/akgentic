@@ -8,6 +8,13 @@ on:
 
 env:
   NO_COLOR: "1"
+  # Release channel for akgentic-* dependencies. On a release branch set this
+  # to that branch (e.g. version-1.x); sibling akgentic-* packages are built
+  # from this branch into the local wheelhouse.
+  RELEASE_BRANCH: master
+  # Transitive closure of akgentic-* dependencies, space-separated. Includes
+  # the test-only llm/agent deps (resolver fixtures) and their own deps.
+  AKGENTIC_DEPS: "akgentic-core akgentic-llm akgentic-tool akgentic-team akgentic-agent"
 
 jobs:
   quality:
@@ -16,36 +23,18 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: akgentic
-          POSTGRES_PASSWORD: akgentic
-          POSTGRES_DB: akgentic_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: catalog_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U akgentic"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-    env:
-      POSTGRES_SERVER: localhost
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: akgentic
-      POSTGRES_PASSWORD: akgentic
-      POSTGRES_DB: akgentic_test
-      DB_CONN_STRING_PERSISTENCE: postgresql://akgentic:akgentic@localhost:5432/akgentic_test
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
-      - name: Checkout workspace
+      - name: Checkout akgentic-catalog
         uses: actions/checkout@v6
-        with:
-          repository: b12consulting/akgentic-quick-start
-          submodules: recursive
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Override catalog submodule with current branch
-        working-directory: packages/akgentic-catalog
-        run: |
-          git fetch origin ${{ github.head_ref || github.ref_name }}
-          git checkout FETCH_HEAD
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -55,18 +44,43 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install dependencies
-        run: uv sync --all-packages --all-extras
+      # Build every akgentic-* dependency from RELEASE_BRANCH into a local
+      # wheelhouse. uv pip install --find-links then resolves them from there;
+      # all other (PyPI) deps still come from the default index.
+      - name: Build akgentic-* dependency wheelhouse
+        run: |
+          mkdir -p wheelhouse
+          for dep in ${AKGENTIC_DEPS}; do
+            echo "::group::build ${dep} @ ${RELEASE_BRANCH}"
+            git clone --depth 1 --branch "${RELEASE_BRANCH}" \
+              "https://github.com/b12consulting/${dep}.git" "/tmp/${dep}"
+            uv build --wheel --out-dir wheelhouse "/tmp/${dep}"
+            echo "::endgroup::"
+          done
+          ls -1 wheelhouse
 
+      - name: Create virtual environment
+        run: uv venv
+
+      # Install the package editable, resolving akgentic-* deps from the
+      # wheelhouse and everything else from PyPI. All optional extras are
+      # listed so mypy can analyze their imports (api, cli, mongo, postgres).
+      - name: Install dependencies
+        run: uv pip install --find-links wheelhouse -e ".[dev,api,cli,mongo,postgres]"
+
+      # --no-sync: run in the wheelhouse-built venv without re-resolving from a
+      # lockfile (there is no project lockfile in this install model).
       - name: Type checking
-        run: uv run mypy packages/akgentic-catalog/src/
+        run: uv run --no-sync mypy src/
 
       - name: Linting
-        run: uv run ruff check packages/akgentic-catalog/src/
+        run: uv run --no-sync ruff check src/
 
       - name: Run tests with coverage
+        env:
+          DB_CONN_STRING_PERSISTENCE: postgresql://postgres:postgres@localhost:5432/catalog_test
         run: >
-          uv run pytest packages/akgentic-catalog/tests/
+          uv run --no-sync pytest tests/
           --cov=akgentic.catalog
           --cov-report=term-missing
           --cov-report=json:coverage.json

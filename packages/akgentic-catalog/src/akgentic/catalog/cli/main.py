@@ -1,620 +1,1052 @@
-"""Typer CLI application for the Akgentic catalog.
+"""Typer CLI for the unified catalog — ``ak-catalog <kind> <verb>``.
 
-Provides the ``ak-catalog`` entry point with global options and subcommand
-groups for managing catalog entries.
+Single flat CLI module exposing a Typer ``app`` mounted on the ``ak-catalog``
+console-script entry point; every verb is a thin dispatcher into
+:class:`akgentic.catalog.catalog.Catalog` — no business logic lives here.
+
+The CLI supports three storage backends: YAML (default), MongoDB, and
+PostgreSQL. The Postgres path honours ADR-011's wiring contract — the
+``--postgres-conn-string`` flag is bound to the ``DB_CONN_STRING_PERSISTENCE``
+environment variable via Typer's ``envvar=`` resolution so operators have
+two channels with flag-wins semantics. Navigation-only reference.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import logging
-import sys
-from dataclasses import dataclass, field
+import builtins
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, Literal
 
 import typer
+import yaml
+from pydantic import BaseModel, ConfigDict, ValidationError
 from rich.console import Console
+from rich.table import Table
 
-from akgentic.catalog.cli._output import OutputFormat
-
-if TYPE_CHECKING:
-    from akgentic.catalog.models.agent import AgentEntry
-    from akgentic.catalog.models.team import TeamEntry, TeamMemberSpec
-    from akgentic.catalog.models.template import TemplateEntry
-    from akgentic.catalog.models.tool import ToolEntry
-    from akgentic.catalog.services.agent_catalog import AgentCatalog
-    from akgentic.catalog.services.team_catalog import TeamCatalog
-    from akgentic.catalog.services.template_catalog import TemplateCatalog
-    from akgentic.catalog.services.tool_catalog import ToolCatalog
+from akgentic.catalog.catalog import Catalog
+from akgentic.catalog.models.entry import Entry, EntryKind
+from akgentic.catalog.models.errors import CatalogValidationError, EntryNotFoundError
+from akgentic.catalog.models.queries import CloneRequest, EntryQuery
+from akgentic.catalog.repositories.base import EntryRepository
+from akgentic.catalog.resolver import enumerate_allowlisted_model_types, load_model_type
+from akgentic.catalog.validation import EntryValidationIssue, NamespaceValidationReport
 
 __all__ = ["app"]
 
-logger = logging.getLogger(__name__)
+_list = builtins.list  # Alias kept because ``list`` is a Typer verb name.
+
+_stdout = Console()
 err_console = Console(stderr=True)
 
 
-@dataclass
-class GlobalState:
-    """Shared state passed through Typer context."""
+# --------------------------------------------------------------------------- #
+# CLI state
+# --------------------------------------------------------------------------- #
 
-    catalog_dir: Path = field(default_factory=lambda: Path("catalog"))
-    format: OutputFormat = OutputFormat.table
-    backend: str = "yaml"
-    mongo_uri: str | None = None
-    mongo_db: str | None = None
+
+class CliState(BaseModel):
+    """Global CLI state stashed on ``ctx.obj`` by the root callback."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=False)
+
+    backend: Literal["yaml", "mongo", "postgres"] = "yaml"
+    root: Path = Path("./catalog")
+    uri: str | None = None
+    db: str | None = None
     postgres_conn_string: str | None = None
+    output_format: Literal["table", "json", "yaml"] = "table"
 
 
-app = typer.Typer(name="ak-catalog", help="Manage Akgentic catalog entries.")
+# --------------------------------------------------------------------------- #
+# Typer app + global callback
+# --------------------------------------------------------------------------- #
+
+
+app = typer.Typer(
+    name="ak-catalog",
+    help="Unified Akgentic catalog CLI (v2) — manage entries across kinds.",
+    no_args_is_help=True,
+)
+
+
+def _validate_mongo_options(state: CliState) -> None:
+    """Guard mongo-only options; raises ``typer.Exit(code=2)`` on failure."""
+    if state.backend != "mongo":
+        return
+    if state.uri is None:
+        err_console.print("--uri is required when --backend=mongo")
+        raise typer.Exit(code=2)
+    if state.db is None:
+        err_console.print("--db is required when --backend=mongo")
+        raise typer.Exit(code=2)
+    if not (state.uri.startswith("mongodb://") or state.uri.startswith("mongodb+srv://")):
+        err_console.print("--uri must start with 'mongodb://' or 'mongodb+srv://'")
+        raise typer.Exit(code=2)
+
+
+def _validate_postgres_options(state: CliState) -> None:
+    """Guard postgres-only options; raises ``typer.Exit(code=2)`` on failure."""
+    if state.backend != "postgres":
+        return
+    if state.postgres_conn_string is None:
+        err_console.print(
+            "--postgres-conn-string is required when --backend=postgres "
+            "(or set DB_CONN_STRING_PERSISTENCE env var)"
+        )
+        raise typer.Exit(code=2)
 
 
 @app.callback()
-def main(
+def _root(
     ctx: typer.Context,
-    catalog_dir: Path = typer.Option(
-        Path("catalog"),
-        "--catalog-dir",
-        help="Root directory for catalog YAML files.",
-    ),
-    fmt: OutputFormat = typer.Option(
-        OutputFormat.table,
-        "--format",
-        help="Output format: table, json, or yaml.",
-    ),
     backend: str = typer.Option(
         "yaml",
         "--backend",
-        help="Storage backend: yaml, mongodb, or postgres.",
+        help="Storage backend: yaml, mongo, or postgres.",
+        case_sensitive=False,
     ),
-    mongo_uri: str | None = typer.Option(
-        None,
-        "--mongo-uri",
-        envvar="MONGO_URI",
-        help="MongoDB connection URI (required when --backend=mongodb).",
+    root: Path = typer.Option(
+        Path("./catalog"),
+        "--root",
+        help="Root directory for YAML entries (only when --backend=yaml).",
     ),
-    mongo_db: str | None = typer.Option(
+    uri: str | None = typer.Option(
         None,
-        "--mongo-db",
-        envvar="MONGO_DB",
-        help="MongoDB database name (required when --backend=mongodb).",
+        "--uri",
+        help="MongoDB connection URI (required when --backend=mongo).",
+    ),
+    db: str | None = typer.Option(
+        None,
+        "--db",
+        help="MongoDB database name (required when --backend=mongo).",
     ),
     postgres_conn_string: str | None = typer.Option(
         None,
         "--postgres-conn-string",
         envvar="DB_CONN_STRING_PERSISTENCE",
-        help="Postgres connection URL (required when --backend=postgres).",
+        help=(
+            "Postgres DSN (required when --backend=postgres). "
+            "Falls back to DB_CONN_STRING_PERSISTENCE env var."
+        ),
+    ),
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table, json, or yaml.",
+        case_sensitive=False,
     ),
 ) -> None:
-    """Akgentic catalog CLI -- manage templates, tools, agents, and teams."""
-    valid_backends = ("yaml", "mongodb", "postgres")
-    if backend not in valid_backends:
-        err_console.print(
-            f"[red]Error:[/red] Invalid backend '{backend}'. "
-            f"Must be one of: {', '.join(valid_backends)}"
-        )
-        logger.warning("Invalid backend value: %s", backend)
-        raise typer.Exit(code=1)
+    """Parse global options and stash a ``CliState`` on ``ctx.obj``."""
+    if backend not in ("yaml", "mongo", "postgres"):
+        err_console.print(f"Invalid backend '{backend}'. Must be 'yaml', 'mongo', or 'postgres'.")
+        raise typer.Exit(code=2)
+    if output_format not in ("table", "json", "yaml"):
+        err_console.print(f"Invalid format '{output_format}'. Must be 'table', 'json', or 'yaml'.")
+        raise typer.Exit(code=2)
 
-    if backend == "mongodb":
-        errors = _validate_mongodb_options(mongo_uri, mongo_db)
-        if errors:
-            for err in errors:
-                err_console.print(f"[red]Error:[/red] {err}")
-            logger.warning("MongoDB validation failed: %s", errors)
-            raise typer.Exit(code=1)
-
-    if backend == "postgres":
-        errors = _validate_postgres_options(postgres_conn_string)
-        if errors:
-            for err in errors:
-                err_console.print(f"[red]Error:[/red] {err}")
-            logger.warning("Postgres validation failed: %s", errors)
-            raise typer.Exit(code=1)
-
-    ctx.ensure_object(dict)
-    ctx.obj = GlobalState(
-        catalog_dir=catalog_dir,
-        format=fmt,
-        backend=backend,
-        mongo_uri=mongo_uri,
-        mongo_db=mongo_db,
+    state = CliState(
+        backend=backend,  # type: ignore[arg-type]
+        root=root,
+        uri=uri,
+        db=db,
         postgres_conn_string=postgres_conn_string,
+        output_format=output_format,  # type: ignore[arg-type]
     )
+    _validate_mongo_options(state)
+    _validate_postgres_options(state)
+    ctx.obj = state
 
 
-def _validate_mongodb_options(
-    mongo_uri: str | None,
-    mongo_db: str | None,
-) -> list[str]:
-    """Validate MongoDB connection options and return error messages.
+# --------------------------------------------------------------------------- #
+# Backend wiring
+# --------------------------------------------------------------------------- #
 
-    Args:
-        mongo_uri: MongoDB connection URI, or None if not provided.
-        mongo_db: MongoDB database name, or None if not provided.
 
-    Returns:
-        List of error message strings (empty if valid).
+def _build_catalog(state: CliState) -> Catalog:
+    """Construct a ``Catalog`` from the active ``CliState``.
+
+    YAML: creates ``state.root`` if absent and wraps a ``YamlEntryRepository``.
+
+    Mongo: lazy-imports the Mongo repository so YAML-only users never trip a
+    missing ``pymongo``. A missing extra is re-surfaced as an "optional extra"
+    usage error (exit 2) rather than a cryptic ``ImportError``.
+
+    Postgres: lazy-imports :class:`PostgresEntryRepository`; a missing
+    ``[postgres]`` extra is re-surfaced as an "optional extra" usage error
+    (exit 2), mirroring the Mongo branch shape.
     """
-    errors: list[str] = []
-    if not mongo_uri:
-        errors.append("--mongo-uri (or MONGO_URI env var) is required when --backend=mongodb")
-    elif not mongo_uri.startswith(("mongodb://", "mongodb+srv://")):
-        errors.append("--mongo-uri must start with 'mongodb://' or 'mongodb+srv://'")
-    if not mongo_db:
-        errors.append("--mongo-db (or MONGO_DB env var) is required when --backend=mongodb")
-    return errors
+    if state.backend == "yaml":
+        from akgentic.catalog.repositories.yaml import YamlEntryRepository
 
+        state.root.mkdir(parents=True, exist_ok=True)
+        return Catalog(YamlEntryRepository(state.root))
 
-def _validate_postgres_options(
-    postgres_conn_string: str | None,
-) -> list[str]:
-    """Validate Postgres connection options and return error messages.
-
-    Args:
-        postgres_conn_string: Postgres libpq connection URL, or None.
-
-    Returns:
-        List of error message strings (empty if valid).
-    """
-    errors: list[str] = []
-    if not postgres_conn_string:
-        errors.append(
-            "--postgres-conn-string (or DB_CONN_STRING_PERSISTENCE env var) "
-            "is required when --backend=postgres"
-        )
-    return errors
-
-
-def _load_entries_module(file_path: Path) -> list[Any]:
-    """Load a Python module and return its ``entries`` list.
-
-    Args:
-        file_path: Path to a ``.py`` file containing an ``entries`` variable.
-
-    Returns:
-        The list of catalog entries defined in the module.
-
-    Raises:
-        FileNotFoundError: If the file does not exist.
-        ImportError: If the module cannot be loaded.
-        ValueError: If the module lacks ``entries`` or it is not a list.
-    """
-    if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {file_path}")
-    spec = importlib.util.spec_from_file_location("_catalog_import", file_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load module from {file_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["_catalog_import"] = module
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.modules.pop("_catalog_import", None)
-    entries = getattr(module, "entries", None)
-    if entries is None:
-        raise ValueError(f"Module {file_path} does not define an 'entries' variable")
-    if not isinstance(entries, list):
-        raise ValueError(f"'entries' in {file_path} must be a list")
-    if not entries:
-        raise ValueError(f"'entries' in {file_path} is empty")
-    return entries
-
-
-def _classify_entries(
-    entries: list[Any],
-) -> tuple[list[TemplateEntry], list[ToolEntry], list[AgentEntry], list[TeamEntry]]:
-    """Classify entries by type into four lists.
-
-    Args:
-        entries: Raw list of catalog entry objects.
-
-    Returns:
-        Tuple of (templates, tools, agents, teams).
-    """
-    from akgentic.catalog.models.agent import AgentEntry as _AgentEntry
-    from akgentic.catalog.models.team import TeamEntry as _TeamEntry
-    from akgentic.catalog.models.template import TemplateEntry as _TemplateEntry
-    from akgentic.catalog.models.tool import ToolEntry as _ToolEntry
-
-    templates: list[TemplateEntry] = []
-    tools: list[ToolEntry] = []
-    agents: list[AgentEntry] = []
-    teams: list[TeamEntry] = []
-
-    for entry in entries:
-        if isinstance(entry, _TemplateEntry):
-            templates.append(entry)
-        elif isinstance(entry, _ToolEntry):
-            tools.append(entry)
-        elif isinstance(entry, _AgentEntry):
-            agents.append(entry)
-        elif isinstance(entry, _TeamEntry):
-            teams.append(entry)
-        else:
-            err_console.print(
-                f"[yellow]Warning:[/yellow] Skipping unknown entry type: {type(entry).__name__}"
+    if state.backend == "mongo":
+        # options pre-validated by the root callback.
+        try:
+            from akgentic.catalog.repositories.mongo import (
+                MongoCatalogConfig,
+                MongoEntryRepository,
             )
+        except ImportError:
+            err_console.print(
+                "--backend=mongo requires the 'mongo' optional extra: "
+                "pip install akgentic-catalog[mongo]"
+            )
+            raise typer.Exit(code=2) from None
 
-    return templates, tools, agents, teams
+        assert state.uri is not None  # guarded by _validate_mongo_options
+        assert state.db is not None
+        config = MongoCatalogConfig(connection_string=state.uri, database=state.db)
+        client = config.create_client()
+        collection = config.get_collection(client, config.catalog_entries_collection)
+        return Catalog(MongoEntryRepository(collection))
 
-
-def _collect_member_ids(members: list[TeamMemberSpec]) -> set[str]:
-    """Recursively collect all agent_ids from a members tree.
-
-    Args:
-        members: The member tree to traverse.
-
-    Returns:
-        Set of all agent_id values found in the tree.
-    """
-    ids: set[str] = set()
-    for m in members:
-        ids.add(m.agent_id)
-        if m.members:
-            ids |= _collect_member_ids(m.members)
-    return ids
-
-
-@app.command("import")
-def import_cmd(
-    ctx: typer.Context,
-    python_file: Path = typer.Argument(help="Path to a Python file with an 'entries' list"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate without persisting"),
-) -> None:
-    """Import catalog entries from a Python file."""
-    from akgentic.catalog.cli._catalog import build_catalogs_from_state
-    from akgentic.catalog.models.errors import CatalogValidationError
-
-    state = get_state(ctx)
-    template_catalog, tool_catalog, agent_catalog, team_catalog = build_catalogs_from_state(state)
-
+    # state.backend == "postgres" — options pre-validated by the root callback.
     try:
-        entries = _load_entries_module(python_file)
-    except (FileNotFoundError, ImportError, ValueError) as exc:
-        err_console.print(f"[red]Error:[/red] {exc}")
-        logger.warning("Failed to load entries from %s: %s", python_file, exc)
-        raise typer.Exit(code=1) from exc
-
-    templates, tools, agents, teams = _classify_entries(entries)
-    logger.info(
-        "Classified entries: %s templates, %s tools, %s agents, %s teams",
-        len(templates),
-        len(tools),
-        len(agents),
-        len(teams),
-    )
-
-    if dry_run:
-        _import_dry_run(
-            templates,
-            tools,
-            agents,
-            teams,
-            template_catalog,
-            tool_catalog,
-            agent_catalog,
-            team_catalog,
-        )
-        return
-
-    errors: list[str] = []
-    created = 0
-    updated = 0
-
-    # Resolution order: templates + tools first
-    for tmpl in templates:
-        try:
-            if template_catalog.get(tmpl.id) is None:
-                template_catalog.create(tmpl)
-                err_console.print(f"[green]Created template:[/green] {tmpl.id}")
-                created += 1
-            else:
-                template_catalog.update(tmpl.id, tmpl)
-                err_console.print(f"[blue]Updated template:[/blue] {tmpl.id}")
-                updated += 1
-        except CatalogValidationError as exc:
-            for err in exc.errors:
-                errors.append(f"Template '{tmpl.id}': {err}")
-
-    for tool in tools:
-        try:
-            if tool_catalog.get(tool.id) is None:
-                tool_catalog.create(tool)
-                err_console.print(f"[green]Created tool:[/green] {tool.id}")
-                created += 1
-            else:
-                tool_catalog.update(tool.id, tool)
-                err_console.print(f"[blue]Updated tool:[/blue] {tool.id}")
-                updated += 1
-        except CatalogValidationError as exc:
-            for err in exc.errors:
-                errors.append(f"Tool '{tool.id}': {err}")
-
-    # Then agents
-    batch_names = {a.card.config.name for a in agents if a.card.config.name}
-    for agent in agents:
-        try:
-            if agent_catalog.get(agent.id) is None:
-                agent_catalog.create(agent, pending_names=batch_names)
-                err_console.print(f"[green]Created agent:[/green] {agent.id}")
-                created += 1
-            else:
-                agent_catalog.update(agent.id, agent)
-                err_console.print(f"[blue]Updated agent:[/blue] {agent.id}")
-                updated += 1
-        except (CatalogValidationError, ValueError) as exc:
-            if isinstance(exc, CatalogValidationError):
-                for err in exc.errors:
-                    errors.append(f"Agent '{agent.id}': {err}")
-            else:
-                errors.append(f"Agent '{agent.id}': {exc}")
-
-    # Finally teams
-    for team in teams:
-        try:
-            if team_catalog.get(team.id) is None:
-                team_catalog.create(team)
-                err_console.print(f"[green]Created team:[/green] {team.id}")
-                created += 1
-            else:
-                team_catalog.update(team.id, team)
-                err_console.print(f"[blue]Updated team:[/blue] {team.id}")
-                updated += 1
-        except CatalogValidationError as exc:
-            for err in exc.errors:
-                errors.append(f"Team '{team.id}': {err}")
-
-    # Summary
-    err_console.print(f"\nImported: {created} created, {updated} updated, {len(errors)} errors")
-    if errors:
-        for err in errors:
-            err_console.print(f"[red]  - {err}[/red]")
-        raise typer.Exit(code=1)
-
-
-def _import_dry_run(
-    templates: list[TemplateEntry],
-    tools: list[ToolEntry],
-    agents: list[AgentEntry],
-    teams: list[TeamEntry],
-    template_catalog: TemplateCatalog,
-    tool_catalog: ToolCatalog,
-    agent_catalog: AgentCatalog,
-    team_catalog: TeamCatalog,
-) -> None:
-    """Validate entries without persisting (dry-run mode).
-
-    Args:
-        templates: Template entries to validate.
-        tools: Tool entries to validate.
-        agents: Agent entries to validate.
-        teams: Team entries to validate.
-        template_catalog: Template catalog service.
-        tool_catalog: Tool catalog service.
-        agent_catalog: Agent catalog service for cross-validation.
-        team_catalog: Team catalog service for cross-validation.
-    """
-    would_create = 0
-    would_update = 0
-    error_count = 0
-
-    for tmpl in templates:
-        if template_catalog.get(tmpl.id) is None:
-            would_create += 1
-        else:
-            would_update += 1
-
-    for tool in tools:
-        if tool_catalog.get(tool.id) is None:
-            would_create += 1
-        else:
-            would_update += 1
-
-    batch_names = {a.card.config.name for a in agents if a.card.config.name}
-    for agent in agents:
-        existing = agent_catalog.get(agent.id)
-        errs = agent_catalog.validate_create(agent, pending_names=batch_names)
-        # Filter out "already exists" errors for entries that exist
-        if existing is not None:
-            errs = [e for e in errs if "already exists" not in e]
-            would_update += 1
-        else:
-            filtered = [e for e in errs if "already exists" not in e]
-            if not filtered:
-                would_create += 1
-            errs = filtered
-        if errs:
-            for err in errs:
-                err_console.print(f"[red]  Agent '{agent.id}': {err}[/red]")
-            error_count += len(errs)
-
-    for team in teams:
-        errs = team_catalog.validate_create(team)
-        existing_team = team_catalog.get(team.id)
-        if existing_team is not None:
-            errs = [e for e in errs if "already exists" not in e]
-            would_update += 1
-        else:
-            filtered = [e for e in errs if "already exists" not in e]
-            if not filtered:
-                would_create += 1
-            errs = filtered
-        if errs:
-            for err in errs:
-                err_console.print(f"[red]  Team '{team.id}': {err}[/red]")
-            error_count += len(errs)
-
-    err_console.print(
-        f"\nDry run: {would_create} would be created, "
-        f"{would_update} would be updated, {error_count} errors"
-    )
-    if error_count:
-        raise typer.Exit(code=1)
-
-
-@app.command("validate")
-def validate_cmd(
-    ctx: typer.Context,
-    catalog: str | None = typer.Option(
-        None, "--catalog", help="Validate specific catalog: templates, tools, agents, teams"
-    ),
-) -> None:
-    """Validate catalog entries for cross-reference consistency."""
-    from akgentic.catalog.cli._catalog import build_catalogs_from_state
-    from akgentic.catalog.refs import _is_catalog_ref, _resolve_ref
-    from akgentic.core.utils.deserializer import import_class
-
-    valid_catalogs = ("templates", "tools", "agents", "teams")
-    if catalog is not None and catalog not in valid_catalogs:
+        from akgentic.catalog.repositories.postgres import PostgresEntryRepository
+    except ImportError:
         err_console.print(
-            f"[red]Error:[/red] Invalid catalog '{catalog}'. "
-            f"Must be one of: {', '.join(valid_catalogs)}"
+            "--backend=postgres requires the 'postgres' optional extra: "
+            "pip install akgentic-catalog[postgres]"
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2) from None
 
-    state = get_state(ctx)
-    template_catalog, tool_catalog, agent_catalog, team_catalog = build_catalogs_from_state(state)
-
-    errors: list[str] = []
-    template_count = 0
-    tool_count = 0
-    agent_count = 0
-    team_count = 0
-
-    # Pre-load ID sets to avoid N+1 per-entry get() calls
-    tool_ids_set: set[str] = set()
-    agent_ids_set: set[str] = set()
-
-    # Templates
-    if catalog is None or catalog == "templates":
-        template_entries = template_catalog.list()
-        template_count = len(template_entries)
-
-    # Tools
-    if catalog is None or catalog == "tools":
-        tool_entries = tool_catalog.list()
-        tool_count = len(tool_entries)
-        tool_ids_set = {t.id for t in tool_entries}
-
-    # Agents
-    if catalog is None or catalog == "agents":
-        agent_entries = agent_catalog.list()
-        agent_count = len(agent_entries)
-        agent_ids_set = {a.id for a in agent_entries}
-        known_names = {a.card.config.name for a in agent_entries if a.card.config.name}
-
-        # Load tool IDs if not already loaded (e.g. --catalog agents)
-        if not tool_ids_set:
-            tool_ids_set = {t.id for t in tool_catalog.list()}
-
-        for agent in agent_entries:
-            # Check tool_ids
-            for tool_id in agent.tool_ids:
-                if tool_id not in tool_ids_set:
-                    errors.append(f"Agent '{agent.id}': tool '{tool_id}' not found")
-            # Check @template reference
-            config = agent.card.config
-            if hasattr(config, "prompt"):
-                prompt = config.prompt  # ADR-003: duck-type gate
-                if _is_catalog_ref(prompt.template):
-                    template_id = _resolve_ref(prompt.template)
-                    tmpl = template_catalog.get(template_id)
-                    if tmpl is None:
-                        errors.append(f"Agent '{agent.id}': template '@{template_id}' not found")
-                    else:
-                        provided = set(prompt.params.keys())
-                        expected = set(tmpl.placeholders)
-                        missing = expected - provided
-                        extra = provided - expected
-                        if missing:
-                            errors.append(
-                                f"Agent '{agent.id}': missing params for "
-                                f"'@{template_id}': {missing}"
-                            )
-                        if extra:
-                            errors.append(
-                                f"Agent '{agent.id}': extra params for '@{template_id}': {extra}"
-                            )
-            # Check routes_to
-            for route_name in agent.card.routes_to:
-                if route_name not in known_names:
-                    errors.append(f"Agent '{agent.id}': route target '{route_name}' not found")
-
-    # Teams
-    if catalog is None or catalog == "teams":
-        team_entries = team_catalog.list()
-        team_count = len(team_entries)
-
-        # Load agent IDs if not already loaded (e.g. --catalog teams)
-        if not agent_ids_set:
-            agent_ids_set = {a.id for a in agent_catalog.list()}
-
-        for team in team_entries:
-            all_member_ids = _collect_member_ids(team.members)
-            # Check entry_point in members
-            if team.entry_point not in all_member_ids:
-                errors.append(f"Team '{team.id}': entry_point '{team.entry_point}' not in members")
-            # Check all member agent_ids exist
-            for member_id in all_member_ids:
-                if member_id not in agent_ids_set:
-                    errors.append(f"Team '{team.id}': member agent '{member_id}' not found")
-            # Check agent_profiles
-            for profile_id in team.agent_profiles:
-                if profile_id not in agent_ids_set:
-                    errors.append(f"Team '{team.id}': profile agent '{profile_id}' not found")
-            # Check message_types
-            for mt in team.message_types:
-                try:
-                    import_class(mt)
-                except (ImportError, AttributeError, ValueError):
-                    errors.append(f"Team '{team.id}': message type '{mt}' not resolvable")
-
-    # Report
-    if errors:
-        for err in errors:
-            err_console.print(f"[red]  {err}[/red]")
-    err_console.print(
-        f"\nValidated: {template_count} templates, {tool_count} tools, "
-        f"{agent_count} agents, {team_count} teams. "
-        f"Found {len(errors)} errors."
-    )
-    if errors:
-        raise typer.Exit(code=1)
+    assert state.postgres_conn_string is not None  # guarded by _validate_postgres_options
+    return Catalog(PostgresEntryRepository(state.postgres_conn_string))
 
 
-def get_state(ctx: typer.Context) -> GlobalState:
-    """Retrieve the global state from the Typer context.
+def _repo_from_ctx(ctx: typer.Context) -> Catalog:
+    """Helper: pull ``CliState`` off the context and build a Catalog."""
+    state = ctx.obj
+    assert isinstance(state, CliState), "CliState missing from ctx.obj"
+    return _build_catalog(state)
 
-    Falls back to default ``GlobalState`` if the context has no object set.
 
-    Args:
-        ctx: The current Typer command context.
-
-    Returns:
-        The ``GlobalState`` instance stored in ``ctx.obj``, or a default.
-    """
-    state: GlobalState = ctx.obj
-    if state is None:
-        state = GlobalState()
+def _state_from_ctx(ctx: typer.Context) -> CliState:
+    state = ctx.obj
+    assert isinstance(state, CliState), "CliState missing from ctx.obj"
     return state
 
 
-def _register_subcommands() -> None:
-    """Register all subcommand groups on the app.
+# --------------------------------------------------------------------------- #
+# Rendering
+# --------------------------------------------------------------------------- #
 
-    Called at module load time. Deferred to a function to keep imports
-    after all module-level definitions, avoiding E402.
+
+def _truncate(text: str, max_len: int = 60) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1] + "…"
+
+
+def _render_entries(entries: _list[Entry], fmt: str) -> None:
+    """Render a list of entries to stdout per ``fmt``."""
+    if fmt == "json":
+        _stdout.print(json.dumps([e.model_dump(mode="json") for e in entries], indent=2))
+        return
+    if fmt == "yaml":
+        payload = [e.model_dump(mode="json") for e in entries]
+        _stdout.print(yaml.safe_dump(payload, sort_keys=False).rstrip("\n"))
+        return
+    # table
+    if not entries:
+        _stdout.print("(no entries)")
+        return
+    table = Table(title="entries")
+    for col in ("id", "namespace", "kind", "user_id", "description"):
+        table.add_column(col)
+    for e in entries:
+        table.add_row(
+            e.id,
+            e.namespace,
+            e.kind,
+            e.user_id or "",
+            _truncate(e.description or ""),
+        )
+    _stdout.print(table)
+
+
+def _render_entry(entry: Entry, fmt: str) -> None:
+    """Render a single entry to stdout per ``fmt``."""
+    if fmt == "json":
+        _stdout.print(json.dumps(entry.model_dump(mode="json"), indent=2))
+        return
+    if fmt == "yaml":
+        _stdout.print(yaml.safe_dump(entry.model_dump(mode="json"), sort_keys=False).rstrip("\n"))
+        return
+    table = Table(title=f"entry {entry.id}", show_header=False)
+    table.add_column("field", style="bold")
+    table.add_column("value")
+    rows = (
+        ("id", entry.id),
+        ("kind", entry.kind),
+        ("namespace", entry.namespace),
+        ("user_id", entry.user_id or ""),
+        ("model_type", entry.model_type),
+        ("description", entry.description or ""),
+    )
+    for key, value in rows:
+        table.add_row(key, value)
+    _stdout.print(table)
+    payload_json = json.dumps(entry.model_dump(mode="json")["payload"], indent=2)
+    if len(payload_json) > 4096:
+        kept = payload_json[:4096]
+        suffix = len(payload_json) - 4096
+        _stdout.print(f"{kept}… ({suffix} more chars)")
+    else:
+        _stdout.print(payload_json)
+
+
+# --------------------------------------------------------------------------- #
+# Verb helpers
+# --------------------------------------------------------------------------- #
+
+
+def _parse_tri_state(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    err_console.print(f"--user-id-set must be 'true' or 'false'; got {value!r}")
+    raise typer.Exit(code=2)
+
+
+def _list_impl(
+    ctx: typer.Context,
+    kind: EntryKind,
+    namespace: str | None,
+    user_id: str | None,
+    user_id_set: str | None,
+) -> None:
+    tri = _parse_tri_state(user_id_set)
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    query = EntryQuery(
+        kind=kind,
+        namespace=namespace,
+        user_id=user_id,
+        user_id_set=tri,
+    )
+    entries = catalog.list(query)
+    _render_entries(entries, state.output_format)
+
+
+def _get_impl(ctx: typer.Context, kind: EntryKind, id: str, namespace: str) -> None:
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        entry = catalog.get(namespace, id)
+    except EntryNotFoundError:
+        err_console.print(f"Entry ({namespace}, {id}, {kind}) not found")
+        raise typer.Exit(code=1) from None
+    if entry.kind != kind:
+        err_console.print(
+            f"Entry at (namespace={namespace}, id={id}) has kind={entry.kind}, expected {kind}"
+        )
+        raise typer.Exit(code=1)
+    _render_entry(entry, state.output_format)
+
+
+def _load_entry_yaml(path: Path) -> Entry:
+    if not path.is_file():
+        err_console.print(f"file not found: {path}")
+        raise typer.Exit(code=2)
+    try:
+        text = path.read_text()
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        err_console.print(f"YAML parse error: {exc}")
+        raise typer.Exit(code=2) from None
+    if not isinstance(data, dict):
+        err_console.print(f"YAML file must contain a mapping; got {type(data).__name__}")
+        raise typer.Exit(code=2)
+    try:
+        return Entry(**data)
+    except ValidationError as exc:
+        err_console.print(f"entry validation error: {exc}")
+        raise typer.Exit(code=2) from None
+
+
+def _create_impl(ctx: typer.Context, kind: EntryKind, yaml_file: Path) -> None:
+    entry = _load_entry_yaml(yaml_file)
+    if entry.kind != kind:
+        err_console.print(f"entry kind={entry.kind} does not match sub-app kind={kind}")
+        raise typer.Exit(code=2)
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        saved = catalog.create(entry)
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    _render_entry(saved, state.output_format)
+
+
+def _update_impl(ctx: typer.Context, kind: EntryKind, yaml_file: Path) -> None:
+    entry = _load_entry_yaml(yaml_file)
+    if entry.kind != kind:
+        err_console.print(f"entry kind={entry.kind} does not match sub-app kind={kind}")
+        raise typer.Exit(code=2)
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        saved = catalog.update(entry)
+    except EntryNotFoundError as exc:
+        err_console.print(str(exc))
+        raise typer.Exit(code=1) from None
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    _render_entry(saved, state.output_format)
+
+
+def _delete_impl(ctx: typer.Context, kind: EntryKind, id: str, namespace: str) -> None:
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        catalog.delete(namespace, id)
+    except EntryNotFoundError as exc:
+        err_console.print(str(exc))
+        raise typer.Exit(code=1) from None
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(str(err))
+        _surface_referrers_if_any(catalog, namespace, id, state.output_format)
+        raise typer.Exit(code=1) from None
+    err_console.print(f"deleted {kind} {id} from namespace {namespace}")
+
+
+def _surface_referrers_if_any(catalog: Catalog, namespace: str, id: str, fmt: str) -> None:
+    """Render referrers of (namespace, id) if any — best-effort, no raise."""
+    try:
+        referrers = catalog.find_references(namespace, id)
+    except Exception:  # pragma: no cover - defensive
+        return
+    if referrers:
+        _render_entries(referrers, fmt)
+
+
+def _search_impl(
+    ctx: typer.Context,
+    kind: EntryKind,
+    namespace: str | None,
+    user_id: str | None,
+    user_id_set: str | None,
+    description_contains: str | None,
+    id: str | None,
+) -> None:
+    tri = _parse_tri_state(user_id_set)
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    query = EntryQuery(
+        kind=kind,
+        namespace=namespace,
+        user_id=user_id,
+        user_id_set=tri,
+        description_contains=description_contains,
+        id=id,
+    )
+    entries = catalog.list(query)
+    _render_entries(entries, state.output_format)
+
+
+def _not_implemented_repo_handler(exc: Exception) -> None:  # pragma: no cover
+    """Safety net for NotImplementedError from degraded repositories."""
+    err_console.print(f"repository does not support this operation: {exc}")
+
+
+def _ensure_repo(_: EntryRepository) -> None:  # pragma: no cover - hook placeholder
+    """Placeholder helper to keep EntryRepository imported for type use."""
+
+
+# --------------------------------------------------------------------------- #
+# Per-kind sub-apps — one Typer() per EntryKind, registered on app
+# --------------------------------------------------------------------------- #
+
+
+def _make_kind_app(kind: EntryKind) -> typer.Typer:
+    """Build a Typer sub-app with the six verbs bound to ``kind``."""
+    sub = typer.Typer(name=kind, help=f"Manage '{kind}' entries.", no_args_is_help=True)
+
+    @sub.command("list")
+    def _list_cmd(
+        ctx: typer.Context,
+        namespace: str | None = typer.Option(None, "--namespace"),
+        user_id: str | None = typer.Option(None, "--user-id"),
+        user_id_set: str | None = typer.Option(None, "--user-id-set"),
+    ) -> None:
+        """List entries of this kind matching the provided filters."""
+        _list_impl(
+            ctx,
+            kind,
+            namespace=namespace,
+            user_id=user_id,
+            user_id_set=user_id_set,
+        )
+
+    @sub.command("get")
+    def _get_cmd(
+        ctx: typer.Context,
+        id: str = typer.Argument(..., help="Entry id."),
+        namespace: str = typer.Option(..., "--namespace", help="Entry namespace."),
+    ) -> None:
+        """Fetch a single entry by ``(namespace, id)``."""
+        _get_impl(ctx, kind, id, namespace)
+
+    @sub.command("create")
+    def _create_cmd(
+        ctx: typer.Context,
+        yaml_file: Path = typer.Argument(..., help="Path to single-entry YAML file."),
+    ) -> None:
+        """Create an entry from a single-entry YAML file."""
+        _create_impl(ctx, kind, yaml_file)
+
+    @sub.command("update")
+    def _update_cmd(
+        ctx: typer.Context,
+        yaml_file: Path = typer.Argument(..., help="Path to single-entry YAML file."),
+    ) -> None:
+        """Update an existing entry from a single-entry YAML file."""
+        _update_impl(ctx, kind, yaml_file)
+
+    @sub.command("delete")
+    def _delete_cmd(
+        ctx: typer.Context,
+        id: str = typer.Argument(..., help="Entry id."),
+        namespace: str = typer.Option(..., "--namespace", help="Entry namespace."),
+    ) -> None:
+        """Delete an entry; surfaces inbound referrers on failure."""
+        _delete_impl(ctx, kind, id, namespace)
+
+    @sub.command("search")
+    def _search_cmd(
+        ctx: typer.Context,
+        namespace: str | None = typer.Option(None, "--namespace"),
+        user_id: str | None = typer.Option(None, "--user-id"),
+        user_id_set: str | None = typer.Option(None, "--user-id-set"),
+        description_contains: str | None = typer.Option(None, "--description-contains"),
+        id: str | None = typer.Option(None, "--id"),
+    ) -> None:
+        """Structured search across every ``EntryQuery`` filter."""
+        _search_impl(
+            ctx,
+            kind,
+            namespace=namespace,
+            user_id=user_id,
+            user_id_set=user_id_set,
+            description_contains=description_contains,
+            id=id,
+        )
+
+    return sub
+
+
+_ENTRY_KINDS: tuple[EntryKind, ...] = ("team", "agent", "tool", "model", "prompt", "meta")
+# Register one sub-app per EntryKind. The literal order matches EntryKind.
+for _kind in _ENTRY_KINDS:
+    app.add_typer(_make_kind_app(_kind), name=_kind)
+
+
+# --------------------------------------------------------------------------- #
+# Generic resolved-model renderer (Story 17.2)
+# --------------------------------------------------------------------------- #
+
+
+def _dump_model_json(model: BaseModel) -> str:
+    """Return ``model.model_dump(mode='json')`` as a pretty-printed JSON string."""
+    return json.dumps(model.model_dump(mode="json"), indent=2)
+
+
+def _render_model(model: BaseModel, fmt: str) -> None:
+    """Render a resolved Pydantic ``BaseModel`` to stdout per ``fmt``.
+
+    ``table`` → two-column key/value table (``type`` + truncated ``payload``).
+    ``json`` → ``json.dumps(model.model_dump(mode='json'), indent=2)``.
+    ``yaml`` → ``yaml.safe_dump(model.model_dump(mode='json'), sort_keys=False)``.
+
+    Truncation (table only): JSON payload is trimmed to 4 KiB with a
+    ``… (N more chars)`` suffix when longer — mirroring ``_render_entry``.
     """
-    from akgentic.catalog.cli.agent_cmd import agent_app
-    from akgentic.catalog.cli.team_cmd import team_app
-    from akgentic.catalog.cli.template_cmd import template_app
-    from akgentic.catalog.cli.tool_cmd import tool_app
+    if fmt == "json":
+        _stdout.print(_dump_model_json(model))
+        return
+    if fmt == "yaml":
+        _stdout.print(yaml.safe_dump(model.model_dump(mode="json"), sort_keys=False).rstrip("\n"))
+        return
+    type_path = f"{model.__class__.__module__}.{model.__class__.__name__}"
+    payload_json = _dump_model_json(model)
+    table = Table(title=f"model {type_path}", show_header=False)
+    table.add_column("field", style="bold")
+    table.add_column("value")
+    table.add_row("type", type_path)
+    if len(payload_json) > 4096:
+        kept = payload_json[:4096]
+        suffix = len(payload_json) - 4096
+        table.add_row("payload", f"{kept}… ({suffix} more chars)")
+    else:
+        table.add_row("payload", payload_json)
+    _stdout.print(table)
 
-    app.add_typer(template_app, name="template")
-    app.add_typer(tool_app, name="tool")
-    app.add_typer(agent_app, name="agent")
-    app.add_typer(team_app, name="team")
+
+# --------------------------------------------------------------------------- #
+# Graph verbs (Story 17.2): clone / references / resolve / load-team
+# --------------------------------------------------------------------------- #
 
 
-_register_subcommands()
+@app.command("clone")
+def _clone_cmd(
+    ctx: typer.Context,
+    src_namespace: str = typer.Option(..., "--src-namespace", help="Source namespace."),
+    src_id: str = typer.Option(..., "--src-id", help="Source entry id."),
+    dst_namespace: str = typer.Option(..., "--dst-namespace", help="Destination namespace."),
+    dst_user_id: str = typer.Option(
+        "anonymous",
+        "--dst-user-id",
+        help="Destination user_id; omit or pass 'anonymous' for community-tier deployments.",
+    ),
+) -> None:
+    """Deep-copy an entry tree into ``--dst-namespace`` (ADR-007 ownership semantics).
+
+    The destination owner defaults to the literal ``"anonymous"`` string —
+    the community-tier convention. Department / enterprise tier deployments
+    pass the authenticated caller's identifier explicitly.
+    """
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        req = CloneRequest(
+            src_namespace=src_namespace,
+            src_id=src_id,
+            dst_namespace=dst_namespace,
+            dst_user_id=dst_user_id,
+        )
+    except ValidationError as exc:
+        err_console.print(f"validation error: {exc}")
+        raise typer.Exit(code=2) from None
+    try:
+        entry = catalog.clone(req.src_namespace, req.src_id, req.dst_namespace, req.dst_user_id)
+    except EntryNotFoundError as exc:
+        err_console.print(str(exc))
+        raise typer.Exit(code=1) from None
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    _render_entry(entry, state.output_format)
+
+
+@app.command("references")
+def _references_cmd(
+    ctx: typer.Context,
+    id: str = typer.Argument(..., help="Target entry id."),
+    namespace: str = typer.Option(..., "--namespace", help="Namespace of the target entry."),
+) -> None:
+    """List entries in ``--namespace`` that reference ``<id>``.
+
+    The service's ``find_references`` is tolerant: a missing target id
+    yields an empty list, rendered as ``(no entries)`` / ``[]`` per format.
+    """
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        entries = catalog.find_references(namespace, id)
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    _render_entries(entries, state.output_format)
+
+
+@app.command("resolve")
+def _resolve_cmd(
+    ctx: typer.Context,
+    kind: EntryKind = typer.Argument(..., help="Entry kind (team/agent/tool/model/prompt)."),
+    id: str = typer.Argument(..., help="Entry id."),
+    namespace: str = typer.Option(..., "--namespace", help="Entry namespace."),
+) -> None:
+    """Resolve a single entry into its fully-populated runtime ``BaseModel``.
+
+    The ``<kind>`` argument acts as a typo guard (same shape as ``get``):
+    a stored entry whose kind disagrees exits with code 1 rather than
+    silently resolving against the stored kind.
+    """
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        entry = catalog.get(namespace, id)
+    except EntryNotFoundError:
+        err_console.print(f"Entry ({namespace}, {id}, {kind}) not found")
+        raise typer.Exit(code=1) from None
+    if entry.kind != kind:
+        err_console.print(
+            f"Entry at (namespace={namespace}, id={id}) has kind={entry.kind}, expected {kind}"
+        )
+        raise typer.Exit(code=1)
+    try:
+        model = catalog.resolve_by_id(namespace, id)
+    except EntryNotFoundError as exc:
+        err_console.print(str(exc))
+        raise typer.Exit(code=1) from None
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    _render_model(model, state.output_format)
+
+
+@app.command("load-team")
+def _load_team_cmd(
+    ctx: typer.Context,
+    namespace: str = typer.Option(..., "--namespace", help="Namespace to load the team from."),
+) -> None:
+    """Resolve the team entry in ``--namespace`` into a fully-populated ``TeamCard``."""
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    try:
+        team = catalog.load_team(namespace)
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    _render_model(team, state.output_format)
+
+
+# --------------------------------------------------------------------------- #
+# Schema-introspection verbs (Story 17.2)
+# --------------------------------------------------------------------------- #
+
+
+def _render_schema(schema: dict[str, Any], fmt: str) -> None:
+    """Render a JSON Schema dict. ``table`` falls through to JSON rendering.
+
+    Rationale: JSON Schema is inherently nested; a flat Rich table would be a
+    worse UX than the raw schema, so the ``table`` format is documented to
+    print pretty-printed JSON (same bytes as ``--format json``).
+    """
+    if fmt == "yaml":
+        print(yaml.safe_dump(schema, sort_keys=False).rstrip("\n"))
+        return
+    print(json.dumps(schema, indent=2))
+
+
+@app.command("schema")
+def _schema_cmd(
+    ctx: typer.Context,
+    model_type: str = typer.Argument(..., help="Dotted path of an allowlisted BaseModel class."),
+) -> None:
+    """Print the JSON Schema for an allowlisted Pydantic model class.
+
+    Delegates to :func:`akgentic.catalog.resolver.load_model_type`, which owns
+    the ``akgentic.*`` allowlist gate. ``ImportError`` / ``AttributeError``
+    raised by dynamic import are re-raised as ``CatalogValidationError`` for
+    consistency with the REST ``GET /catalog/schema`` handler.
+
+    ``--format table`` falls through to JSON rendering because JSON Schema is
+    inherently nested; a rich Table would not add clarity.
+    """
+    state = _state_from_ctx(ctx)
+    try:
+        try:
+            cls = load_model_type(model_type)
+        except (ImportError, AttributeError) as exc:
+            raise CatalogValidationError(
+                [f"model_type '{model_type}' could not be imported: {exc}"]
+            ) from exc
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    schema = cls.model_json_schema()
+    _render_schema(schema, state.output_format)
+
+
+@app.command("model-types")
+def _model_types_cmd(ctx: typer.Context) -> None:
+    """List allowlisted Pydantic model classes currently imported in this process.
+
+    Uses the shared reflection helper
+    :func:`akgentic.catalog.resolver.enumerate_allowlisted_model_types` — the
+    same helper consumed by the REST ``GET /catalog/model_types`` endpoint,
+    so CLI and REST output for a given ``sys.modules`` snapshot agree.
+    """
+    state = _state_from_ctx(ctx)
+    paths = enumerate_allowlisted_model_types()
+    fmt = state.output_format
+    if fmt == "json":
+        _stdout.print(json.dumps(paths, indent=2))
+        return
+    if fmt == "yaml":
+        _stdout.print(yaml.safe_dump(paths, sort_keys=False).rstrip("\n"))
+        return
+    if not paths:
+        _stdout.print("(no model types imported)")
+        return
+    table = Table(title="Allowlisted model types")
+    table.add_column("path")
+    for path in paths:
+        table.add_row(path)
+    _stdout.print(table)
+
+
+# --------------------------------------------------------------------------- #
+# Namespace bundle verbs (Story 17.3): export / import
+# --------------------------------------------------------------------------- #
+
+
+def _require_non_empty_namespace(value: str) -> str:
+    """Typer callback — reject empty-string ``--namespace`` at parse time."""
+    if value == "":
+        err_console.print("--namespace must be a non-empty string")
+        raise typer.Exit(code=2)
+    return value
+
+
+def _require_non_empty_namespace_optional(value: str | None) -> str | None:
+    """Typer callback — tolerates an omitted ``--namespace`` (passes ``None`` through)."""
+    if value is None:
+        return None
+    return _require_non_empty_namespace(value)
+
+
+def _render_global_errors(table: Table, errors: _list[str]) -> None:
+    """Fill ``table`` with one row per global error, or a placeholder when empty."""
+    if not errors:
+        table.add_row("(no global errors)")
+        return
+    for err in errors:
+        table.add_row(err)
+
+
+def _render_entry_issues(table: Table, issues: _list[EntryValidationIssue]) -> None:
+    """Fill ``table`` with one row per entry issue, or a placeholder when empty."""
+    if not issues:
+        table.add_row("(no entry issues)", "", "")
+        return
+    for issue in issues:
+        table.add_row(issue.entry_id, issue.kind, "\n".join(issue.errors))
+
+
+def _render_validation_report(report: NamespaceValidationReport, fmt: str) -> None:
+    """Render a ``NamespaceValidationReport`` to stdout per ``fmt``.
+
+    ``json`` / ``yaml`` use stdlib serialisers to avoid Rich line-wrapping on
+    structured payloads. ``table`` renders a two-line header plus two Rich
+    tables (global errors + entry issues).
+    """
+    if fmt == "json":
+        print(json.dumps(report.model_dump(mode="json"), indent=2))
+        return
+    if fmt == "yaml":
+        print(yaml.safe_dump(report.model_dump(mode="json"), sort_keys=False).rstrip("\n"))
+        return
+    _stdout.print(f"namespace: {report.namespace}")
+    _stdout.print(f"ok: {report.ok}")
+    global_table = Table(title="global errors")
+    global_table.add_column("error")
+    _render_global_errors(global_table, report.global_errors)
+    _stdout.print(global_table)
+    issues_table = Table(title="entry issues")
+    for col in ("entry_id", "kind", "errors"):
+        issues_table.add_column(col)
+    _render_entry_issues(issues_table, report.entry_issues)
+    _stdout.print(issues_table)
+
+
+@app.command("export")
+def _export_cmd(
+    ctx: typer.Context,
+    namespace: str = typer.Option(
+        ...,
+        "--namespace",
+        help="Namespace to export as a single bundle YAML document.",
+        callback=_require_non_empty_namespace,
+    ),
+) -> None:
+    """Emit the given ``--namespace`` as a single bundle YAML document on stdout.
+
+    The bundle is always emitted verbatim as the YAML produced by
+    :meth:`Catalog.export_namespace_yaml` — ``--format`` is IGNORED here
+    because the bundle is the canonical authored form and a JSON or table
+    rendering would break the round-trip contract
+    (``export > bundle.yaml; import bundle.yaml``).
+    """
+    catalog = _repo_from_ctx(ctx)
+    try:
+        yaml_text = catalog.export_namespace_yaml(namespace)
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    # Byte-exact stdout write — no Rich wrapping, no trailing-newline
+    # manipulation — preserves `export > bundle.yaml` round-trip fidelity.
+    print(yaml_text, end="")
+
+
+def _read_bundle_text(path: Path) -> str:
+    """Load bundle YAML text from ``path``; map usage-level failures to exit 2."""
+    if not path.is_file():
+        err_console.print(f"file not found: {path}")
+        raise typer.Exit(code=2)
+    try:
+        yaml_text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        err_console.print(f"file is not valid UTF-8: {exc}")
+        raise typer.Exit(code=2) from None
+    # Fail-fast parse check — the Python object is discarded; the service
+    # consumes the raw YAML text.
+    try:
+        yaml.safe_load(yaml_text)
+    except yaml.YAMLError as exc:
+        err_console.print(f"YAML parse error: {exc}")
+        raise typer.Exit(code=2) from None
+    return yaml_text
+
+
+def _import_persistence_mode(catalog: Catalog, yaml_text: str) -> None:
+    """Run ``catalog.import_namespace_yaml`` and report the outcome."""
+    try:
+        persisted = catalog.import_namespace_yaml(yaml_text)
+    except CatalogValidationError as exc:
+        for err in exc.errors:
+            err_console.print(f"validation error: {err}")
+        raise typer.Exit(code=1) from None
+    ns = persisted[0].namespace
+    err_console.print(f"imported {len(persisted)} entries into namespace {ns}")
+
+
+def _emit_validation_failure(report: NamespaceValidationReport) -> None:
+    """Print the canonical validation-failure summary line to stderr and exit 1.
+
+    Shared between the bundle ``import --dry-run`` verb (Story 17.3) and the
+    root-level ``validate`` verb (Story 17.4) so both paths emit an identical
+    grep-able stderr line. The caller is responsible for rendering the full
+    report to stdout before invoking this helper.
+    """
+    global_count = len(report.global_errors)
+    entry_count = sum(1 for i in report.entry_issues if i.errors)
+    err_console.print(
+        f"validation failed: {global_count} global error(s), {entry_count} entry issue(s)"
+    )
+    raise typer.Exit(code=1)
+
+
+def _import_dry_run_mode(catalog: Catalog, yaml_text: str, fmt: str) -> None:
+    """Run ``catalog.validate_namespace_yaml``; render the report; derive exit code."""
+    report = catalog.validate_namespace_yaml(yaml_text)
+    _render_validation_report(report, fmt)
+    if not report.ok:
+        _emit_validation_failure(report)
+
+
+@app.command("import")
+def _import_cmd(
+    ctx: typer.Context,
+    bundle_file: Path = typer.Argument(
+        ...,
+        exists=False,
+        help="Path to a bundle YAML file (document-level namespace + entries).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run/--no-dry-run",
+        help="Validate only; do not persist.",
+    ),
+) -> None:
+    """Import a namespace bundle YAML file into the catalog.
+
+    In persistence mode, delegates to :meth:`Catalog.import_namespace_yaml`
+    (atomic replace of the namespace declared at document level). In
+    ``--dry-run`` mode, delegates to :meth:`Catalog.validate_namespace_yaml`
+    and renders the resulting ``NamespaceValidationReport`` per ``--format``
+    — exit 0 iff ``report.ok`` is True.
+    """
+    yaml_text = _read_bundle_text(bundle_file)
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    if dry_run:
+        _import_dry_run_mode(catalog, yaml_text, state.output_format)
+        return
+    _import_persistence_mode(catalog, yaml_text)
+
+
+# --------------------------------------------------------------------------- #
+# Namespace validation verb (Story 17.4): validate
+# --------------------------------------------------------------------------- #
+
+
+def _validate_persisted(catalog: Catalog, namespace: str, fmt: str) -> None:
+    """Run ``catalog.validate_namespace`` and derive CLI output + exit code."""
+    report = catalog.validate_namespace(namespace)
+    _render_validation_report(report, fmt)
+    if not report.ok:
+        _emit_validation_failure(report)
+
+
+def _validate_bundle(catalog: Catalog, bundle_file: Path, fmt: str) -> None:
+    """Read a bundle file and dry-run-validate it via ``validate_namespace_yaml``."""
+    yaml_text = _read_bundle_text(bundle_file)
+    report = catalog.validate_namespace_yaml(yaml_text)
+    _render_validation_report(report, fmt)
+    if not report.ok:
+        _emit_validation_failure(report)
+
+
+@app.command("validate")
+def _validate_cmd(
+    ctx: typer.Context,
+    bundle_file: Path | None = typer.Argument(
+        None,
+        exists=False,
+        help="Path to a bundle YAML file (dry-run flavor).",
+    ),
+    namespace: str | None = typer.Option(
+        None,
+        "--namespace",
+        help="Persisted namespace to validate.",
+        callback=_require_non_empty_namespace_optional,
+    ),
+) -> None:
+    """Validate a namespace — persisted state or dry-run bundle.
+
+    Exactly one of ``--namespace <ns>`` or a positional ``<bundle-file>`` must
+    be supplied. The verb delegates to :meth:`Catalog.validate_namespace` or
+    :meth:`Catalog.validate_namespace_yaml` respectively; neither service
+    method raises, so the exit code is derived from ``report.ok`` alone
+    (``0`` when True, ``1`` when False). Usage errors (zero-or-both args,
+    missing / non-UTF-8 / malformed-YAML bundle file) exit 2 with a stderr
+    diagnostic.
+    """
+    if namespace is None and bundle_file is None:
+        err_console.print("validate requires either --namespace <ns> or a bundle file path")
+        raise typer.Exit(code=2)
+    if namespace is not None and bundle_file is not None:
+        err_console.print(
+            "validate accepts either --namespace <ns> or a bundle file path, not both"
+        )
+        raise typer.Exit(code=2)
+    catalog = _repo_from_ctx(ctx)
+    state = _state_from_ctx(ctx)
+    if namespace is not None:
+        _validate_persisted(catalog, namespace, state.output_format)
+        return
+    assert bundle_file is not None  # exclusivity guard above
+    _validate_bundle(catalog, bundle_file, state.output_format)
+
+
+# --------------------------------------------------------------------------- #
+# Helper — used by tests & silencing "unused import" warnings at module level.
+# --------------------------------------------------------------------------- #
+
+
+def _unused(_e: Any) -> None:  # pragma: no cover - trivial
+    """Retain references to imports used only for typing."""
+
+
+_unused(EntryRepository)

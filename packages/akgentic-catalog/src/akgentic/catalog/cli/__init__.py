@@ -1,7 +1,7 @@
 """CLI interface for the Akgentic catalog.
 
-Provides the ``ak-catalog`` command for managing catalog entries from the
-command line with CRUD and search operations.
+Provides the ``ak-catalog`` command for managing unified catalog ``Entry``
+rows from the command line.
 
 Requires the ``cli`` extra: ``pip install akgentic-catalog[cli]``.
 """

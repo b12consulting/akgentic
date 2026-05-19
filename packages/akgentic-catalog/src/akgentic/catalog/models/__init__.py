@@ -1,29 +1,26 @@
-"""Public API surface for catalog data models.
+"""Public API surface for catalog v2 data models.
 
-Re-exports entry models (TemplateEntry, ToolEntry, AgentEntry, TeamEntry,
-TeamMemberSpec), query filter models (TemplateQuery, ToolQuery, AgentQuery,
-TeamQuery), and error types (CatalogValidationError, EntryNotFoundError).
+Re-exports the unified ``Entry`` model and its supporting types
+(``EntryKind``, ``AllowlistedPath``, ``NonEmptyStr``), the v2 query / clone
+models (``EntryQuery``, ``CloneRequest``), and the v2-alive error types
+(``CatalogValidationError``, ``EntryNotFoundError``).
 """
 
 from __future__ import annotations
 
-from akgentic.catalog.models.agent import AgentEntry
+from akgentic.catalog.models.entry import AllowlistedPath, Entry, EntryKind, NonEmptyStr
 from akgentic.catalog.models.errors import CatalogValidationError, EntryNotFoundError
-from akgentic.catalog.models.queries import AgentQuery, TeamQuery, TemplateQuery, ToolQuery
-from akgentic.catalog.models.team import TeamEntry, TeamMemberSpec
-from akgentic.catalog.models.template import TemplateEntry
-from akgentic.catalog.models.tool import ToolEntry
+from akgentic.catalog.models.namespace_meta import NamespaceMeta
+from akgentic.catalog.models.queries import CloneRequest, EntryQuery
 
 __all__ = [
-    "AgentEntry",
-    "AgentQuery",
+    "AllowlistedPath",
     "CatalogValidationError",
+    "CloneRequest",
+    "Entry",
+    "EntryKind",
     "EntryNotFoundError",
-    "TeamMemberSpec",
-    "TeamQuery",
-    "TeamEntry",
-    "TemplateEntry",
-    "TemplateQuery",
-    "ToolEntry",
-    "ToolQuery",
+    "EntryQuery",
+    "NamespaceMeta",
+    "NonEmptyStr",
 ]

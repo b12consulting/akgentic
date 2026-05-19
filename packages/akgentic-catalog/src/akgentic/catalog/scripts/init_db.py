@@ -1,21 +1,35 @@
-"""Init-container entry point that creates missing catalog tables.
+"""Runnable init-container entry point for Postgres schema creation.
 
-Runs :func:`akgentic.catalog.repositories.postgres.init_db` against the
-Postgres instance identified by the ``DB_CONN_STRING_PERSISTENCE``
-environment variable (same variable the ``ak-catalog`` CLI uses).
+Invocation: ``python -m akgentic.catalog.scripts.init_db`` — intended for
+Kubernetes ``initContainer`` / Nomad ``prestart`` deployment patterns where
+schema creation runs once per environment before the catalog service
+starts.
 
-Intended to be invoked by a Kubernetes initContainer or Nomad prestart
-task before the main server process starts:
+Environment-variable contract:
 
-    command: ["python", "-m", "akgentic.catalog.scripts.init_db"]
+* ``DB_CONN_STRING_PERSISTENCE`` — the libpq-style Postgres DSN. Mirrors
+  the v1 operator UX (structural continuity for existing deployments).
 
-The underlying :func:`init_db` is idempotent, so re-running against an
-already-initialized database is safe — it creates only missing tables.
+Exit-code convention (pinned by Story 22.2 ACs 14–16):
 
-Exit codes:
-    0 — success (tables created or already present)
-    2 — ``DB_CONN_STRING_PERSISTENCE`` not set
-    1 — any other failure (nagra not installed, connection refused, etc.)
+* ``0`` — schema applied successfully (``init_db`` returned normally).
+* ``1`` — any arbitrary failure raised by
+  :class:`PostgresCatalogConfig` validation or :func:`init_db` itself
+  (connection refused, unreachable host, malformed DSN past validation,
+  ``ImportError`` when the ``[postgres]`` extra is absent, etc.). A
+  traceback is logged at ERROR for diagnosis.
+* ``2`` — ``DB_CONN_STRING_PERSISTENCE`` is missing or empty. No
+  traceback; a single stderr diagnostic is emitted.
+
+The module's top-level imports are ``nagra``-free and ``psycopg``-free —
+:class:`PostgresCatalogConfig` is importable without the ``[postgres]``
+extra (Story 22.1 AC6 guarantees this), and :func:`init_db` defers its
+``nagra`` import to the function body. A missing ``[postgres]`` extra
+therefore surfaces only at ``init_db(config)`` call time and is caught
+by the broad ``except Exception`` below.
+
+Implements ADR-011 §"``init_db`` is a separate concern" — navigation-only
+reference.
 """
 
 from __future__ import annotations
@@ -23,43 +37,52 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import traceback
 
-_ENV_VAR = "DB_CONN_STRING_PERSISTENCE"
+from akgentic.catalog.repositories.postgres.config import PostgresCatalogConfig
+from akgentic.catalog.repositories.postgres.init_db import init_db
+
+__all__ = ["main"]
 
 logger = logging.getLogger(__name__)
 
+_ENV_VAR = "DB_CONN_STRING_PERSISTENCE"
 
-def main() -> int:
-    """Create catalog tables against the configured Postgres instance.
 
-    Returns:
-        Process exit code — 0 on success, 2 on missing env, 1 on other error.
+def main() -> None:
+    """Read the DSN, call :func:`init_db`, exit with the documented code.
+
+    Reads ``os.environ.get(DB_CONN_STRING_PERSISTENCE)``. Missing / empty
+    values produce a terse stderr diagnostic and exit ``2``. Successful
+    schema application logs at INFO and exits ``0``. Any other exception
+    is caught, logged at ERROR with traceback, and produces exit ``1``.
     """
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
-    )
-
-    conn_string = os.environ.get(_ENV_VAR)
-    if not conn_string:
-        logger.error("%s is not set; cannot initialize catalog database", _ENV_VAR)
-        return 2
+    dsn = os.environ.get(_ENV_VAR)
+    if not dsn:
+        # Empty-string DSN is equivalent to missing — the config validator
+        # would reject it downstream anyway, and a missing env var is the
+        # more informative diagnostic.
+        sys.stderr.write(f"{_ENV_VAR} environment variable is required\n")
+        sys.exit(2)
 
     try:
-        from akgentic.catalog.repositories.postgres import init_db
-    except ImportError as exc:
-        logger.error("Postgres backend unavailable: %s", exc)
-        return 1
-
-    try:
-        init_db(conn_string)
+        config = PostgresCatalogConfig(connection_string=dsn)
+        init_db(config)
     except Exception:
+        # Broad except is load-bearing here — the goal is to map ANY
+        # failure (validation error, connection refused, driver import
+        # error) to exit code 1 with a traceback for operators. We
+        # route the traceback through both the logger (for structured
+        # log pipelines) and sys.stderr (for operators tailing stderr
+        # in init-container logs — the test surface relies on the
+        # stderr channel).
         logger.exception("init_db failed")
-        return 1
+        traceback.print_exc()
+        sys.exit(1)
 
-    logger.info("Catalog database initialized successfully")
-    return 0
+    logger.info("catalog_entries schema initialized")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
