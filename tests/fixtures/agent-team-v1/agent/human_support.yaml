@@ -1,0 +1,16 @@
+id: human_support
+kind: agent
+namespace: agent-team-v1
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Human support operator reachable by the manager
+payload:
+  role: Human
+  description: Human user interface
+  agent_class: akgentic.agent.HumanProxy
+  skills: []
+  config:
+    name: "@Support"
+    role: Human
+  routes_to:
+    - "@Manager"

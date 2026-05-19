@@ -1,99 +1,82 @@
-"""Public API surface for akgentic-catalog.
+"""Public API surface for akgentic-catalog (v2).
 
-Re-exports entry models (TemplateEntry, ToolEntry, AgentEntry, TeamEntry),
-query models, error types, abstract and YAML repository interfaces,
-catalog services, and the resolve_env_vars utility. MongoDB backend exports
-are conditionally available when pymongo is installed.
+Re-exports the unified :class:`Entry` model, its supporting types, the v2
+query/clone models, v2-alive error types, the concrete :class:`Catalog`
+service, the structural :class:`EntryRepository` protocol, the YAML entry
+repository, the resolver surface (sentinel keys, ``populate_refs`` /
+``resolve`` etc.), and the ``resolve_env_vars`` utility.
+
+MongoDB-backed repository and the FastAPI application factory / routers are
+conditionally re-exported when their optional dependencies are installed.
+The CLI entry point is re-exported as ``cli_app`` when ``typer`` is available.
 """
 
 from __future__ import annotations
 
+from akgentic.catalog.catalog import UNSET_NAMESPACE, Catalog
 from akgentic.catalog.env import resolve_env_vars
-from akgentic.catalog.models.agent import AgentEntry
+from akgentic.catalog.models.entry import Entry, EntryKind
 from akgentic.catalog.models.errors import CatalogValidationError, EntryNotFoundError
-from akgentic.catalog.models.queries import AgentQuery, TeamQuery, TemplateQuery, ToolQuery
-from akgentic.catalog.models.team import TeamEntry, TeamMemberSpec
-from akgentic.catalog.models.template import TemplateEntry
-from akgentic.catalog.models.tool import ToolEntry
-from akgentic.catalog.repositories.base import (
-    AgentCatalogRepository,
-    TeamCatalogRepository,
-    TemplateCatalogRepository,
-    ToolCatalogRepository,
+from akgentic.catalog.models.namespace_meta import NamespaceMeta
+from akgentic.catalog.models.queries import CloneRequest, EntryQuery
+from akgentic.catalog.repositories.base import EntryRepository
+from akgentic.catalog.repositories.yaml import YamlEntryRepository
+from akgentic.catalog.resolver import (
+    NAMESPACE_KEY,
+    REF_KEY,
+    TYPE_KEY,
+    load_model_type,
+    populate_refs,
+    prepare_for_write,
+    reconcile_refs,
+    resolve,
+    validate_delete,
 )
-from akgentic.catalog.repositories.yaml.agent_repo import YamlAgentCatalogRepository
-from akgentic.catalog.repositories.yaml.team_repo import YamlTeamCatalogRepository
-from akgentic.catalog.repositories.yaml.template_repo import YamlTemplateCatalogRepository
-from akgentic.catalog.repositories.yaml.tool_repo import YamlToolCatalogRepository
-from akgentic.catalog.services.agent_catalog import AgentCatalog
-from akgentic.catalog.services.team_catalog import TeamCatalog
-from akgentic.catalog.services.template_catalog import TemplateCatalog
-from akgentic.catalog.services.tool_catalog import ToolCatalog
 
 __all__ = [
-    "AgentCatalog",
-    "AgentCatalogRepository",
-    "AgentEntry",
-    "AgentQuery",
+    "NAMESPACE_KEY",
+    "REF_KEY",
+    "TYPE_KEY",
+    "Catalog",
     "CatalogValidationError",
+    "CloneRequest",
+    "Entry",
+    "EntryKind",
     "EntryNotFoundError",
-    "TeamCatalog",
-    "TeamCatalogRepository",
-    "TeamMemberSpec",
-    "TeamQuery",
-    "TeamEntry",
-    "TemplateCatalog",
-    "TemplateCatalogRepository",
-    "TemplateEntry",
-    "TemplateQuery",
-    "ToolCatalog",
-    "ToolCatalogRepository",
-    "ToolEntry",
-    "ToolQuery",
-    "YamlAgentCatalogRepository",
-    "YamlTeamCatalogRepository",
-    "YamlTemplateCatalogRepository",
-    "YamlToolCatalogRepository",
+    "EntryQuery",
+    "EntryRepository",
+    "NamespaceMeta",
+    "UNSET_NAMESPACE",
+    "YamlEntryRepository",
+    "load_model_type",
+    "populate_refs",
+    "prepare_for_write",
+    "reconcile_refs",
+    "resolve",
     "resolve_env_vars",
+    "validate_delete",
 ]
 
 try:
-    from akgentic.catalog.repositories.mongo import (
-        MongoAgentCatalogRepository,
-        MongoCatalogConfig,
-        MongoTeamCatalogRepository,
-        MongoTemplateCatalogRepository,
-        MongoToolCatalogRepository,
-        from_document,
-        to_document,
-    )
+    from akgentic.catalog.repositories.mongo import MongoCatalogConfig, MongoEntryRepository
 
     __all__ += [
-        "MongoAgentCatalogRepository",
         "MongoCatalogConfig",
-        "MongoTeamCatalogRepository",
-        "MongoTemplateCatalogRepository",
-        "MongoToolCatalogRepository",
-        "from_document",
-        "to_document",
+        "MongoEntryRepository",
     ]
 except ImportError:
     pass
 
 try:
     from akgentic.catalog.repositories.postgres import (
-        NagraAgentCatalogRepository,
-        NagraTeamCatalogRepository,
-        NagraTemplateCatalogRepository,
-        NagraToolCatalogRepository,
+        PostgresCatalogConfig,
+        PostgresEntryRepository,
         init_db,
     )
 
     __all__ += [
-        "NagraAgentCatalogRepository",
-        "NagraTeamCatalogRepository",
-        "NagraTemplateCatalogRepository",
-        "NagraToolCatalogRepository",
+        "PostgresCatalogConfig",
+        "PostgresEntryRepository",
         "init_db",
     ]
 except ImportError:
@@ -103,21 +86,13 @@ try:
     from akgentic.catalog.api import (
         ErrorResponse,
         add_exception_handlers,
-        agent_router,
         create_app,
-        team_router,
-        template_router,
-        tool_router,
     )
 
     __all__ += [
         "ErrorResponse",
         "add_exception_handlers",
-        "agent_router",
         "create_app",
-        "team_router",
-        "template_router",
-        "tool_router",
     ]
 except ImportError:
     pass

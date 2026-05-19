@@ -1,0 +1,30 @@
+id: manager
+kind: agent
+namespace: agent-team-v1
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Helpful manager coordinating team work
+payload:
+  role: Manager
+  description: Helpful manager coordinating team work
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+    - coordination
+    - delegation
+  config:
+    name: "@Manager"
+    role: Manager
+    prompt:
+      template: "You are a helpful {role}. {instructions}"
+      params:
+        role: manager
+        instructions: Coordinate the team effectively.
+    model_cfg:
+      __ref__: id_gpt_41
+    tools:
+      - __ref__: id_web_search
+      - __ref__: id_planning
+      - __ref__: id_workspace
+  routes_to:
+    - "@Assistant"
+    - "@Expert"

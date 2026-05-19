@@ -1,0 +1,20 @@
+id: manager
+kind: agent
+namespace: sibling-overrides-v1
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Manager sharing the team prompt with its own params.
+payload:
+  role: Manager
+  description: Manager sharing the team prompt with its own params.
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+    - coordination
+  config:
+    name: "@Manager"
+    role: Manager
+    prompt:
+      __ref__: id_team_prompt
+      params:
+        role: Manager
+        instructions: Coordinate the team.

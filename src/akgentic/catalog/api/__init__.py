@@ -1,7 +1,7 @@
 """FastAPI REST API for the Akgentic catalog.
 
-Provides routers for all four catalog types (templates, tools, agents, teams)
-with CRUD and search endpoints.
+Exposes :func:`create_app` which wires the unified ``/catalog`` router
+against a YAML- or MongoDB-backed :class:`EntryRepository`.
 
 Requires the ``api`` extra: ``pip install akgentic-catalog[api]``.
 """
@@ -16,18 +16,10 @@ except ImportError as exc:
     ) from exc
 
 from akgentic.catalog.api._errors import ErrorResponse, add_exception_handlers
-from akgentic.catalog.api.agent_router import router as agent_router
 from akgentic.catalog.api.app import create_app
-from akgentic.catalog.api.team_router import router as team_router
-from akgentic.catalog.api.template_router import router as template_router
-from akgentic.catalog.api.tool_router import router as tool_router
 
 __all__ = [
     "ErrorResponse",
     "add_exception_handlers",
-    "agent_router",
     "create_app",
-    "team_router",
-    "template_router",
-    "tool_router",
 ]

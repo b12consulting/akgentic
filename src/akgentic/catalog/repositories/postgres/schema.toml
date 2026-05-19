@@ -1,23 +1,28 @@
-[template_entries]
-natural_key = ["id"]
-[template_entries.columns]
-id = "str"
-data = "json"
+# Nagra schema declaration for the Catalog v2 Postgres backend.
+#
+# Single `catalog_entries` table keyed by a compound primary key
+# (namespace, id). A secondary index on (namespace, kind) is created by
+# init_db() — Nagra's TOML form does not natively carry multi-column
+# secondary indexes, so the repository emits CREATE INDEX IF NOT EXISTS for
+# them explicitly.
+#
+# `primary_key = ""` signals "no surrogate primary key" to Nagra; the
+# compound uniqueness is enforced by `natural_key = ["namespace", "id"]`
+# which Nagra materialises as a UNIQUE INDEX named `catalog_entries_idx`.
+#
+# The single table name `catalog_entries` aligns with the Mongo backend's
+# single collection — shard-10 "one collection/table per catalog" shape.
 
-[tool_entries]
-natural_key = ["id"]
-[tool_entries.columns]
-id = "str"
-data = "json"
+[catalog_entries]
+primary_key = ""
+natural_key = ["namespace", "id"]
+not_null = ["namespace", "id", "kind", "model_type", "payload"]
 
-[agent_entries]
-natural_key = ["id"]
-[agent_entries.columns]
-id = "str"
-data = "json"
-
-[team_entries]
-natural_key = ["id"]
-[team_entries.columns]
-id = "str"
-data = "json"
+[catalog_entries.columns]
+namespace = "text"
+id = "text"
+kind = "text"
+user_id = "text"
+model_type = "text"
+description = "text"
+payload = "jsonb"
