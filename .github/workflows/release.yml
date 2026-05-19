@@ -1,13 +1,15 @@
 name: Release
 
-# Manual release: reads version from pyproject.toml on master, tags master HEAD,
-# builds the wheel, and creates a GitHub Release with the wheel attached.
+# Manual release: reads version from pyproject.toml on the dispatched branch,
+# tags that branch's HEAD, builds the wheel, and creates a GitHub Release with
+# the wheel attached. The branch is whatever was selected in the "Run workflow"
+# dropdown on the Actions tab (e.g. master, version-2.x).
 #
 # Bumping the version is a separate maintainer action via a normal PR. This
-# workflow does NOT push commits to master — branch protection blocks that.
-# The release flow is therefore two-step:
+# workflow does NOT push commits — branch protection blocks that. The release
+# flow is therefore two-step:
 #   1. Open a "chore: bump version to X.Y.Z" PR; merge it.
-#   2. Trigger this workflow from the Actions tab.
+#   2. Trigger this workflow from the Actions tab against the desired branch.
 
 on:
   workflow_dispatch:
@@ -18,10 +20,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout master
+      - name: Checkout dispatched branch
         uses: actions/checkout@v6
         with:
-          ref: master
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Install uv
@@ -48,7 +50,7 @@ jobs:
             exit 1
           fi
 
-      - name: Tag master HEAD
+      - name: Tag branch HEAD
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
