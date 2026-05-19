@@ -60,9 +60,6 @@ class WebCrawl(BaseToolParam):
 class SearchTool(ToolCard):
     """Web search, fetch, and crawl capabilities via Tavily."""
 
-    name: str = "Web Search"
-    description: str = "Search the web for current information"
-
     web_search: WebSearch | bool = True
     web_crawl: WebCrawl | bool = True
     web_fetch: WebFetch | bool = True

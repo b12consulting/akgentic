@@ -60,7 +60,6 @@ def make_tool(tmp_path: Path, team_id: uuid.UUID | None = None) -> WorkspaceTool
 class TestWorkspaceReadToolFields:
     def test_default_fields(self) -> None:
         tool = WorkspaceTool(read_only=True)
-        assert tool.name == "Workspace"
         assert tool.workspace_id is None
         assert tool.workspace_read is True
         assert tool.workspace_list is True
@@ -1165,7 +1164,10 @@ class TestWorkspaceToolSerialization:
 
     def test_document_reader_false_in_dump(self) -> None:
         """document_reader=False serializes as False."""
-        assert WorkspaceTool(read_only=True, document_reader=False).model_dump()["document_reader"] is False
+        assert (
+            WorkspaceTool(read_only=True, document_reader=False).model_dump()["document_reader"]
+            is False
+        )
 
     def test_document_reader_instance_in_dump(self) -> None:
         """DocumentReader instance serializes to its model_dump() dict."""
@@ -1177,7 +1179,9 @@ class TestWorkspaceToolSerialization:
 
     def test_model_validate_roundtrip_with_document_reader(self) -> None:
         """model_dump -> model_validate round-trips with DocumentReader."""
-        original = WorkspaceTool(read_only=True, document_reader=DocumentReader(llm_client="openai"))
+        original = WorkspaceTool(
+            read_only=True, document_reader=DocumentReader(llm_client="openai")
+        )
         restored = WorkspaceTool.model_validate(original.model_dump())
         assert isinstance(restored.document_reader, DocumentReader)
         assert restored.document_reader.llm_client == "openai"
@@ -1190,9 +1194,7 @@ class TestDocumentReaderLazyInit:
         """No llm_client -> _get_openai_client() returns None."""
         assert DocumentReader()._get_openai_client() is None
 
-    @pytest.mark.skipif(
-        not os.environ.get("OPENAI_API_KEY"), reason="requires OPENAI_API_KEY"
-    )
+    @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="requires OPENAI_API_KEY")
     def test_get_openai_client_lazy_creation(self) -> None:
         """llm_client='openai' -> lazily constructs OpenAI() on first call."""
         reader = DocumentReader(llm_client="openai")
@@ -1204,9 +1206,7 @@ class TestDocumentReaderLazyInit:
         assert result is not None
         assert reader._openai_client is result
 
-    @pytest.mark.skipif(
-        not os.environ.get("OPENAI_API_KEY"), reason="requires OPENAI_API_KEY"
-    )
+    @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="requires OPENAI_API_KEY")
     def test_get_openai_client_cached(self) -> None:
         """Second _get_openai_client() call reuses cached client."""
         reader = DocumentReader(llm_client="openai")

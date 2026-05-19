@@ -106,7 +106,9 @@ class _OrchestratorStub:
         self._vs_addr = _MockAddress("#VectorStore", "ToolActor")
 
     def getChildrenOrCreate(  # noqa: N802
-        self, actor_class: type, config: object = None,
+        self,
+        actor_class: type,
+        config: object = None,
     ) -> ActorAddress:
         """Return plan addr for PlanActor, VS addr for VectorStore actors."""
         from akgentic.tool.vector_store.actor import VectorStoreActor
@@ -127,10 +129,12 @@ class _ExampleObserver:
         self.events: list[object] = []
         self._address = _MockAddress("planning-agent")
         self._orchestrator_addr = _MockAddress("orchestrator")
-        self._plan_actor = PlanActor(config=PlanConfig(
-            name=PLANNING_ACTOR_NAME,
-            role=PLANNING_ACTOR_ROLE,
-        ))
+        self._plan_actor = PlanActor(
+            config=PlanConfig(
+                name=PLANNING_ACTOR_NAME,
+                role=PLANNING_ACTOR_ROLE,
+            )
+        )
         self._plan_actor.on_start()
         self._plan_addr = _MockAddress(PLANNING_ACTOR_NAME, PLANNING_ACTOR_ROLE)
 
@@ -158,7 +162,7 @@ class _ExampleObserver:
         if actor == self._orchestrator_addr:
             return _OrchestratorStub(self._plan_addr)
         # Return mock for VectorStoreActor proxy
-        if hasattr(actor, 'name') and actor.name == "#VectorStore":
+        if hasattr(actor, "name") and actor.name == "#VectorStore":
             from unittest.mock import MagicMock
 
             return MagicMock()
@@ -293,7 +297,7 @@ def main() -> None:
         update_planning=UpdatePlanning(),
     )
     tool.observer(observer)
-    print(f"Tool: {tool.name} — {tool.description}")
+    print(f"Tool: {type(tool).__name__}")
 
     # Access the underlying actor via observer for direct calls
     plan_actor = observer._plan_actor

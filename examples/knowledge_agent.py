@@ -108,7 +108,9 @@ class _OrchestratorStub:
         self._vs_addr = _MockAddress("#VectorStore", "ToolActor")
 
     def getChildrenOrCreate(  # noqa: N802
-        self, actor_class: type, config: object = None,
+        self,
+        actor_class: type,
+        config: object = None,
     ) -> ActorAddress:
         """Return KG addr for KG actors, VS addr for VectorStore actors."""
         from akgentic.tool.vector_store.actor import VectorStoreActor
@@ -157,7 +159,7 @@ class _ExampleObserver:
         if actor == self._orchestrator_addr:
             return _OrchestratorStub(self._kg_addr)
         # Return mock for VectorStoreActor proxy
-        if hasattr(actor, 'name') and actor.name == "#VectorStore":
+        if hasattr(actor, "name") and actor.name == "#VectorStore":
             from unittest.mock import MagicMock
 
             return MagicMock()
@@ -363,7 +365,7 @@ def main() -> None:
         search=True,
     )
     tool.observer(observer)
-    print(f"Tool: {tool.name} — {tool.description}")
+    print(f"Tool: {type(tool).__name__}")
 
     # Access the underlying actor via observer for direct calls
     kg_actor = observer._kg_actor

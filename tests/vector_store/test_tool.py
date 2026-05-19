@@ -88,8 +88,8 @@ class _MockActorToolObserver:
         self._orchestrator: ActorAddress | None = _MockActorAddress("orchestrator")
         self._orchestrator_proxy = MagicMock(spec=Orchestrator)
         # Default: return a fresh address whenever getChildrenOrCreate is called
-        self._orchestrator_proxy.getChildrenOrCreate.side_effect = (
-            lambda actor_cls, config=None: _MockActorAddress(
+        self._orchestrator_proxy.getChildrenOrCreate.side_effect = lambda actor_cls, config=None: (
+            _MockActorAddress(
                 getattr(config, "name", "unknown"),
                 getattr(config, "role", VS_ACTOR_ROLE),
             )
@@ -127,14 +127,6 @@ class TestVectorStoreToolDefaults:
 
     def test_is_tool_card(self) -> None:
         assert issubclass(VectorStoreTool, ToolCard)
-
-    def test_default_name(self) -> None:
-        tool = VectorStoreTool()
-        assert tool.name == "VectorStore"
-
-    def test_default_description(self) -> None:
-        tool = VectorStoreTool()
-        assert tool.description == "Centralized vector storage and embedding service"
 
     def test_default_vector_store_name_matches_singleton_constant(self) -> None:
         tool = VectorStoreTool()
@@ -377,8 +369,6 @@ class TestVectorStoreToolSerialization:
         assert restored.embedding_model == "text-embedding-3-large"
         assert restored.embedding_provider == "azure"
         assert restored.vector_store_name == "#VectorStore-RAG"
-        assert restored.name == original.name
-        assert restored.description == original.description
 
     def test_dumped_payload_contains_all_fields(self) -> None:
         original = VectorStoreTool(
@@ -387,8 +377,6 @@ class TestVectorStoreToolSerialization:
             vector_store_name="#VectorStore-RAG",
         )
         dumped = original.model_dump()
-        assert dumped["name"] == "VectorStore"
-        assert dumped["description"] == "Centralized vector storage and embedding service"
         assert dumped["vector_store_name"] == "#VectorStore-RAG"
         assert dumped["embedding_model"] == "text-embedding-3-large"
         assert dumped["embedding_provider"] == "azure"

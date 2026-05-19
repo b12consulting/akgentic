@@ -53,9 +53,6 @@ class VectorStoreTool(ToolCard):
         env vars.
     """
 
-    name: str = "VectorStore"
-    description: str = "Centralized vector storage and embedding service"
-
     vector_store_name: str = Field(
         default=VS_ACTOR_NAME,
         description="Singleton actor name (allows multiple named VectorStoreActor instances)",

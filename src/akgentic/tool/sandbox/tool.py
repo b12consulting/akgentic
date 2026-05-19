@@ -110,8 +110,6 @@ class ExecCommand(BaseToolParam):
 class ExecTool(ToolCard):
     """ToolCard proxy that routes shell commands to the team's SandboxActor."""
 
-    name: str = "Exec"
-    description: str = "Execute sandboxed shell commands in the team workspace"
     exec_command: ExecCommand | bool = True
     mode: Literal["local", "bwrap", "seatbelt", "docker", "auto"] = "auto"
     workspace_id: str | None = None

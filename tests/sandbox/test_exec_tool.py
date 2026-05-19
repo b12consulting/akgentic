@@ -102,18 +102,6 @@ def test_sandbox_actor_classes_is_mutable_dict() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_exec_tool_name_default() -> None:
-    """AC2: ExecTool.name defaults to 'Exec'."""
-    tool = ExecTool()
-    assert tool.name == "Exec"
-
-
-def test_exec_tool_description_default() -> None:
-    """AC2: ExecTool.description is the expected string."""
-    tool = ExecTool()
-    assert tool.description == "Execute sandboxed shell commands in the team workspace"
-
-
 def test_exec_tool_exec_command_default_is_true() -> None:
     """AC2: ExecTool.exec_command defaults to True."""
     tool = ExecTool()
@@ -278,9 +266,7 @@ def test_exec_command_returns_formatted_output() -> None:
 
     # Replace proxy with a controlled mock
     mock_proxy = MagicMock(spec=SandboxActor)
-    mock_proxy.exec.return_value = ExecResult(
-        stdout="===== 5 passed =====", stderr="", exit_code=0
-    )
+    mock_proxy.exec.return_value = ExecResult(stdout="===== 5 passed =====", stderr="", exit_code=0)
     tool._sandbox_proxy = mock_proxy
 
     tools = tool.get_tools()
