@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import traceback
-from typing import Any
+from typing import Any, cast
 
 from pydantic_ai import Agent, BinaryContent, UsageLimitExceeded
 from pydantic_ai import UsageLimits as PydanticUsageLimits
@@ -102,13 +102,16 @@ class ReactAgent:
         # Wrap result_type with provider-aware output strategy for structured output
         wrapped_result_type: Any = get_output_type(config.model_cfg, result_type)
 
-        # Create pydantic-ai Agent
-        self._pydantic_agent = Agent(
+        # Create pydantic-ai Agent.
+        # pydantic-ai's Agent() @overload stubs are narrower than the runtime
+        # __init__: they reject `history_processors` / `instrument` and a
+        # `type[Any] | None` `deps_type`, all of which the runtime accepts.
+        self._pydantic_agent = Agent(  # type: ignore[call-overload]
             model=self._model,
             tools=tools or [],
             toolsets=toolsets or [],
             retries=config.runtime_cfg.retries,
-            deps_type=deps_type,  # type: ignore[arg-type]
+            deps_type=deps_type,
             end_strategy=config.runtime_cfg.end_strategy,
             output_type=wrapped_result_type,
             history_processors=[],  # Empty for MVP (story 2-1-6b deferred)
@@ -361,4 +364,6 @@ class ReactAgent:
         Returns:
             Pydantic-ai Agent instance
         """
-        return self._pydantic_agent
+        # `_pydantic_agent` is Any-typed (Agent() call uses a typed-ignore);
+        # the runtime value genuinely is an Agent, so cast to recover the type.
+        return cast(Agent[Any, Any], self._pydantic_agent)

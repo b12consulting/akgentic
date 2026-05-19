@@ -567,4 +567,6 @@ def create_model(
             f"Unsupported provider: {config.provider}. Supported providers: {supported}"
         )
 
-    return factory(config, http_client)
+    # The provider factory callables are typed loosely (resolve to `object`);
+    # each genuinely returns a pydantic-ai `Model` at runtime.
+    return cast(Model, factory(config, http_client))
