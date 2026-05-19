@@ -9,6 +9,7 @@ from typing import NoReturn, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from akgentic.catalog.models.errors import EntryNotFoundError
+from akgentic.infra.server.auth import RequestUser, get_request_user
 from akgentic.infra.server.models import (
     CreateTeamRequest,
     EventListResponse,
@@ -46,16 +47,16 @@ def _process_to_response(process: Process) -> TeamResponse:
 @router.post("", status_code=201, response_model=TeamResponse)
 def create_team(
     body: CreateTeamRequest,
+    user: RequestUser = Depends(get_request_user),
     service: TeamService = Depends(get_team_service),
 ) -> TeamResponse:
     """Create a new team from a catalog entry."""
     logger.info("POST /teams — catalog_entry=%s", body.catalog_entry_id)
     try:
-        # Community-tier hardcoded identity. Department/enterprise tiers must
-        # replace with authenticated user identity from auth middleware.
         process = service.create_team(
             catalog_entry_id=body.catalog_entry_id,
-            user_id="anonymous",
+            user_id=user.user_id,
+            user_email=user.email,
         )
     except EntryNotFoundError:
         logger.warning("Team creation failed: catalog entry %s not found", body.catalog_entry_id)
@@ -65,12 +66,12 @@ def create_team(
 
 @router.get("", response_model=TeamListResponse)
 def list_teams(
+    user: RequestUser = Depends(get_request_user),
     service: TeamService = Depends(get_team_service),
 ) -> TeamListResponse:
     """List all teams for the current user."""
     logger.debug("GET /teams")
-    # Community-tier hardcoded identity (see create_team comment above).
-    processes = service.list_teams(user_id="anonymous")
+    processes = service.list_teams(user_id=user.user_id)
     return TeamListResponse(teams=[_process_to_response(p) for p in processes])
 
 
