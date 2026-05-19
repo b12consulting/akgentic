@@ -40,6 +40,7 @@ class PlacementStrategy(Protocol):
         user_id: str,
         user_email: str = "",
         team_id: uuid.UUID | None = None,
+        catalog_namespace: str | None = None,
     ) -> TeamHandle:
         """Create a team on a worker instance and return a handle.
 
@@ -49,6 +50,11 @@ class PlacementStrategy(Protocol):
             user_email: Email of the user creating the team.
             team_id: Optional caller-supplied team identifier. When omitted, the
                 underlying TeamManager generates a fresh UUID.
+            catalog_namespace: Opaque tag identifying the catalog namespace
+                the team was instantiated from. Forwarded through to
+                ``TeamManager.create_team`` (community tier) or the remote
+                worker (department / enterprise tiers). ``None`` for teams
+                not sourced from a v2 catalog namespace.
 
         Returns:
             A TeamHandle for interacting with the newly created team.

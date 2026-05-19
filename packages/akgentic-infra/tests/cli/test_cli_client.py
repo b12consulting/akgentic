@@ -16,6 +16,7 @@ from akgentic.infra.cli.client import (
     TeamInfo,
     WorkspaceTreeInfo,
     WorkspaceUploadInfo,
+    _auth_headers,
 )
 from tests.fixtures.models import make_event_info, make_team_info
 
@@ -41,10 +42,9 @@ def _client(
 ) -> ApiClient:
     """Build an ApiClient backed by a mock transport."""
     c = ApiClient(base_url="http://test", api_key=api_key)
-    headers: dict[str, str] = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    c._client = httpx.Client(base_url="http://test", transport=transport, headers=headers)
+    c._client = httpx.Client(
+        base_url="http://test", transport=transport, headers=_auth_headers(api_key)
+    )
     return c
 
 
@@ -89,7 +89,7 @@ class TestCreateTeam:
         result = client.create_team("my-entry")
         assert isinstance(result, TeamInfo)
         assert result.team_id == "abc"
-        assert sent_bodies[0] == {"catalog_entry_id": "my-entry"}
+        assert sent_bodies[0] == {"catalog_namespace": "my-entry"}
 
 
 class TestStopTeam:
@@ -323,7 +323,8 @@ class TestValidationErrors:
 
 
 class TestApiKey:
-    def test_api_key_header(self) -> None:
+    def test_bearer_token_sent_as_authorization_header(self) -> None:
+        """A non-``ak_`` credential is treated as an OIDC bearer token."""
         headers: dict[str, str] = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -333,6 +334,39 @@ class TestApiKey:
         client = _client(httpx.MockTransport(handler), api_key="secret-key")
         client.list_teams()
         assert headers.get("authorization") == "Bearer secret-key"
+        assert "x-api-key" not in headers
+
+    def test_structured_api_key_sent_as_x_api_key_header(self) -> None:
+        """An ``ak_`` structured key goes in ``X-API-Key``, not ``Authorization``."""
+        headers: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            headers.update(dict(request.headers))
+            return httpx.Response(200, json={"teams": []})
+
+        api_key = "ak_71b3c69a8a34b11f_bZTUl8CpzjvbozMynKHoZ0Xa7UrX3IVqkBNoyLGSGnE"
+        client = _client(httpx.MockTransport(handler), api_key=api_key)
+        client.list_teams()
+        assert headers.get("x-api-key") == api_key
+        assert "authorization" not in headers
+
+
+class TestAuthHeaders:
+    """Unit coverage for the credential → header mapping."""
+
+    def test_none_credential_yields_no_header(self) -> None:
+        assert _auth_headers(None) == {}
+
+    def test_empty_credential_yields_no_header(self) -> None:
+        assert _auth_headers("") == {}
+
+    def test_ak_prefixed_credential_is_x_api_key(self) -> None:
+        assert _auth_headers("ak_abc_def") == {"X-API-Key": "ak_abc_def"}
+
+    def test_other_credential_is_bearer(self) -> None:
+        assert _auth_headers("eyJhbGciOi.jwt.token") == {
+            "Authorization": "Bearer eyJhbGciOi.jwt.token"
+        }
 
 
 # -- ApiClient constructor modes (story 22.5) --

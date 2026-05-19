@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-infra"
-version = "1.2.3"
+version = "1.2.2"
 description = "Infrastructure backend: protocol abstractions and community-tier implementations for akgentic"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,19 +39,18 @@ dev = [
     "mypy>=1.8.0",
     "ruff>=0.1.0",
     "python-dotenv>=1.0.0",
+    "types-PyYAML>=6.0",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv.sources]
-akgentic-core = { workspace = true }
-akgentic-team = { workspace = true }
-akgentic-catalog = { workspace = true }
-akgentic-agent = { workspace = true }
-akgentic-llm = { workspace = true }
-akgentic-tool = { workspace = true }
+# Note: akgentic-* dependencies have NO [tool.uv.sources] entry here.
+# - Inside the akgentic-quick-start workspace, the workspace root's
+#   [tool.uv.sources] resolves them as editable workspace members.
+# - In standalone CI, they are built from RELEASE_BRANCH into a local
+#   wheelhouse and installed via `uv pip install --find-links` — see ci.yml.
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akgentic"]

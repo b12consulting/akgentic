@@ -46,7 +46,7 @@ def test_infra_all_includes_adapters() -> None:
 
 
 def test_infra_all_includes_server_models() -> None:
-    """akgentic.infra.__all__ includes ServerSettings, CommunitySettings, TierServices, CommunityServices."""
+    """akgentic.infra.__all__ exposes the server settings and tier-services symbols."""
     from akgentic import infra
 
     assert "ServerSettings" in infra.__all__

@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from akgentic.catalog.models.errors import EntryNotFoundError
-from akgentic.team.models import TeamStatus
+from akgentic.team.models import Process, TeamStatus
 
 from akgentic.infra.server.services.team_service import TeamService
 
 
 def test_create_team_returns_process(team_service: TeamService) -> None:
     """Creating a team with a valid catalog entry returns a Process."""
-    process = team_service.create_team("test-team", user_id="anonymous")
+    process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
     assert process.team_id is not None
     assert process.status == TeamStatus.RUNNING
     assert process.user_id == "anonymous"
@@ -23,9 +25,15 @@ def test_create_team_returns_process(team_service: TeamService) -> None:
 
 
 def test_create_team_invalid_entry_raises(team_service: TeamService) -> None:
-    """Creating a team with an invalid catalog entry raises EntryNotFoundError."""
+    """Creating a team with an invalid catalog namespace raises EntryNotFoundError."""
     with pytest.raises(EntryNotFoundError):
-        team_service.create_team("nonexistent", user_id="anonymous")
+        team_service.create_team(catalog_namespace="nonexistent", user_id="anonymous")
+
+
+def test_create_team_propagates_catalog_namespace(team_service: TeamService) -> None:
+    """Process.catalog_namespace is populated from the create_team argument."""
+    process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
+    assert process.catalog_namespace == "test-team"
 
 
 def test_create_team_forwards_user_email_and_team_id(team_service: TeamService) -> None:
@@ -52,7 +60,11 @@ def test_create_team_forwards_user_email_and_team_id(team_service: TeamService) 
 
     call = mock_placement.create_team.call_args
     assert call.args[1] == "alice"
-    assert call.kwargs == {"user_email": "alice@example.com", "team_id": explicit_id}
+    assert call.kwargs == {
+        "user_email": "alice@example.com",
+        "team_id": explicit_id,
+        "catalog_namespace": "test-team",
+    }
 
 
 def test_list_teams_empty(team_service: TeamService) -> None:
@@ -63,8 +75,8 @@ def test_list_teams_empty(team_service: TeamService) -> None:
 
 def test_list_teams_filters_by_user(team_service: TeamService) -> None:
     """list_teams returns only teams belonging to the given user."""
-    team_service.create_team("test-team", user_id="alice")
-    team_service.create_team("test-team", user_id="bob")
+    team_service.create_team(catalog_namespace="test-team", user_id="alice")
+    team_service.create_team(catalog_namespace="test-team", user_id="bob")
     alice_teams = team_service.list_teams(user_id="alice")
     bob_teams = team_service.list_teams(user_id="bob")
     assert len(alice_teams) == 1
@@ -116,7 +128,7 @@ def test_list_teams_passes_empty_string_user_id_verbatim(team_service: TeamServi
 
 def test_get_team_found(team_service: TeamService) -> None:
     """get_team returns the Process for an existing team."""
-    process = team_service.create_team("test-team", user_id="anonymous")
+    process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
     found = team_service.get_team(process.team_id)
     assert found is not None
     assert found.team_id == process.team_id
@@ -135,7 +147,7 @@ def test_get_team_not_found(team_service: TeamService) -> None:
 )
 def test_delete_team_stops_and_deletes(team_service: TeamService) -> None:
     """delete_team stops a running team and purges it from the event store."""
-    process = team_service.create_team("test-team", user_id="anonymous")
+    process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
     team_service.delete_team(process.team_id)
     # After deletion, the team is fully purged from the event store
     after = team_service.get_team(process.team_id)
@@ -148,7 +160,7 @@ def test_delete_team_stops_and_deletes(team_service: TeamService) -> None:
 )
 def test_delete_stopped_team(team_service: TeamService) -> None:
     """delete_team handles an already-stopped team without calling stop_team."""
-    process = team_service.create_team("test-team", user_id="anonymous")
+    process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
     team_service._services.worker_handle.stop_team(process.team_id)
     team_service.delete_team(process.team_id)
     after = team_service.get_team(process.team_id)
@@ -173,9 +185,8 @@ class TestStopTeam:
     def test_stop_team_removes_event_stream(self, team_service: TeamService) -> None:
         """AC1: stop_team calls event_stream.remove(team_id)."""
         from akgentic.infra.adapters.community.local_event_stream import LocalEventStream
-        from akgentic.infra.protocols.event_stream import StreamClosed
 
-        process = team_service.create_team("test-team", user_id="anonymous")
+        process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
         team_id = process.team_id
 
         event_stream = team_service.get_event_stream()
@@ -194,7 +205,7 @@ class TestStopTeam:
 
     def test_stop_team_errors_are_non_fatal(self, team_service: TeamService) -> None:
         """AC1: event_stream.remove() failure does not prevent stop."""
-        process = team_service.create_team("test-team", user_id="anonymous")
+        process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
         team_id = process.team_id
 
         # Replace event_stream.remove with one that raises
@@ -244,7 +255,7 @@ class TestTeamServiceLogging:
     ) -> None:
         """create_team() emits INFO log with team_id and catalog_entry."""
         with caplog.at_level(logging.INFO, logger="akgentic.infra.server.services.team_service"):
-            team_service.create_team("test-team", user_id="anonymous")
+            team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
         assert any("Team created" in r.message for r in caplog.records)
 
     @pytest.mark.skip(
@@ -257,8 +268,113 @@ class TestTeamServiceLogging:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """delete_team() emits INFO log with team_id."""
-        process = team_service.create_team("test-team", user_id="anonymous")
+        process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
         caplog.clear()
         with caplog.at_level(logging.INFO, logger="akgentic.infra.server.services.team_service"):
             team_service.delete_team(process.team_id)
         assert any("Team deleted" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Story 24.1 — workspace-directory cleanup in delete_team
+#
+# These tests stub the tier services (MagicMock) so delete_team's FS-cleanup
+# step can be exercised in isolation, without spinning up the real actor
+# system (whose TeamManager.delete_team has a pre-existing flaky teardown
+# race — see the skipped tests above).
+# ---------------------------------------------------------------------------
+
+
+def _stub_team_service(workspaces_root: Path, *, team_exists: bool) -> TeamService:
+    """Build a TeamService with mocked tier services for FS-cleanup tests.
+
+    When ``team_exists`` is False, ``worker_handle.get_team`` returns None so
+    ``delete_team`` raises ``ValueError`` before any FS work.
+    """
+    services = MagicMock()
+    if team_exists:
+        process = MagicMock(spec=Process)
+        process.status = TeamStatus.STOPPED
+        services.worker_handle.get_team.return_value = process
+    else:
+        services.worker_handle.get_team.return_value = None
+    return TeamService(services, workspaces_root=workspaces_root)
+
+
+class TestDeleteTeamWorkspaceCleanup:
+    """Story 24.1: delete_team removes the team's workspace directory."""
+
+    def test_happy_path_removes_workspace_dir(self, tmp_path: Path) -> None:
+        """AC #1: an existing workspace dir and its contents are removed."""
+        team_id = uuid.uuid4()
+        team_dir = tmp_path / str(team_id)
+        team_dir.mkdir(parents=True)
+        (team_dir / "file.txt").write_text("content")
+
+        service = _stub_team_service(tmp_path, team_exists=True)
+        service.delete_team(team_id)
+
+        assert not team_dir.exists()
+
+    def test_missing_dir_is_silent_no_op(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """AC #2: a missing workspace dir produces no WARNING log and no error."""
+        team_id = uuid.uuid4()
+        # workspaces_root exists, but the {team_id} subdir does NOT.
+        service = _stub_team_service(tmp_path, team_exists=True)
+
+        with caplog.at_level(logging.WARNING):
+            service.delete_team(team_id)
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warnings == []
+
+    def test_rmtree_failure_logged_and_suppressed(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AC #3: an rmtree failure is logged at WARNING and suppressed."""
+        team_id = uuid.uuid4()
+        team_dir = tmp_path / str(team_id)
+        team_dir.mkdir(parents=True)
+        (team_dir / "file.txt").write_text("content")
+
+        def _boom(_path: object) -> None:
+            raise PermissionError("denied")
+
+        monkeypatch.setattr(shutil, "rmtree", _boom)
+
+        service = _stub_team_service(tmp_path, team_exists=True)
+        with caplog.at_level(logging.WARNING):
+            service.delete_team(team_id)  # must NOT raise
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and str(team_id) in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        # Team is still deleted from the system of record.
+        service._services.worker_handle.delete_team.assert_called_once_with(team_id)
+
+    def test_team_not_found_skips_fs_work(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AC #5: a missing team raises ValueError before any rmtree is attempted."""
+        team_id = uuid.uuid4()
+        rmtree_calls: list[object] = []
+        monkeypatch.setattr(shutil, "rmtree", lambda p: rmtree_calls.append(p))
+
+        service = _stub_team_service(tmp_path, team_exists=False)
+        with pytest.raises(ValueError, match="not found"):
+            service.delete_team(team_id)
+
+        assert rmtree_calls == []
+        service._services.worker_handle.delete_team.assert_not_called()

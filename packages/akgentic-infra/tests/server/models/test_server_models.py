@@ -17,16 +17,16 @@ from akgentic.infra.server.models import (
 
 
 def test_create_team_request_minimal() -> None:
-    """CreateTeamRequest requires only catalog_entry_id."""
-    req = CreateTeamRequest(catalog_entry_id="test-team")
-    assert req.catalog_entry_id == "test-team"
+    """CreateTeamRequest requires only catalog_namespace."""
+    req = CreateTeamRequest(catalog_namespace="test-team")
+    assert req.catalog_namespace == "test-team"
     assert req.params == {}
 
 
 def test_create_team_request_with_params() -> None:
     """CreateTeamRequest accepts optional params."""
     req = CreateTeamRequest(
-        catalog_entry_id="test-team",
+        catalog_namespace="test-team",
         params={"key": "value"},
     )
     assert req.params == {"key": "value"}

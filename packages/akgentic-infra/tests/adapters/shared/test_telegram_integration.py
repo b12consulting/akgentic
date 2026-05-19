@@ -21,7 +21,6 @@ from akgentic.infra.adapters.shared.channel_parser_registry import (
 from akgentic.infra.adapters.shared.telegram_parser import TelegramChannelParser
 from akgentic.infra.protocols.channels import ChannelParser, InteractionChannelAdapter
 
-
 # ---------------------------------------------------------------------------
 # AC 7: ChannelParserRegistry resolves Telegram classes from FQCN config
 # ---------------------------------------------------------------------------

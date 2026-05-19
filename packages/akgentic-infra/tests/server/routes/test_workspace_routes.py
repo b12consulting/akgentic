@@ -13,7 +13,7 @@ from akgentic.infra.server.settings import ServerSettings
 @pytest.fixture()
 def team_with_workspace(client: TestClient, seeded_settings: ServerSettings) -> uuid.UUID:
     """Create a team via REST and seed workspace files."""
-    resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    resp = client.post("/teams/", json={"catalog_namespace": "test-team"})
     assert resp.status_code == 201
     team_id = uuid.UUID(resp.json()["team_id"])
     ws_root = seeded_settings.workspaces_root / str(team_id)

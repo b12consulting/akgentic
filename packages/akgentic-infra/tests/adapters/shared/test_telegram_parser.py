@@ -6,7 +6,6 @@ import pytest
 
 from akgentic.infra.adapters.shared.telegram_parser import TelegramChannelParser
 
-
 # ---------------------------------------------------------------------------
 # Sample Telegram Update payloads
 # ---------------------------------------------------------------------------

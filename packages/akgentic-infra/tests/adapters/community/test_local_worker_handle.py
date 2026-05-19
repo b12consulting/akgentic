@@ -12,7 +12,7 @@ from akgentic.infra.protocols.worker_handle import WorkerHandle
 
 
 def _make_adapter() -> tuple[LocalWorkerHandle, MagicMock, MagicMock]:
-    """Create a LocalWorkerHandle with mock dependencies, return adapter, team_manager, actor_system."""
+    """Create a LocalWorkerHandle with mock deps; return adapter, team_manager, actor_system."""
     team_manager = MagicMock()
     service_registry = MagicMock()
     actor_system = MagicMock()

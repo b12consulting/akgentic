@@ -8,16 +8,16 @@ from pathlib import Path
 
 import pytest
 from akgentic.team.manager import TeamManager
+from akgentic.team.ports import NullServiceRegistry, ServiceRegistry
 from akgentic.team.repositories.yaml import YamlEventStore
 
 from akgentic.infra.adapters.community.local_event_stream import LocalEventStream
 from akgentic.infra.adapters.community.local_placement import LocalPlacement
 from akgentic.infra.adapters.community.local_worker_handle import LocalWorkerHandle
-from akgentic.infra.adapters.shared.event_stream_subscriber import EventStreamSubscriber
-from akgentic.team.ports import NullServiceRegistry, ServiceRegistry
 from akgentic.infra.adapters.community.no_auth import NoAuth
 from akgentic.infra.adapters.community.null_channel_registry import NullChannelRegistry
 from akgentic.infra.adapters.community.yaml_channel_registry import YamlChannelRegistry
+from akgentic.infra.adapters.shared.event_stream_subscriber import EventStreamSubscriber
 from akgentic.infra.server.deps import CommunityServices
 from akgentic.infra.server.settings import CommunitySettings
 from akgentic.infra.wiring import wire_community
@@ -117,8 +117,6 @@ class TestWireCommunity:
         """wire_community uses settings.catalog_path when set."""
         custom_catalog = tmp_path / "custom-catalog"
         custom_catalog.mkdir()
-        for sub in ("teams", "agents", "tools", "templates"):
-            (custom_catalog / sub).mkdir()
         settings = CommunitySettings(
             workspaces_root=tmp_path / "workspaces",
             event_store_path=tmp_path / "event_store",
@@ -126,7 +124,8 @@ class TestWireCommunity:
         )
         services = wire_community(settings)
         try:
-            assert services.team_catalog is not None
+            assert services.catalog is not None
+            assert services.catalog._repository._root == custom_catalog
         finally:
             services.team_manager._actor_system.shutdown(timeout=5)
 

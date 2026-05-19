@@ -12,6 +12,7 @@ from typing import Any, NoReturn, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from akgentic.catalog.models.entry import EntryKind
 from akgentic.core.messages.orchestrator import (
     StateChangedMessage,
 )
@@ -69,9 +70,10 @@ def get_team_service(request: Request) -> TeamService:
 def _to_v1_process_context(process: Process) -> V1ProcessContext:
     """Convert a V2 Process to a V1ProcessContext."""
     entry_point = process.team_card.entry_point
+    team_name = process.team_card.name or process.catalog_namespace or str(process.team_id)
     return V1ProcessContext(
         id=str(process.team_id),
-        type=process.team_card.name,
+        type=team_name,
         status=process.status.value,
         created_at=process.created_at.isoformat(),
         updated_at=process.updated_at.isoformat(),
@@ -81,7 +83,7 @@ def _to_v1_process_context(process: Process) -> V1ProcessContext:
             role=entry_point.card.role,
         ),
         running=process.status == TeamStatus.RUNNING,
-        config_name=process.team_card.name,
+        config_name=team_name,
         user_id=process.user_id,
         user_email=process.user_email,
     )
@@ -134,9 +136,9 @@ def create_process(
     from akgentic.catalog.models.errors import EntryNotFoundError
 
     try:
-        process = service.create_team(catalog_entry_id=type, user_id="anonymous")
+        process = service.create_team(catalog_namespace=type, user_id="anonymous")
     except EntryNotFoundError:
-        raise HTTPException(status_code=404, detail="Catalog entry not found") from None
+        raise HTTPException(status_code=404, detail="Catalog namespace not found") from None
     return _to_v1_process_context(process)
 
 
@@ -405,29 +407,38 @@ def update_agent_state(
 # --- Config routes ---
 
 
-def _get_catalog_for_type(request: Request, config_type: str) -> Any:
-    """Look up the catalog service for a given config type."""
-    services = request.app.state.services
-    catalogs: dict[str, Any] = {
-        "team": services.team_catalog,
-        "agent": services.agent_catalog,
-        "tool": services.tool_catalog,
-        "template": services.template_catalog,
-    }
-    catalog = catalogs.get(config_type)
-    if catalog is None:
+_V1_CONFIG_TYPE_TO_KIND: dict[str, EntryKind] = {
+    "team": "team",
+    "agent": "agent",
+    "tool": "tool",
+    "template": "prompt",
+}
+
+
+def _resolve_kind(config_type: str) -> EntryKind:
+    """Map a V1 config_type name to its v2 ``EntryKind``."""
+    kind = _V1_CONFIG_TYPE_TO_KIND.get(config_type)
+    if kind is None:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown config type: {config_type}",
         )
-    return catalog
+    return kind
+
+
+def _list_entries_of_kind(request: Request, kind: EntryKind) -> list[Any]:
+    """List v2 entries of ``kind`` across every namespace."""
+    from akgentic.catalog.models.queries import EntryQuery
+
+    catalog = request.app.state.services.catalog
+    return list(catalog.list(EntryQuery(kind=kind)))
 
 
 @config_router.get("/{config_type}", response_model=list[V1ConfigEntry])
 def get_config(config_type: str, request: Request) -> list[V1ConfigEntry]:
-    """GET /config/{type} -> list catalog entries by type."""
-    catalog = _get_catalog_for_type(request, config_type)
-    entries = catalog.list()
+    """GET /config/{type} -> list v2 catalog entries of the mapped kind."""
+    kind = _resolve_kind(config_type)
+    entries = _list_entries_of_kind(request, kind)
     return [
         V1ConfigEntry(
             id=entry.id,
@@ -444,17 +455,28 @@ def put_config(
     body: V1ConfigPutBody,
     request: Request,
 ) -> V1StatusResponse:
-    """PUT /config/{config_type} -> create or update a catalog entry."""
-    catalog = _get_catalog_for_type(request, config_type)
-    existing = catalog.get(body.id)
+    """PUT /config/{config_type} -> create or update a v2 catalog entry.
+
+    The body ``config`` payload must be a fully-formed v2 ``Entry`` dict (with
+    ``namespace``, ``kind``, ``model_type`` and ``payload``) since the unified
+    catalog does not infer those fields.
+    """
+    from akgentic.catalog.models.entry import Entry
+    from akgentic.catalog.models.errors import EntryNotFoundError
+
+    kind = _resolve_kind(config_type)
+    catalog = request.app.state.services.catalog
+    entry = Entry.model_validate(body.config)
+    if entry.kind != kind:
+        raise HTTPException(status_code=400, detail="kind mismatch between path and body")
+    try:
+        existing = catalog.get(entry.namespace, entry.id)
+    except EntryNotFoundError:
+        existing = None
     if existing is not None:
-        catalog.update(body.id, existing.__class__.model_validate(body.config))
+        catalog.update(entry)
     else:
-        existing_entries = catalog.list()
-        entry_cls = type(existing_entries[0]) if existing_entries else None
-        if entry_cls is None:
-            raise HTTPException(status_code=400, detail="Cannot determine entry type")
-        catalog.create(entry_cls.model_validate(body.config))
+        catalog.create(entry)
     return V1StatusResponse(status="ok")
 
 
@@ -468,12 +490,18 @@ def delete_config(
     config_id: str,
     request: Request,
 ) -> V1StatusResponse:
-    """DELETE /config/{config_type}/{config_id} -> delete a catalog entry."""
-    catalog = _get_catalog_for_type(request, config_type)
-    existing = catalog.get(config_id)
-    if existing is None:
+    """DELETE /config/{config_type}/{config_id} -> delete a v2 catalog entry.
+
+    The entry id is unique within its namespace, so deletion scans every
+    namespace for a matching (kind, id) pair.
+    """
+    kind = _resolve_kind(config_type)
+    catalog = request.app.state.services.catalog
+    entries = _list_entries_of_kind(request, kind)
+    target = next((e for e in entries if e.id == config_id), None)
+    if target is None:
         raise HTTPException(status_code=404, detail="Config entry not found")
-    catalog.delete(config_id)
+    catalog.delete(target.namespace, target.id)
     return V1StatusResponse(status="ok")
 
 
@@ -482,9 +510,8 @@ def delete_config(
 
 @team_configs_router.get("/", response_model=dict[str, object])
 def get_team_configs(request: Request) -> dict[str, object]:
-    """GET /team-configs -> dict keyed by team name for V1 frontend."""
-    catalog = request.app.state.services.team_catalog
-    entries = catalog.list()
+    """GET /team-configs -> dict keyed by team entry id for V1 frontend."""
+    entries = _list_entries_of_kind(request, "team")
     return {
         entry.id: {
             "module": entry.id,

@@ -6,7 +6,6 @@ import logging
 
 _THIRD_PARTY_LOGGERS = (
     "uvicorn",
-    "uvicorn.access",
     "uvicorn.error",
     "httpx",
     "httpcore",

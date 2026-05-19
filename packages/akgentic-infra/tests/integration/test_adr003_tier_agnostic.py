@@ -50,10 +50,7 @@ class TestTierAgnosticFixturePattern:
             assert isinstance(services.placement, PlacementStrategy)
             assert isinstance(services.worker_handle, WorkerHandle)
             assert isinstance(services.runtime_cache, RuntimeCache)
-            assert services.team_catalog is not None
-            assert services.agent_catalog is not None
-            assert services.tool_catalog is not None
-            assert services.template_catalog is not None
+            assert services.catalog is not None
         finally:
             services.actor_system.shutdown()
 
@@ -350,25 +347,16 @@ class TestCatalogAccessViaTierServices:
     """Verify catalogs are accessible through TierServices."""
 
     def test_catalogs_on_tier_services(self) -> None:
-        """AC #2: TierServices model has catalog fields."""
+        """AC #2: TierServices model exposes the unified catalog field."""
         tier_fields = set(TierServices.model_fields.keys())
-        for catalog_field in (
-            "team_catalog",
-            "agent_catalog",
-            "tool_catalog",
-            "template_catalog",
-        ):
-            assert catalog_field in tier_fields, f"TierServices missing {catalog_field}"
+        assert "catalog" in tier_fields, "TierServices missing catalog"
 
     def test_catalogs_accessible_through_services(
         self,
         integration_services: CommunityServices,
     ) -> None:
-        """AC #2: Wired CommunityServices has non-None catalogs."""
-        assert integration_services.team_catalog is not None
-        assert integration_services.agent_catalog is not None
-        assert integration_services.tool_catalog is not None
-        assert integration_services.template_catalog is not None
+        """AC #2: Wired CommunityServices has a non-None unified catalog."""
+        assert integration_services.catalog is not None
 
     def test_team_creation_uses_catalog_from_tier_services(
         self,

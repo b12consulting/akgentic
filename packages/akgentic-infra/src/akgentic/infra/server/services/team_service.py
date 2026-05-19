@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import uuid
+from pathlib import Path
 
-from akgentic.catalog.models.errors import EntryNotFoundError
+from akgentic.catalog.models.errors import CatalogValidationError, EntryNotFoundError
 from akgentic.core.messages.message import Message
 from akgentic.core.messages.orchestrator import SentMessage
 from akgentic.infra.protocols.event_stream import EventStream
@@ -17,6 +19,33 @@ from akgentic.team.models import PersistedEvent, Process, TeamStatus
 logger = logging.getLogger(__name__)
 
 
+def _remove_workspace_dir(workspaces_root: Path, team_id: uuid.UUID) -> None:
+    """Best-effort removal of a team's workspace directory.
+
+    Removes ``{workspaces_root}/{team_id}`` recursively. A missing directory
+    is a silent no-op (ephemeral teams that never invoked a ``Filesystem``
+    write have no directory to clean). Any ``shutil.rmtree`` failure is logged
+    at WARNING and suppressed so team deletion still completes in the system
+    of record — a later janitor pass can sweep orphans.
+
+    Generalized from akgentic-infra-enterprise's
+    ``routes/enterprise_server_teams.py`` per Epic 24 (Tier-Alignment Fixes
+    from Department + Enterprise); see ADR-022 §D7 for the original
+    best-effort, log-not-raise rationale.
+    """
+    target = workspaces_root / str(team_id)
+    if not target.exists():
+        return
+    try:
+        shutil.rmtree(target)
+    except Exception as exc:  # noqa: BLE001 — log-not-raise; cleanup is best-effort
+        logger.warning(
+            "Workspace cleanup failed — team_id=%s error=%s",
+            team_id,
+            exc,
+        )
+
+
 class TeamService:
     """Service layer bridging catalog resolution with team lifecycle management.
 
@@ -26,40 +55,64 @@ class TeamService:
     RuntimeCache/TeamHandle protocols.
     """
 
-    def __init__(self, services: TierServices) -> None:
+    def __init__(self, services: TierServices, *, workspaces_root: Path) -> None:
+        """Construct a TeamService.
+
+        Args:
+            services: Pre-wired tier services container.
+            workspaces_root: Server-side root directory under which each
+                team's workspace lives at ``{workspaces_root}/{team_id}/``.
+                Used by ``delete_team`` for best-effort FS cleanup.
+        """
         self._services = services
         self._cache: RuntimeCache = services.runtime_cache
+        self._workspaces_root = workspaces_root
 
     def create_team(
         self,
-        catalog_entry_id: str,
+        catalog_namespace: str,
         user_id: str,
         user_email: str = "",
         team_id: uuid.UUID | None = None,
     ) -> Process:
-        """Resolve catalog entry and create a running team.
+        """Resolve a catalog namespace to a TeamCard and create a running team.
+
+        Loads the team definition via the v2 unified ``Catalog.load_team``
+        API and forwards the namespace tag through placement so that the
+        persisted ``Process.catalog_namespace`` records the binding.
 
         Args:
-            catalog_entry_id: Catalog entry ID to resolve into a TeamCard.
+            catalog_namespace: v2 catalog namespace holding exactly one
+                ``kind="team"`` entry.
             user_id: Identifier of the user creating the team.
             user_email: Email of the user creating the team.
             team_id: Optional caller-supplied team identifier; the placement
                 layer auto-generates a UUID when None.
 
+        Returns:
+            The persisted ``Process`` for the newly created team.
+
         Raises:
-            EntryNotFoundError: If catalog_entry_id is not found.
+            EntryNotFoundError: If ``catalog_namespace`` has no team entry.
+                ``Catalog.load_team`` surfaces the condition as
+                ``CatalogValidationError``; this layer translates it so
+                the existing teams router's ``EntryNotFoundError → 404``
+                handler applies unchanged.
         """
-        logger.debug("Resolving catalog entry: %s", catalog_entry_id)
-        entry = self._services.team_catalog.get(catalog_entry_id)
-        if entry is None:
-            raise EntryNotFoundError(catalog_entry_id)
-        team_card = entry.to_team_card(
-            self._services.agent_catalog,
-            self._services.tool_catalog,
-            self._services.template_catalog,
-        )
+        logger.debug("Resolving team for catalog namespace: %s", catalog_namespace)
+        try:
+            team_card = self._services.catalog.load_team(catalog_namespace)
+        except CatalogValidationError as exc:
+            # Translate v2's validation error into the existing 404-mapped
+            # exception so the teams router's error-handling stays a no-op
+            # for this story (Story 18.3 consolidates error handling).
+            raise EntryNotFoundError(catalog_namespace) from exc
         handle = self._services.placement.create_team(
-            team_card, user_id, user_email=user_email, team_id=team_id
+            team_card,
+            user_id,
+            user_email=user_email,
+            team_id=team_id,
+            catalog_namespace=catalog_namespace,
         )
         self._cache.store(handle.team_id, handle)
         # Consistency invariant: create_team() writes to event store, so
@@ -69,7 +122,11 @@ class TeamService:
         if process is None:  # pragma: no cover
             msg = f"Team {handle.team_id} was created but not found in event store"
             raise RuntimeError(msg)
-        logger.info("Team created: team_id=%s, catalog_entry=%s", process.team_id, catalog_entry_id)
+        logger.info(
+            "Team created: team_id=%s, catalog_namespace=%s",
+            process.team_id,
+            catalog_namespace,
+        )
         return process
 
     def list_teams(self, user_id: str) -> list[Process]:
@@ -89,8 +146,15 @@ class TeamService:
     def delete_team(self, team_id: uuid.UUID) -> None:
         """Stop (if running) and delete a team.
 
+        After the team is removed from the system of record, the team's
+        workspace directory (``{workspaces_root}/{team_id}/``) is removed on a
+        best-effort basis — a missing directory or an ``rmtree`` failure does
+        not prevent deletion from completing.
+
         Raises:
-            ValueError: If team not found or already deleted.
+            ValueError: If team not found or already deleted. Raised before
+                any filesystem work, so a missing team never triggers FS
+                cleanup.
         """
         process = self._services.worker_handle.get_team(team_id)
         if process is None:
@@ -105,6 +169,9 @@ class TeamService:
         except Exception:
             logger.debug("event_stream.remove() on delete — stream may already be removed")
         self._services.worker_handle.delete_team(team_id)
+        # FS cleanup runs LAST — after the worker-side delete — so a worker
+        # delete failure does not leave behind a removed workspace dir.
+        _remove_workspace_dir(self._workspaces_root, team_id)
         logger.info("Team deleted: team_id=%s", team_id)
 
     def send_message(self, team_id: uuid.UUID, content: str) -> None:

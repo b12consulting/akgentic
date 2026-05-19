@@ -406,9 +406,15 @@ Inside `ak-infra chat`, use `/` for slash commands:
 
 ```bash
 ak-infra --server http://localhost:8000   # Server URL (default)
-ak-infra --api-key <key>                  # API key for auth
+ak-infra --api-key <key>                  # Credential for auth (see below)
 ak-infra --format table|json              # Output format
 ```
+
+`--api-key` accepts either credential type and routes it to the correct
+header automatically: a structured API key (the `ak_<id>_<secret>` form
+issued by `api-key bootstrap` / `POST /auth/apikeys`) is sent as
+`X-API-Key`, while any other value is treated as a pre-resolved OIDC
+bearer token and sent as `Authorization: Bearer`.
 
 ## Configuration
 

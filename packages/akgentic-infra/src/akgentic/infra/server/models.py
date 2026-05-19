@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 class CreateTeamRequest(BaseModel):
     """Request body for POST /teams."""
 
-    catalog_entry_id: str = Field(description="Catalog entry ID to resolve into a TeamCard")
+    catalog_namespace: str = Field(
+        description="Catalog namespace (v2) whose team entry resolves into a TeamCard"
+    )
     params: dict[str, str] = Field(
         default_factory=dict,
         description="Pass-through configuration parameters",

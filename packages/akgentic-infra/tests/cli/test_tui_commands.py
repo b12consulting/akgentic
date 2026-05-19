@@ -266,7 +266,7 @@ async def test_message_send_calls_api() -> None:
 
 @pytest.mark.asyncio
 async def test_message_send_dispatches_without_local_widget() -> None:
-    """Non-slash text sends via API and does NOT mount a local UserMessage widget (12.9 AC #1, #3)."""
+    """Non-slash text sends via API, does NOT mount a local UserMessage widget (12.9 AC #1, #3)."""
     client = _mock_client()
     app = _make_app(client=client)
     async with app.run_test(size=(100, 30)) as pilot:

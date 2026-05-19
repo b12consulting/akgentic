@@ -5,11 +5,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from akgentic.core import ActorSystem
+from akgentic.team.manager import TeamManager
+from akgentic.team.ports import EventStore, NullServiceRegistry, ServiceRegistry
+
 from akgentic.infra.protocols.runtime_cache import RuntimeCache
 from akgentic.infra.protocols.worker_handle import WorkerHandle
 from akgentic.infra.worker.deps import WorkerServices
-from akgentic.team.manager import TeamManager
-from akgentic.team.ports import EventStore, NullServiceRegistry, ServiceRegistry
 
 
 class TestWorkerServicesConstruction:

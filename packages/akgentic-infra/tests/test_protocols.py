@@ -657,8 +657,9 @@ def test_runtime_cache_method_count() -> None:
 
 def test_placement_strategy_return_type() -> None:
     """PlacementStrategy.create_team returns TeamHandle."""
-    from akgentic.infra.protocols import PlacementStrategy, TeamHandle
     from akgentic.team.models import TeamCard
+
+    from akgentic.infra.protocols import PlacementStrategy, TeamHandle
 
     hints = get_type_hints(
         PlacementStrategy.create_team,
@@ -778,8 +779,9 @@ def test_worker_handle_delete_team_returns_none() -> None:
 
 def test_worker_handle_resume_team_returns_team_handle() -> None:
     """WorkerHandle.resume_team returns TeamHandle."""
-    from akgentic.infra.protocols import TeamHandle, WorkerHandle
     from akgentic.team.models import Process
+
+    from akgentic.infra.protocols import TeamHandle, WorkerHandle
 
     hints = get_type_hints(
         WorkerHandle.resume_team,
@@ -790,8 +792,9 @@ def test_worker_handle_resume_team_returns_team_handle() -> None:
 
 def test_worker_handle_get_team_returns_process_or_none() -> None:
     """WorkerHandle.get_team returns Process | None."""
-    from akgentic.infra.protocols import WorkerHandle
     from akgentic.team.models import Process
+
+    from akgentic.infra.protocols import WorkerHandle
 
     hints = get_type_hints(
         WorkerHandle.get_team,
