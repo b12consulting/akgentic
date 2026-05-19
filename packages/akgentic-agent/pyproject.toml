@@ -32,12 +32,26 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/akgentic"]
 
-[tool.uv.sources]
-akgentic-core = { workspace = true }
-akgentic-llm = { workspace = true }
+# Note: akgentic-* dependencies have NO [tool.uv.sources] entry here.
+# - Inside the akgentic-quick-start workspace, the workspace root's
+#   [tool.uv.sources] resolves them as editable workspace members.
+# - In standalone CI, they are built from RELEASE_BRANCH into a local
+#   wheelhouse and installed via `uv pip install --find-links` — see ci.yml.
 
-# Tool configurations inherit from root workspace pyproject.toml
-# Only override when package-specific behavior is needed
+# Previously inherited from the akgentic-quick-start workspace root; the
+# standalone-package CI no longer checks out the workspace.
+# - asyncio_mode='auto' so async tests run (default is 'strict').
+# - integration tests make real LLM calls (gated by OPENAI_API_KEY) and
+#   poll for actor quiescence up to 60s; deselect them by default so CI
+#   does not hang. Run them explicitly with `-m integration`.
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: tests requiring a real LLM (OPENAI_API_KEY) — not run in default CI",
+]
 
 [tool.mypy]
 python_version = "3.12"
