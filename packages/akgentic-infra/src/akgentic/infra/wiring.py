@@ -97,7 +97,14 @@ def _build_actor_layer(
     service_registry: ServiceRegistry,
     event_stream: EventStream,
 ) -> tuple[ActorSystem, TeamManager]:
-    """Build ActorSystem and TeamManager."""
+    """Build ``ActorSystem`` and ``TeamManager`` with shared subscribers wired in.
+
+    Constructs a ``TelemetrySubscriber`` and installs it on
+    ``TeamManager.subscribers`` alongside ``EventStreamSubscriber``. The
+    daemon thread inside ``TelemetrySubscriber`` is ``daemon=True`` and is
+    reclaimed by the Python interpreter at process exit; no explicit drain
+    is plumbed through ``WorkerServices`` (ADR-025 §5).
+    """
     logger.debug("Building actor layer: event_store=%s", type(event_store).__name__)
     shared_subscribers: list[EventSubscriber] = [
         TelemetrySubscriber(),

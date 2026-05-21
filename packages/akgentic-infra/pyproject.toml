@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-infra"
-version = "1.2.3"
+version = "1.3.0"
 description = "Infrastructure backend: protocol abstractions and community-tier implementations for akgentic"
 readme = "README.md"
 requires-python = ">=3.12"

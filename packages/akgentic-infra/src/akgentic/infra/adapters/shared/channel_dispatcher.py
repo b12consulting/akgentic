@@ -32,8 +32,17 @@ class InteractionChannelDispatcher:
         self._team_id = team_id
         self._restoring = False
 
-    def set_restoring(self, restoring: bool) -> None:
-        """Toggle restore mode to suppress delivery during event replay."""
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:
+        """Toggle restore mode to suppress delivery during event replay.
+
+        Args:
+            team_id: ``team_id`` from the orchestrator. Must equal
+                ``self._team_id`` — the dispatcher is per-team, so a mismatch
+                indicates a wiring bug and fails loud.
+            restoring: ``True`` while restore replay is in progress, ``False``
+                to resume dispatch.
+        """
+        assert team_id == self._team_id
         self._restoring = restoring
 
     def on_message(self, msg: Message) -> None:
@@ -60,8 +69,26 @@ class InteractionChannelDispatcher:
             if adapter.matches(msg):
                 adapter.deliver(msg)
 
-    def on_stop(self) -> None:
-        """Clean up all registered adapters when the team stops."""
+    def on_stop_request(self, team_id: uuid.UUID) -> None:  # noqa: ARG002
+        """No-op — dispatcher has no work to do on the inactivity-timer signal.
+
+        Channel-side teardown happens on ``on_stop()`` once the team actually
+        stops. Present to satisfy the ``EventSubscriber`` Protocol.
+
+        Args:
+            team_id: ``team_id`` from the orchestrator. Accepted to satisfy the
+                Protocol but ignored — no work is performed here.
+        """
+
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        """Clean up all registered adapters when the team stops.
+
+        Args:
+            team_id: ``team_id`` from the orchestrator. Must equal
+                ``self._team_id`` — the dispatcher is per-team, so a mismatch
+                indicates a wiring bug and fails loud.
+        """
+        assert team_id == self._team_id
         logger.debug("ChannelDispatcher stopped: team_id=%s", self._team_id)
         for adapter in self._adapters:
             adapter.on_stop(self._team_id)
