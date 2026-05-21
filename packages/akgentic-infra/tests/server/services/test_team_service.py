@@ -204,7 +204,16 @@ class TestStopTeam:
         assert events_after == []
 
     def test_stop_team_errors_are_non_fatal(self, team_service: TeamService) -> None:
-        """AC1: event_stream.remove() failure does not prevent stop."""
+        """AC1: event_stream.remove() failure does not prevent stop.
+
+        Story 27.1: ``EventStreamSubscriber.on_stop(team_id)`` also calls
+        ``event_stream.remove`` as the canonical per-team cleanup hook, and
+        ``TeamService.stop_team`` retains its own ``event_stream.remove`` call
+        as a belt-and-suspenders for the case where the worker has died
+        before ``on_stop`` could fire. Both call sites must swallow
+        ``event_stream.remove`` failures; the test now asserts the failing
+        ``remove`` was invoked at least once.
+        """
         process = team_service.create_team(catalog_namespace="test-team", user_id="anonymous")
         team_id = process.team_id
 
@@ -220,7 +229,7 @@ class TestStopTeam:
         team_service._services.event_stream.remove = failing_remove  # type: ignore[assignment]
         try:
             team_service.stop_team(team_id)  # Should not raise
-            assert call_count == 1
+            assert call_count >= 1
         finally:
             team_service._services.event_stream.remove = original_remove  # type: ignore[assignment]
 
