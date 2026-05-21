@@ -56,7 +56,7 @@ class CoordinatorAgent(Akgent):
         catalog = self.discover_catalog()
         print(f"[{self.config.name}] Found {len(catalog)} agent profiles:")
         for card in catalog:
-            print(f"  - {card.role}: {card.description}")
+            print(f"  - {card.role}")
             print(f"    Skills: {', '.join(card.skills)}")
             if card.routes_to:
                 print(f"    Routes to: {', '.join(card.routes_to)}")
@@ -68,7 +68,6 @@ class CoordinatorAgent(Akgent):
         research_profile = self.get_agent_card("ResearchAgent")
         if research_profile:
             print(f"[{self.config.name}] Found ResearchAgent:")
-            print(f"  Description: {research_profile.description}")
             print(f"  Skills: {research_profile.skills}")
             config = research_profile.get_config_copy()
             print(f"  Default config: name={config.name}, role={config.role}")
