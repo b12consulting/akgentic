@@ -46,7 +46,7 @@ def test_on_stop_request_calls_stop_team_with_team_id() -> None:
     team_id = uuid.uuid4()
     sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
 
-    sub.on_stop_request()
+    sub.on_stop_request(team_id)
 
     _wait_for(lambda: manager.calls == [team_id])
 
@@ -57,7 +57,7 @@ def test_on_stop_request_idempotent_on_already_stopped_value_error() -> None:
     sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
 
     # Must not raise.
-    sub.on_stop_request()
+    sub.on_stop_request(team_id)
     _wait_for(lambda: manager.calls == [team_id])
 
 
@@ -66,7 +66,7 @@ def test_on_stop_request_idempotent_on_deleted_value_error() -> None:
     team_id = uuid.uuid4()
     sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
 
-    sub.on_stop_request()
+    sub.on_stop_request(team_id)
     _wait_for(lambda: manager.calls == [team_id])
 
 
@@ -81,7 +81,7 @@ def test_on_stop_request_logs_and_swallows_unexpected_error(
         "WARNING",
         logger="akgentic.team.subscriber",
     ):
-        sub.on_stop_request()
+        sub.on_stop_request(team_id)
         _wait_for(lambda: manager.calls == [team_id])
         # Give the thread's exception handler time to emit the warning.
         time.sleep(0.05)
@@ -97,7 +97,7 @@ def test_on_stop_is_noop() -> None:
     team_id = uuid.uuid4()
     sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
 
-    sub.on_stop()
+    sub.on_stop(team_id)
     # Give any daemon thread a chance to run (there should be none).
     time.sleep(0.05)
     assert manager.calls == []
@@ -116,9 +116,27 @@ def test_on_message_is_noop() -> None:
 
 def test_set_restoring_is_noop() -> None:
     manager = _RecordingTeamManager()
-    sub = TimerStopSubscriber(manager, uuid.uuid4())  # type: ignore[arg-type]
-    sub.set_restoring(True)
-    sub.set_restoring(False)
+    team_id = uuid.uuid4()
+    sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
+    sub.set_restoring(team_id, True)
+    sub.set_restoring(team_id, False)
+    assert manager.calls == []
+
+
+def test_lifecycle_methods_reject_wrong_team_id() -> None:
+    """Defensive: lifecycle methods assert team_id matches self._team_id."""
+    manager = _RecordingTeamManager()
+    team_id = uuid.uuid4()
+    wrong = uuid.uuid4()
+    sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
+    with pytest.raises(AssertionError):
+        sub.set_restoring(wrong, True)
+    with pytest.raises(AssertionError):
+        sub.on_stop(wrong)
+    with pytest.raises(AssertionError):
+        sub.on_stop_request(wrong)
+    # No daemon thread should have been spawned, so no stop_team call.
+    time.sleep(0.05)
     assert manager.calls == []
 
 
@@ -139,9 +157,10 @@ def test_on_stop_request_uses_background_thread() -> None:
             finished.set()
 
     manager = _BlockingManager()
-    sub = TimerStopSubscriber(manager, uuid.uuid4())  # type: ignore[arg-type]
+    team_id = uuid.uuid4()
+    sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
 
-    sub.on_stop_request()
+    sub.on_stop_request(team_id)
 
     assert started.wait(timeout=1.0), "worker thread did not start"
     assert not finished.is_set(), "stop_team finished before release — not async"

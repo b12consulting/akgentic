@@ -38,14 +38,25 @@ class FailingAgent(Akgent[BaseConfig, BaseState]):
 
 
 class StubSubscriber:
-    """Minimal EventSubscriber for testing."""
+    """Minimal EventSubscriber for testing.
+
+    Implements the team_id-aware ``EventSubscriber`` Protocol. The stub does
+    not assert on ``team_id`` because it is reused across tests.
+    """
 
     def __init__(self) -> None:
         self.messages: list[Message] = []
         self.stopped: bool = False
 
-    def on_stop(self) -> None:
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        del team_id
         self.stopped = True
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        del team_id
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        del team_id, restoring
 
     def on_message(self, msg: Message) -> None:
         self.messages.append(msg)
