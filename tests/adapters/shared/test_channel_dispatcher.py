@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from akgentic.core.actor_address_impl import ActorAddressProxy
 from akgentic.core.messages import Message
 from akgentic.core.messages.orchestrator import ReceivedMessage, SentMessage, StartMessage
+from akgentic.core.orchestrator import EventSubscriber
 
 from akgentic.infra.adapters.shared.channel_dispatcher import InteractionChannelDispatcher
 
@@ -216,7 +218,7 @@ class TestRestoreMode:
     def test_restoring_skips_all_events(self) -> None:
         adapter = _MatchingAdapter()
         dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[adapter])
-        dispatcher.set_restoring(True)
+        dispatcher.set_restoring(TEAM_ID, True)
         dispatcher.on_message(_make_sent_message())
 
         assert not adapter.matches_called
@@ -225,11 +227,11 @@ class TestRestoreMode:
     def test_restoring_false_resumes_dispatch(self) -> None:
         adapter = _MatchingAdapter()
         dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[adapter])
-        dispatcher.set_restoring(True)
+        dispatcher.set_restoring(TEAM_ID, True)
         dispatcher.on_message(_make_sent_message())
         assert not adapter.deliver_called
 
-        dispatcher.set_restoring(False)
+        dispatcher.set_restoring(TEAM_ID, False)
         dispatcher.on_message(_make_sent_message())
         assert adapter.deliver_called
 
@@ -246,7 +248,7 @@ class TestOnStop:
         a1 = _MatchingAdapter()
         a2 = _NonMatchingAdapter()
         dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[a1, a2])
-        dispatcher.on_stop()
+        dispatcher.on_stop(TEAM_ID)
 
         assert a1.stop_called
         assert a1.stop_team_id == TEAM_ID
@@ -255,7 +257,7 @@ class TestOnStop:
 
     def test_on_stop_empty_adapter_list(self) -> None:
         dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[])
-        dispatcher.on_stop()  # should not raise
+        dispatcher.on_stop(TEAM_ID)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -296,3 +298,80 @@ class TestMultiAdapterDispatch:
         assert adapter_b.deliver_called, "Adapter B should receive the message"
         assert adapter_a.deliver_msg is sent
         assert adapter_b.deliver_msg is sent
+
+
+# ---------------------------------------------------------------------------
+# Story 27.1 AC #3: dispatcher asserts team_id equality on lifecycle entries
+# ---------------------------------------------------------------------------
+
+
+class TestOnStopAssertsTeamId:
+    """on_stop and set_restoring raise ``AssertionError`` on team_id mismatch.
+
+    The dispatcher is per-team; the orchestrator MUST pass the matching
+    ``team_id`` on every lifecycle call. A mismatch indicates a wiring bug.
+    """
+
+    def test_on_stop_with_mismatched_team_id_raises(self) -> None:
+        adapter = _MatchingAdapter()
+        dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[adapter])
+
+        with pytest.raises(AssertionError):
+            dispatcher.on_stop(uuid.uuid4())
+
+        assert not adapter.stop_called
+
+    def test_set_restoring_with_mismatched_team_id_raises(self) -> None:
+        adapter = _MatchingAdapter()
+        dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[adapter])
+
+        with pytest.raises(AssertionError):
+            dispatcher.set_restoring(uuid.uuid4(), True)
+
+        # _restoring must remain False (assertion failed before assignment).
+        assert dispatcher._restoring is False
+
+
+class TestOnStopRequest:
+    """Story 27.1 AC #3: on_stop_request is a no-op for Protocol compliance.
+
+    The dispatcher has no work to perform on the inactivity-timer signal; all
+    channel-side teardown happens on on_stop.
+    """
+
+    def test_on_stop_request_returns_none(self) -> None:
+        adapter = _MatchingAdapter()
+        dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[adapter])
+
+        result = dispatcher.on_stop_request(TEAM_ID)
+
+        assert result is None
+
+    def test_on_stop_request_does_not_call_adapter_methods(self) -> None:
+        adapter = _MatchingAdapter()
+        dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[adapter])
+
+        dispatcher.on_stop_request(TEAM_ID)
+
+        assert not adapter.stop_called
+        assert not adapter.matches_called
+        assert not adapter.deliver_called
+
+    def test_on_stop_request_does_not_mutate_restoring(self) -> None:
+        adapter = _MatchingAdapter()
+        dispatcher = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[adapter])
+
+        dispatcher.on_stop_request(TEAM_ID)
+
+        assert dispatcher._restoring is False
+
+
+class TestProtocolCompliance:
+    """Story 27.1 AC #4: InteractionChannelDispatcher structurally satisfies EventSubscriber."""
+
+    def test_satisfies_event_subscriber_protocol(self) -> None:
+        dispatcher: EventSubscriber = InteractionChannelDispatcher(team_id=TEAM_ID, adapters=[])
+        assert callable(dispatcher.set_restoring)
+        assert callable(dispatcher.on_stop_request)
+        assert callable(dispatcher.on_stop)
+        assert callable(dispatcher.on_message)
