@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock
 
+import pytest
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.messages.message import UserMessage
 from akgentic.core.messages.orchestrator import StateChangedMessage
@@ -124,9 +125,9 @@ class TestPersistenceSubscriber:
 
     def test_restoring_flag_skips_persistence(self) -> None:
         """AC 4: set_restoring(True) skips all persistence."""
-        sub, store, _team_id = self._make_subscriber()
+        sub, store, team_id = self._make_subscriber()
 
-        sub.set_restoring(True)
+        sub.set_restoring(team_id, True)
         sub.on_message(UserMessage(content="ignored"))
         sub.on_message(UserMessage(content="also ignored"))
 
@@ -135,18 +136,18 @@ class TestPersistenceSubscriber:
 
     def test_restoring_flag_resumes_with_correct_sequence(self) -> None:
         """AC 4: After set_restoring(False), persistence resumes with correct sequence."""
-        sub, store, _team_id = self._make_subscriber()
+        sub, store, team_id = self._make_subscriber()
 
         # Send one message normally
         sub.on_message(UserMessage(content="first"))
         assert store.events[0].sequence == 1
 
         # Enable restoring, send messages
-        sub.set_restoring(True)
+        sub.set_restoring(team_id, True)
         sub.on_message(UserMessage(content="skipped"))
 
         # Disable restoring, send message — sequence continues
-        sub.set_restoring(False)
+        sub.set_restoring(team_id, False)
         sub.on_message(UserMessage(content="resumed"))
 
         assert len(store.events) == 2
@@ -156,8 +157,21 @@ class TestPersistenceSubscriber:
 
     def test_on_stop_is_callable(self) -> None:
         """Task 1.5: on_stop exists and does not raise."""
+        sub, _store, team_id = self._make_subscriber()
+        sub.on_stop(team_id)  # Should not raise
+
+    # -- 3.8: Defensive assertion on team_id mismatch ----------------------
+
+    def test_lifecycle_methods_reject_wrong_team_id(self) -> None:
+        """AC 1-3: lifecycle methods assert team_id matches self._team_id."""
         sub, _store, _team_id = self._make_subscriber()
-        sub.on_stop()  # Should not raise
+        wrong = uuid.uuid4()
+        with pytest.raises(AssertionError):
+            sub.set_restoring(wrong, True)
+        with pytest.raises(AssertionError):
+            sub.on_stop(wrong)
+        with pytest.raises(AssertionError):
+            sub.on_stop_request(wrong)
 
     # -- 3.7: Explicit inheritance from EventSubscriber --------------------
 

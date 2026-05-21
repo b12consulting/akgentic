@@ -47,7 +47,11 @@ class StubAgent(Akgent[BaseConfig, BaseState]):
 
 
 class RecordingSubscriber(EventSubscriber):
-    """Subscriber that records received messages."""
+    """Subscriber that records received messages.
+
+    Implements the team_id-aware ``EventSubscriber`` Protocol. The stub does
+    not assert on ``team_id`` because it is reused across tests.
+    """
 
     def __init__(self) -> None:
         self.messages: list[Message] = []
@@ -57,12 +61,18 @@ class RecordingSubscriber(EventSubscriber):
         """Record received message."""
         self.messages.append(msg)
 
-    def on_stop(self) -> None:
+    def on_stop(self, team_id: uuid.UUID) -> None:
         """Record stop."""
+        del team_id
         self.stopped = True
 
-    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
         """No-op for test subscriber."""
+        del team_id
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        """No-op for test subscriber."""
+        del team_id, restoring
 
 
 def _make_card(
@@ -620,13 +630,13 @@ class TestTeamRestorerRestoringFlag:
         team_id, process = _populate_stopped_team(event_store, tc)
 
         persistence_sub = PersistenceSubscriber(team_id, event_store)
-        persistence_sub.set_restoring(True)
+        persistence_sub.set_restoring(team_id, True)
 
         restorer = TeamRestorer(actor_system, event_store)
         restorer.restore(process, subscribers=[persistence_sub])
 
         # Caller sets restoring=False after restore (simulating TeamManager)
-        persistence_sub.set_restoring(False)
+        persistence_sub.set_restoring(team_id, False)
         assert persistence_sub._restoring is False
 
     def test_no_duplicate_events_during_replay(
@@ -644,12 +654,12 @@ class TestTeamRestorerRestoringFlag:
         original_sequences = {e.sequence for e in original_events}
 
         persistence_sub = PersistenceSubscriber(team_id, event_store)
-        persistence_sub.set_restoring(True)
+        persistence_sub.set_restoring(team_id, True)
 
         restorer = TeamRestorer(actor_system, event_store)
         restorer.restore(process, subscribers=[persistence_sub])
 
-        persistence_sub.set_restoring(False)
+        persistence_sub.set_restoring(team_id, False)
 
         # Check no events with original sequences were duplicated
         all_events = event_store.load_events(team_id)

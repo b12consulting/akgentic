@@ -85,21 +85,36 @@ class PersistenceSubscriber(EventSubscriber):
             )
             self._event_store.save_event(event)
 
-    def set_restoring(self, restoring: bool) -> None:
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
         """Set the restoring flag to skip or resume persistence.
 
         Args:
+            team_id: ``team_id`` of the orchestrator dispatching this lifecycle
+                event. MUST match ``self._team_id`` — the per-team subscriber
+                is bound at construction and never accepts traffic from a
+                foreign orchestrator.
             restoring: If True, on_message will skip all persistence.
         """
+        assert team_id == self._team_id
         self._restoring = restoring
 
-    def on_stop(self) -> None:
-        """No-op: required by EventSubscriber protocol."""
-        pass
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        """No-op: required by EventSubscriber protocol.
 
-    def on_stop_request(self) -> None:
-        """No-op: required by EventSubscriber protocol."""
-        pass
+        Args:
+            team_id: ``team_id`` of the orchestrator dispatching this lifecycle
+                event. MUST match ``self._team_id``.
+        """
+        assert team_id == self._team_id
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        """No-op: required by EventSubscriber protocol.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator dispatching this lifecycle
+                event. MUST match ``self._team_id``.
+        """
+        assert team_id == self._team_id
 
 
 class TimerStopSubscriber(EventSubscriber):
@@ -113,11 +128,10 @@ class TimerStopSubscriber(EventSubscriber):
     only the actor tree is torn down; the team-state record remains
     ``RUNNING`` indefinitely.
 
-    Note: ``on_stop()`` is a no-op. The logic lives in
-    ``on_stop_request()`` because it is called *before* the actor
-    stops (from the timer callback), whereas ``on_stop()`` is called
-    *during* ``Orchestrator.on_stop`` when the actor thread is already
-    shutting down — calling ``stop_team`` there would deadlock.
+    Note: ``on_stop()`` is a no-op. The trigger to ``stop_team`` lives
+    earlier in ``on_stop_request()``; by the time ``on_stop()`` runs
+    the daemon-thread dispatch has already happened and there is
+    nothing left to clean up on this subscriber.
 
     Idempotent: if ``stop_team`` raises :class:`ValueError` because
     the team is already ``STOPPED`` or ``DELETED``, the error is
@@ -128,28 +142,53 @@ class TimerStopSubscriber(EventSubscriber):
         self._team_manager = team_manager
         self._team_id = team_id
 
-    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
-        """No-op: timer-stop bridging is orthogonal to replay guarding."""
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        """No-op: timer-stop bridging is orthogonal to replay guarding.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator dispatching this lifecycle
+                event. MUST match ``self._team_id``.
+            restoring: Ignored — the timer-stop bridge does not care whether
+                the team is replaying or live.
+        """
+        assert team_id == self._team_id
         del restoring
 
-    def on_stop(self) -> None:
-        """No-op: required by EventSubscriber protocol."""
-        pass
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        """No-op: nothing to clean up after the stop completes.
 
-    def on_stop_request(self) -> None:
+        ``TimerStopSubscriber`` only acts on the inactivity-timer signal,
+        which is delivered through ``on_stop_request`` — by the time
+        ``on_stop`` runs, the daemon-thread ``stop_team`` dispatch has
+        already happened (see ``on_stop_request``) and this subscriber
+        holds no resources that need explicit teardown. See ADR-18 §6
+        for the rationale.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator dispatching this lifecycle
+                event. MUST match ``self._team_id``.
+        """
+        assert team_id == self._team_id
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
         """Drain the orchestrator stop into TeamManager.stop_team (async).
 
-        The orchestrator calls this inside its own ``on_stop`` on the
-        actor thread. Calling ``TeamManager.stop_team`` synchronously
-        here would deadlock: ``stop_team`` → ``_teardown_team`` issues
-        ``proxy_ask`` on the same orchestrator, which is already inside
-        ``on_stop`` and cannot service the request. The work is therefore
-        offloaded to a daemon thread so ``on_stop`` returns immediately
-        and the actor thread can finish its own stop; by the time the
-        daemon's ``stop_team`` reaches ``_teardown_team``, the
-        orchestrator has already stopped and ``stop_team``'s subsequent
+        The orchestrator calls this from its own
+        handler on the actor thread. Calling ``TeamManager.stop_team``
+        synchronously here would deadlock: ``stop_team`` → ``_teardown_team``
+        issues ``proxy_ask`` on the same orchestrator, which is busy
+        servicing the current message and cannot answer. The work is
+        therefore offloaded to a daemon thread so the actor thread can
+        return immediately and proceed to its own ``on_stop``; by the
+        time the daemon's ``stop_team`` reaches ``_teardown_team``, the
+        orchestrator has finished stopping and ``stop_team``'s subsequent
         state-store writes land cleanly.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator dispatching this lifecycle
+                event. MUST match ``self._team_id``.
         """
+        assert team_id == self._team_id
         thread = threading.Thread(
             target=self._drain_to_stop_team,
             name=f"orchestrator-stop-subscriber-{self._team_id}",
