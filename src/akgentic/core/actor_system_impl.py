@@ -56,6 +56,11 @@ class ActorSystemListener(pykka.ThreadingActor):
         self._message_queue: deque[Any] = deque()
         self._waiters: deque[pykka.ThreadingFuture[Any]] = deque()
         self.agent_id = uuid.uuid4()
+        # Serializable address identity: the listener can appear as a Message
+        # sender (set by ExecutionContext.tell), so ActorAddressImpl.serialize()
+        # must resolve name/role/team_id/squad_id uniformly with ordinary actors.
+        self.team_id = uuid.uuid4()
+        self.config = BaseConfig(name="@ActorSystem", role="ActorSystem")
 
     def myAddress(self) -> ActorAddressImpl:  # noqa: N802
         """Get the address of this listener actor.

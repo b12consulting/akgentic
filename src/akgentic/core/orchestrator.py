@@ -8,6 +8,7 @@ message flows, and state changes using in-memory storage.
 import logging
 import os
 import threading
+import uuid
 from collections.abc import Callable
 from typing import Any, Protocol, override
 
@@ -111,7 +112,7 @@ class EventSubscriber(Protocol):
         - PostgresEventSubscriber: Persists events to PostgreSQL
     """
 
-    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
         """Toggle restore-replay guard.
 
         Called by ``TeamManager.resume_team()`` before and after replaying
@@ -119,22 +120,33 @@ class EventSubscriber(Protocol):
         skip processing during restore. Default implementation is a no-op.
 
         Args:
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                enabling per-team routing on shared subscriber instances.
             restoring: ``True`` when replay starts, ``False`` when it ends.
         """
         ...
 
-    def on_stop_request(self) -> None:
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
         """Called when an orchestrator makes a stop request (e.g. inactivity timer fires).
 
         Default implementation is a no-op — subscribers (e.g. ``TimerStopSubscriber``
         in ``akgentic-team``) override this to decide how to actually stop the
         team. The orchestrator itself does NOT stop on this signal; shutdown is
         the subscriber's responsibility.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                enabling per-team routing on shared subscriber instances.
         """
         ...
 
-    def on_stop(self) -> None:
-        """Called when an orchestrator stops."""
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        """Called when an orchestrator stops.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                enabling per-team routing on shared subscriber instances.
+        """
         ...
 
     def on_message(self, msg: Message) -> None:
@@ -184,6 +196,31 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         ... )
         >>> # Agents automatically send telemetry to orchestrator
         >>> messages = orchestrator_ref.get_messages().get()
+
+    Load-bearing assumption — Pykka mailbox drain on self-stop:
+        When an ``Orchestrator`` (or any ``Akgent``) calls ``self.stop()`` from
+        inside one of its own ``receiveMsg_*`` handlers — the canonical shape
+        every ``orchestrator_proxy.stop()`` graceful-stop call drives via
+        ``Akgent.receiveMsg_StopRecursively`` → ``self.stop()`` — Pykka
+        guarantees that the actor's mailbox is fully drained before ``on_stop``
+        fires. Every queued message is processed to completion first;
+        ``on_stop`` runs exactly once, afterwards.
+
+        The dispatch path this invariant protects is
+        ``self._notify_subscribers_lifecycle("on_stop", self.team_id)``, called
+        from ``Orchestrator.on_stop`` BEFORE ``super().on_stop()``. Downstream
+        subscribers (``RedisStreamSubscriber.on_stop`` and the rest of the
+        master cross-package ADR-024 chain — see also package-local ADR-011)
+        rely on the invariant: without it, an ``on_message`` → ``XADD`` could
+        land *after* ``on_stop`` → ``DEL`` and resurface the very race ADR-024
+        eliminates.
+
+        Verification test:
+        ``packages/akgentic-core/tests/core/test_pykka_mailbox_drain_on_self_stop.py``
+        — ``test_pykka_drains_mailbox_before_on_stop_on_self_stop``. If a
+        future Pykka upgrade regresses this guarantee, that test fails and
+        surfaces the regression before the master ADR-024 chain breaks in
+        production.
     """
 
     @override
@@ -230,8 +267,9 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     @override
     def on_stop(self) -> None:
-        self._notify_subscribers("on_stop")
+        self._notify_subscribers_lifecycle("on_stop", self.team_id)
         super().on_stop()
+        self.subscribers.clear()
         logger.info(f">>> [{self.config.name}] Stopped !")
 
     @override
@@ -249,7 +287,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         team_id = self.team_id
         logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")
-        self._notify_subscribers("on_stop_request")
+        self._notify_subscribers_lifecycle("on_stop_request", team_id)
 
     def get_timer(self) -> Timer:
         """Return the inactivity Timer instance (for testing and introspection).
@@ -290,23 +328,53 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         return snapshot_addresses(message)  # type: ignore[return-value]
 
-    def _notify_subscribers(self, event_method: str, message: Message | None = None) -> None:
-        """Unified subscriber notification with fault tolerance.
+    def _notify_subscribers_message(self, event_method: str, message: Message) -> None:
+        """Dispatch an ``on_message`` notification (the only message-bearing hook).
+
+        Snapshots actor addresses on the caller thread, then fans out to every
+        subscriber. Per-subscriber exceptions are caught and logged so a single
+        faulty subscriber cannot block the rest of the dispatch chain.
 
         Args:
-            event_method: Name of the subscriber method to call
-            message: Message to pass to subscriber
+            event_method: Name of the message-bearing subscriber method to call
+                (today: ``"on_message"``).
+            message: Message to forward to every subscriber after snapshotting.
         """
-        if message is not None:
-            message = self.snapshot_for_subscribers(message)
+        snapshot = self.snapshot_for_subscribers(message)
         for subscriber in self.subscribers:
             try:
-                method = getattr(subscriber, event_method)
-                if message is None:
-                    method()
-                else:
-                    method(message)
-            except Exception as e:
+                getattr(subscriber, event_method)(snapshot)
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    f"Subscriber {subscriber.__class__.__name__} failed {event_method}: {e}"
+                )
+
+    def _notify_subscribers_lifecycle(
+        self,
+        event_method: str,
+        team_id: uuid.UUID,
+        **kwargs: Any,
+    ) -> None:
+        """Dispatch a lifecycle notification (``set_restoring``, ``on_stop_request``, ``on_stop``).
+
+        Every lifecycle hook carries ``team_id`` as its first positional
+        argument so shared subscribers (one instance attached to N teams on a
+        worker) can route cleanup per-team. Additional keyword arguments are
+        forwarded to the subscriber method (e.g. ``restoring=True`` for
+        ``set_restoring``). Per-subscriber exceptions are caught and logged so
+        a single faulty subscriber cannot block the rest of the dispatch chain.
+
+        Args:
+            event_method: Name of the lifecycle subscriber method to call.
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                passed as the first positional argument to the subscriber method.
+            **kwargs: Extra kwargs forwarded to the lifecycle method
+                (e.g. ``restoring=True`` for ``set_restoring``).
+        """
+        for subscriber in self.subscribers:
+            try:
+                getattr(subscriber, event_method)(team_id, **kwargs)
+            except Exception as e:  # noqa: BLE001
                 logger.error(
                     f"Subscriber {subscriber.__class__.__name__} failed {event_method}: {e}"
                 )
@@ -320,7 +388,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         self.messages.append(message)
         self._current_team_members = None  # Clear cache
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_StopMessage(self, message: StopMessage, sender: ActorAddress) -> None:
         """Handle agent stop events.
@@ -337,7 +405,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         self.messages.append(message)
         self._current_team_members = None  # Clear cache
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_SentMessage(self, message: SentMessage, sender: ActorAddress) -> None:
         """Handle message sent events.
@@ -350,7 +418,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         if sender == self.myAddress:
             return
         self.messages.append(message)
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_ReceivedMessage(self, message: ReceivedMessage, sender: ActorAddress) -> None:
         """Handle message received events.
@@ -364,7 +432,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             return
         self._timer.task_started()
         self.messages.append(message)
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_ProcessedMessage(self, message: ProcessedMessage, sender: ActorAddress) -> None:
         """Handle message processed events.
@@ -378,7 +446,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             return
         self._timer.task_completed()
         self.messages.append(message)
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_ErrorMessage(self, message: ErrorMessage, sender: ActorAddress) -> None:
         """Handle error events.
@@ -391,7 +459,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         if sender == self.myAddress:
             return
         self.messages.append(message)
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_StateChangedMessage(
         self, message: StateChangedMessage, sender: ActorAddress
@@ -403,7 +471,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             sender: ActorAddress of sending agent
         """
         self.state_dict[str(sender.agent_id)] = message.state
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_EventMessage(self, message: EventMessage, sender: ActorAddress) -> None:
         """Handle agent event message.
@@ -413,21 +481,21 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             sender: ActorAddress of sending agent
         """
         self.messages.append(message)
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def restore_message(self, message: Message) -> None:
         """Replay a single persisted event during team restoration.
 
         Appends the message to ``self.messages`` so that ``get_team()`` and
         other history-based queries work correctly after restore, then
-        dispatches to all subscribers via ``_notify_subscribers``.
+        dispatches to all subscribers via ``_notify_subscribers_message``.
 
         Args:
             message: The persisted message to replay.
         """
         self.messages.append(message)
         self._current_team_members = None  # Invalidate cache
-        self._notify_subscribers("on_message", message)
+        self._notify_subscribers_message("on_message", message)
 
     def end_restoration(self) -> None:
         """Signal that restoration replay is complete.

@@ -1,8 +1,9 @@
 """Tests for Orchestrator agent."""
 
+import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Never
+from typing import Any, Never
 
 import pykka
 import pytest
@@ -258,25 +259,34 @@ class RecordingSubscriber:
     """Subscriber that records on_message calls for restore tests.
 
     Implements the full EventSubscriber protocol: on_message, on_stop,
-    set_restoring.
+    on_stop_request, set_restoring (all team_id-aware).
     """
 
     def __init__(self) -> None:
         self.messages: list[Message] = []
         self.stopped: bool = False
         self.restoring: bool = False
+        self.stop_team_ids: list[uuid.UUID] = []
+        self.stop_request_team_ids: list[uuid.UUID] = []
+        self.restoring_calls: list[tuple[uuid.UUID, bool]] = []
 
-    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
         """Track restore-replay guard state."""
         self.restoring = restoring
+        self.restoring_calls.append((team_id, restoring))
 
     def on_message(self, msg: Message) -> None:
         """Record received message."""
         self.messages.append(msg)
 
-    def on_stop(self) -> None:
+    def on_stop(self, team_id: uuid.UUID) -> None:
         """Record stop."""
         self.stopped = True
+        self.stop_team_ids.append(team_id)
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        """Record stop request."""
+        self.stop_request_team_ids.append(team_id)
 
 
 class TestUnsubscribe:
@@ -408,7 +418,6 @@ class UsageEvent:
     """Test event type for usage tracking."""
 
     tokens: int
-
 
 
 class TestEventMessagePersistence:
@@ -707,8 +716,7 @@ class TestGetChildrenOrCreate:
         # (both calls should have resulted in only one StartMessage for #Bar)
         messages = proxy.get_messages()
         bar_starts = [
-            m for m in messages
-            if isinstance(m, StartMessage) and m.config.name == "#Bar"
+            m for m in messages if isinstance(m, StartMessage) and m.config.name == "#Bar"
         ]
         assert len(bar_starts) == 1
 
@@ -723,12 +731,8 @@ class TestGetChildrenOrCreate:
         )
         proxy = system.proxy_ask(orch_addr, Orchestrator)
 
-        foo = proxy.getChildrenOrCreate(
-            SimpleAgent, config=BaseConfig(name="#Foo", role="Worker")
-        )
-        bar = proxy.getChildrenOrCreate(
-            SimpleAgent, config=BaseConfig(name="#Bar", role="Worker")
-        )
+        foo = proxy.getChildrenOrCreate(SimpleAgent, config=BaseConfig(name="#Foo", role="Worker"))
+        bar = proxy.getChildrenOrCreate(SimpleAgent, config=BaseConfig(name="#Bar", role="Worker"))
 
         assert foo.agent_id != bar.agent_id
         assert foo.name == "#Foo"
@@ -772,9 +776,7 @@ class TestSnapshotForSubscribers:
         # Subscriber should have received one message (excluding orchestrator's own)
         # Find the message dispatched for our test agent
         sub_msgs = [
-            m
-            for m in sub.messages
-            if isinstance(m, StartMessage) and m.config.name == "test-agent"
+            m for m in sub.messages if isinstance(m, StartMessage) and m.config.name == "test-agent"
         ]
         assert len(sub_msgs) == 1
 
@@ -958,3 +960,410 @@ class TestSnapshotForSubscribers:
         assert isinstance(internal_starts[0].parent, ActorAddressImpl)
 
         system.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Story 17.1 — team_id propagation through _notify_subscribers_lifecycle
+# ---------------------------------------------------------------------------
+
+
+class _LifecycleRaisingSubscriber:
+    """Subscriber whose lifecycle hooks raise to exercise fault-isolation.
+
+    on_message is a no-op so we can place this subscriber in the dispatch
+    chain without interfering with message-dispatch tests.
+    """
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> Never:  # noqa: FBT001
+        raise RuntimeError("set_restoring boom")
+
+    def on_stop_request(self, team_id: uuid.UUID) -> Never:
+        raise RuntimeError("on_stop_request boom")
+
+    def on_stop(self, team_id: uuid.UUID) -> Never:
+        raise RuntimeError("on_stop boom")
+
+    def on_message(self, msg: Message) -> None:
+        pass
+
+
+class _NotifyExposingOrchestrator(Orchestrator):
+    """Orchestrator subclass that exposes the notify helpers to Pykka proxies.
+
+    Pykka's proxy filters out underscore-prefixed methods, so tests that need
+    to drive ``_notify_subscribers_lifecycle`` directly (lifecycle dispatch in
+    Story 17.1 — there is no in-source caller for ``set_restoring``) cannot
+    invoke it through ``system.proxy_ask(...)``. This thin wrapper exposes
+    each helper under a public name without changing production semantics.
+    """
+
+    def notify_subscribers_lifecycle(
+        self,
+        event_method: str,
+        team_id: uuid.UUID,
+        **kwargs: Any,
+    ) -> None:
+        """Public façade over ``_notify_subscribers_lifecycle`` for proxy-driven tests."""
+        self._notify_subscribers_lifecycle(event_method, team_id, **kwargs)
+
+    def notify_subscribers_message(self, event_method: str, message: Message) -> None:
+        """Public façade over ``_notify_subscribers_message`` for proxy-driven tests."""
+        self._notify_subscribers_message(event_method, message)
+
+
+class TestNotifySubscribersTeamIdPropagation:
+    """Story 17.1 — `_notify_subscribers_lifecycle` propagates team_id to lifecycle hooks."""
+
+    def test_set_restoring_passes_team_id_to_subscribers(self) -> None:
+        """AC #2: lifecycle dispatch forwards team_id + restoring=True."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            _NotifyExposingOrchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, _NotifyExposingOrchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        orch_team_id = orch_addr.team_id
+        orch_proxy.notify_subscribers_lifecycle("set_restoring", orch_team_id, restoring=True)
+
+        assert sub.restoring_calls == [(orch_team_id, True)]
+        assert sub.restoring is True
+
+        system.shutdown()
+
+    def test_on_stop_request_passes_team_id_to_subscribers(self) -> None:
+        """AC #3: `_notify_subscribers_lifecycle("on_stop_request", team_id)` forwards team_id."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            _NotifyExposingOrchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, _NotifyExposingOrchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        orch_team_id = orch_addr.team_id
+        orch_proxy.notify_subscribers_lifecycle("on_stop_request", orch_team_id)
+
+        assert sub.stop_request_team_ids == [orch_team_id]
+
+        system.shutdown()
+
+    def test_on_stop_passes_team_id_to_subscribers(self) -> None:
+        """AC #1: `_notify_subscribers_lifecycle("on_stop", team_id)` forwards team_id.
+
+        Exercises the call directly via `_notify_subscribers_lifecycle` (not
+        the full Pykka stop() path) so the test isolates the signature change
+        in 17.1 from the body-reordering 17.2 will deliver.
+        """
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            _NotifyExposingOrchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, _NotifyExposingOrchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        orch_team_id = orch_addr.team_id
+        orch_proxy.notify_subscribers_lifecycle("on_stop", orch_team_id)
+
+        assert sub.stop_team_ids == [orch_team_id]
+        assert sub.stopped is True
+
+        system.shutdown()
+
+    def test_timeout_handler_passes_orchestrator_team_id(self) -> None:
+        """AC #3: `_timeout_handler` call site supplies the orchestrator's own team_id."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        team_id = uuid.uuid4()
+        orch_ref = Orchestrator.start(config=config, team_id=team_id)
+        orch_proxy = orch_ref.proxy()
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub).get()
+
+        # Fire the handler directly (same callback threading.Timer uses)
+        timer = orch_proxy.get_timer().get()
+        timer.timeout_callback()
+
+        assert sub.stop_request_team_ids == [team_id]
+
+        orch_ref.stop()
+
+
+class TestLifecycleFanOutFaultIsolation:
+    """AC #4: per-subscriber try/except keeps the dispatch loop alive across hooks."""
+
+    def test_set_restoring_fault_isolation(self) -> None:
+        """A middle subscriber raising in set_restoring does not block its neighbours."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            _NotifyExposingOrchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, _NotifyExposingOrchestrator)
+
+        first = RecordingSubscriber()
+        middle = _LifecycleRaisingSubscriber()
+        third = RecordingSubscriber()
+
+        orch_proxy.subscribe(first)
+        orch_proxy.subscribe(middle)
+        orch_proxy.subscribe(third)
+
+        orch_team_id = orch_addr.team_id
+        orch_proxy.notify_subscribers_lifecycle("set_restoring", orch_team_id, restoring=False)
+
+        assert first.restoring_calls == [(orch_team_id, False)]
+        assert third.restoring_calls == [(orch_team_id, False)]
+
+        system.shutdown()
+
+    def test_on_stop_request_fault_isolation(self) -> None:
+        """A middle subscriber raising in on_stop_request does not block its neighbours."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            _NotifyExposingOrchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, _NotifyExposingOrchestrator)
+
+        first = RecordingSubscriber()
+        middle = _LifecycleRaisingSubscriber()
+        third = RecordingSubscriber()
+
+        orch_proxy.subscribe(first)
+        orch_proxy.subscribe(middle)
+        orch_proxy.subscribe(third)
+
+        orch_team_id = orch_addr.team_id
+        orch_proxy.notify_subscribers_lifecycle("on_stop_request", orch_team_id)
+
+        assert first.stop_request_team_ids == [orch_team_id]
+        assert third.stop_request_team_ids == [orch_team_id]
+
+        system.shutdown()
+
+    def test_on_stop_fault_isolation(self) -> None:
+        """A middle subscriber raising in on_stop does not block its neighbours."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            _NotifyExposingOrchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, _NotifyExposingOrchestrator)
+
+        first = RecordingSubscriber()
+        middle = _LifecycleRaisingSubscriber()
+        third = RecordingSubscriber()
+
+        orch_proxy.subscribe(first)
+        orch_proxy.subscribe(middle)
+        orch_proxy.subscribe(third)
+
+        orch_team_id = orch_addr.team_id
+        orch_proxy.notify_subscribers_lifecycle("on_stop", orch_team_id)
+
+        assert first.stop_team_ids == [orch_team_id]
+        assert third.stop_team_ids == [orch_team_id]
+
+        system.shutdown()
+
+
+class TestOnMessageDispatchUnchanged:
+    """AC #5: `_notify_subscribers_message("on_message", message)` still dispatches as before."""
+
+    def test_on_message_does_not_receive_team_id(self) -> None:
+        """Message dispatch passes the snapshotted message and NO team_id kwarg."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        msg = UserMessage(content="hello")
+        orch_proxy.restore_message(msg)
+
+        assert len(sub.messages) == 1
+        # team_id-bearing lifecycle counters remain untouched by on_message dispatch
+        assert sub.stop_team_ids == []
+        assert sub.stop_request_team_ids == []
+        assert sub.restoring_calls == []
+
+        system.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Story 17.2 — Orchestrator.on_stop fan-out before clear (ADR-011 §3)
+# ---------------------------------------------------------------------------
+
+
+class _LenAtStopRecorder:
+    """Subscriber that snapshots ``len(subscribers)`` at the moment ``on_stop`` fires.
+
+    Used to verify AC #1 — the subscriber is still attached to the orchestrator
+    when its ``on_stop`` body executes (i.e. fan-out runs BEFORE
+    ``self.subscribers.clear()``).
+    """
+
+    def __init__(self) -> None:
+        self.subscribers_list_ref: list[EventSubscriber] | None = None
+        self.calls: list[tuple[uuid.UUID, int]] = []
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        pass
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        # Capture len() at the moment fan-out fires. AC #1 requires this to be
+        # ≥ 1 (subscriber is still attached when its on_stop runs).
+        snapshot = len(self.subscribers_list_ref) if self.subscribers_list_ref is not None else -1
+        self.calls.append((team_id, snapshot))
+
+    def on_message(self, msg: Message) -> None:
+        pass
+
+
+class _OnStopRaisingSubscriber:
+    """Subscriber whose ``on_stop`` raises; other hooks are no-ops.
+
+    Used to verify AC #4 — a raising subscriber does not block the post-stop
+    invariants (``super().on_stop()`` still runs, ``subscribers.clear()`` still
+    runs, ``Stopped !`` log line still runs).
+    """
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        pass
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_stop(self, team_id: uuid.UUID) -> Never:
+        raise RuntimeError("boom")
+
+    def on_message(self, msg: Message) -> None:
+        pass
+
+
+class TestOnStopFanOutThenClear:
+    """Story 17.2 — Orchestrator.on_stop fans out THEN clears subscribers.
+
+    Behavioural invariants under test (ACs #1–#5):
+
+    - Fan-out fires while the subscriber is still attached (snapshot
+      ``len(subscribers) >= 1`` from inside ``on_stop``).
+    - ``team_id`` passed to ``on_stop`` is the orchestrator's own ``team_id``.
+    - ``subscribers`` list is empty after ``on_stop`` returns.
+    - A subscriber raising in ``on_stop`` does not block ``clear()`` running.
+    - Three-subscriber fault isolation contract from 17.1 is preserved (first
+      and third still receive their call when the middle one raises).
+    """
+
+    def test_on_stop_fan_out_before_clear_then_list_empty(self) -> None:
+        """AC #1, #2, #3: fan-out runs while attached; subscribers list cleared after stop."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        recorder = _LenAtStopRecorder()
+        orch_proxy.subscribe(recorder)
+
+        # Capture the live subscribers-list reference BEFORE stop so we can
+        # observe the post-stop ``clear()`` via the same Python list object.
+        subscribers_list = orch_proxy.subscribers
+        recorder.subscribers_list_ref = subscribers_list
+        assert recorder in subscribers_list
+
+        orch_team_id = orch_addr.team_id
+
+        # Trigger the real on_stop via the system shutdown path.
+        system.shutdown()
+
+        # AC #1: fan-out fired exactly once, with the orchestrator's team_id,
+        # and the subscriber was still attached at the moment of the call.
+        assert len(recorder.calls) == 1
+        recorded_team_id, len_at_fan_out = recorder.calls[0]
+        assert recorded_team_id == orch_team_id
+        assert len_at_fan_out >= 1
+
+        # AC #2 + AC #3: subscribers list cleared after on_stop returned.
+        assert subscribers_list == []
+
+    def test_on_stop_raising_subscriber_does_not_block_clear(self) -> None:
+        """AC #4: clear() still runs and recorder still fires when a sibling raises."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        recorder = _LenAtStopRecorder()
+        failing = _OnStopRaisingSubscriber()
+        orch_proxy.subscribe(recorder)
+        orch_proxy.subscribe(failing)
+
+        subscribers_list = orch_proxy.subscribers
+        recorder.subscribers_list_ref = subscribers_list
+
+        # Stop the orchestrator. The failing subscriber raises inside
+        # ``_notify_subscribers_lifecycle`` but its per-subscriber try/except
+        # (landed in 17.1) swallows it — fan-out completes for the recorder,
+        # ``super().on_stop()`` runs, and ``clear()`` runs unconditionally.
+        system.shutdown()  # MUST NOT raise
+
+        # Recorder still received its call exactly once.
+        assert len(recorder.calls) == 1
+
+        # AC #4: ``clear()`` ran even though one subscriber raised.
+        assert subscribers_list == []
+
+    def test_on_stop_three_subscribers_middle_raises(self) -> None:
+        """AC #5: first and third still receive on_stop when the middle one raises."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        first = _LenAtStopRecorder()
+        middle = _OnStopRaisingSubscriber()
+        third = _LenAtStopRecorder()
+
+        orch_proxy.subscribe(first)
+        orch_proxy.subscribe(middle)
+        orch_proxy.subscribe(third)
+
+        subscribers_list = orch_proxy.subscribers
+        first.subscribers_list_ref = subscribers_list
+        third.subscribers_list_ref = subscribers_list
+
+        orch_team_id = orch_addr.team_id
+
+        system.shutdown()
+
+        # AC #5: both recorders received their call exactly once with the
+        # orchestrator's own team_id (fault-isolation from 17.1 preserved).
+        assert len(first.calls) == 1
+        assert len(third.calls) == 1
+        assert first.calls[0][0] == orch_team_id
+        assert third.calls[0][0] == orch_team_id
+
+        # AC #4 redux: clear() still ran post-stop.
+        assert subscribers_list == []
