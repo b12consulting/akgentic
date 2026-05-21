@@ -470,14 +470,14 @@ class _RecordingStopSubscriber:
         self.stop_count: int = 0
         self.messages: list[object] = []
 
-    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
         """Protocol compliance — no-op for these tests."""
         pass
 
-    def on_stop_request(self) -> None:
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
         self.stop_request_count += 1
 
-    def on_stop(self) -> None:
+    def on_stop(self, team_id: uuid.UUID) -> None:
         self.stop_count += 1
 
     def on_message(self, msg: object) -> None:
@@ -505,7 +505,7 @@ class TestEventSubscriberProtocol:
 
         sub = _MinimalSubscriber()
         # Calling the default method must not raise and must return None
-        assert sub.on_stop_request() is None  # type: ignore[func-returns-value]
+        assert sub.on_stop_request(uuid.uuid4()) is None  # type: ignore[func-returns-value]
 
 
 class TestOrchestratorTimeoutHandler:
@@ -528,7 +528,7 @@ class TestOrchestratorTimeoutHandler:
 
         # Give the actor thread a moment to process any internal messages
         # (snapshot_for_subscribers runs on the caller; subscriber calls are
-        # synchronous within _notify_subscribers, so assertions are immediate).
+        # synchronous within _notify_subscribers_lifecycle, so assertions are immediate).
         assert sub.stop_request_count == 1
         # on_stop is a separate lifecycle hook; the timeout must not trigger it
         assert sub.stop_count == 0

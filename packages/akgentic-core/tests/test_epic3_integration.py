@@ -110,13 +110,13 @@ class TestOrchestratorTimerIntegration:
             def __init__(self) -> None:
                 self.stop_request_count = 0
 
-            def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+            def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
                 pass
 
-            def on_stop_request(self) -> None:
+            def on_stop_request(self, team_id: uuid.UUID) -> None:
                 self.stop_request_count += 1
 
-            def on_stop(self) -> None:
+            def on_stop(self, team_id: uuid.UUID) -> None:
                 pass
 
             def on_message(self, msg: Message) -> None:

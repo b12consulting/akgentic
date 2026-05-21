@@ -16,6 +16,7 @@ Or with:  uv run python examples/05_multi_agent.py
 from __future__ import annotations
 
 import time
+import uuid
 from typing import TYPE_CHECKING
 
 from akgentic.core import (
@@ -408,15 +409,15 @@ class SimpleLogger(EventSubscriber):
         """
         self.message_count += 1
 
-    def set_restoring(self, restoring: bool) -> None:
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:
         """No-op — this simple logger doesn't need to handle restoring."""
         pass
 
-    def on_stop_request(self) -> None:
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
         """No-op — stop handling is bridged by TimerStopSubscriber in akgentic-team."""
         pass
 
-    def on_stop(self) -> None:
+    def on_stop(self, team_id: uuid.UUID) -> None:
         """Called when orchestrator stops."""
         pass
 
