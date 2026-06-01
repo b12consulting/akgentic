@@ -1028,6 +1028,15 @@ class Catalog:
         references an id present in the persisted namespace but absent from
         the bundle will be flagged by the bundle walker, not by
         ``populate_refs``.
+
+        Transient validation resolves refs through a ``_BundleOverlayRepository``
+        staging the parsed bundle on top of the live repository — identical to
+        the overlay :meth:`import_namespace_yaml` uses. Without it, a bundle
+        entry referencing a NEW sibling entry declared in the same bundle (e.g.
+        a prompt referencing a freshly-added ``NativeValue``) would fail dry-run
+        validation with a spurious "Ref not found", because the sibling is not
+        yet persisted — even though the very same bundle would import cleanly.
+        Staging the overlay keeps the dry-run and import paths consistent.
         """
         try:
             entries, _header = load_namespace(yaml_text)
@@ -1038,9 +1047,10 @@ class Catalog:
                 global_errors=list(exc.errors),
                 entry_issues=[],
             )
+        overlay = _BundleOverlayRepository(self._repository, entries)
         return validate_entries(
             entries,
-            self._repository,
+            overlay,
             is_namespace_shareable=self._is_namespace_shareable,
         )
 

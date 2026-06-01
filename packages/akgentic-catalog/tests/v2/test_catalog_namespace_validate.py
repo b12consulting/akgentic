@@ -236,6 +236,99 @@ class TestValidateNamespaceYaml:
         # allowlisted-path check) into the load_namespace errors list.
         assert any("outside allowlist" in m for m in report.global_errors)
 
+    def test_new_sibling_ref_resolves_against_bundle_overlay(
+        self, catalog_factory: CatalogFactory
+    ) -> None:
+        """Dry-run validates a NEW entry referencing a NEW sibling in the same bundle.
+
+        Reproduces the import/validate inconsistency: a prompt entry whose
+        ``params.framework`` references a brand-new ``NativeValue`` sibling
+        declared in the same bundle. Neither entry is persisted yet, so before
+        the overlay fix the dry-run resolved the ref against the live
+        repository, found nothing, and reported a spurious "Ref not found".
+        With the bundle staged into a ``_BundleOverlayRepository`` — mirroring
+        ``import_namespace_yaml`` — the sibling resolves and the bundle reports
+        ``ok=True``, consistent with what a real import would do.
+        """
+        catalog, _ = catalog_factory()
+        doc = {
+            "namespace": "ns-sib",
+            "user_id": "alice",
+            "entries": {
+                "team": {
+                    "kind": "team",
+                    "model_type": _TEAM_TYPE,
+                    "description": "",
+                    "payload": _team_payload(),
+                },
+                "prompt": {
+                    "kind": "prompt",
+                    "model_type": "akgentic.llm.PromptTemplate",
+                    "description": "",
+                    "payload": {
+                        "template": "Apply the framework:\n{framework}",
+                        "params": {"framework": {REF_KEY: "framework"}},
+                    },
+                },
+                "framework": {
+                    "kind": "model",
+                    "model_type": "akgentic.catalog.NativeValue",
+                    "description": "",
+                    "payload": {"value": "FRAMEWORK BODY"},
+                },
+            },
+        }
+        yaml_text = yaml.safe_dump(doc, sort_keys=False)
+        report = catalog.validate_namespace_yaml(yaml_text)
+        assert report.ok is True, (
+            f"expected ok, got entry_issues={report.entry_issues!r} "
+            f"global_errors={report.global_errors!r}"
+        )
+
+    def test_cross_ns_ref_to_persisted_target_resolves_via_overlay_fallthrough(
+        self, catalog_factory: CatalogFactory
+    ) -> None:
+        """Dry-run ref whose target is persisted (not in the bundle) still resolves.
+
+        The bundle stages only its own same-namespace entries into the overlay.
+        A cross-ns ``{__ref__: id, __namespace__: ns}`` marker pointing at a
+        target that lives in a *shareable* namespace already persisted in the
+        live repository — and absent from the bundle — must resolve through the
+        overlay's fall-through to the inner repository (overlay reads
+        bundle-first, then the inner repo). The overlay must not regress the
+        previously-working persisted-target case. Cross-ns markers are exempt
+        from the bundle dangling-ref walker, so the only resolution path is the
+        transient (per-entry) check against the overlay.
+        """
+        catalog, _repo = catalog_factory()
+        # Persist a shareable global namespace with a target entry. None of this
+        # is part of the dry-run bundle below.
+        _seed_team(catalog, "global", user_id="anonymous")
+        catalog.create(make_meta_entry("global", shareable=True))
+        catalog.create(
+            Entry(
+                id="shared",
+                kind="prompt",
+                namespace="global",
+                user_id="anonymous",
+                model_type=_AGENT_TYPE,
+                payload=_agent_payload("shared"),
+            )
+        )
+        agent_with_cross_ns = _agent_payload("a")
+        agent_with_cross_ns["metadata"] = {"ptr": {REF_KEY: "shared", "__namespace__": "global"}}
+        yaml_text = _default_bundle_yaml(
+            namespace="tenant-A",
+            user_id="alice",
+            agents={"a": {"payload": agent_with_cross_ns}},
+        )
+        report = catalog.validate_namespace_yaml(yaml_text)
+        assert report.ok is True, (
+            f"expected ok, got entry_issues={report.entry_issues!r} "
+            f"global_errors={report.global_errors!r}"
+        )
+        assert not any("dangling ref" in m for m in report.global_errors)
+
     def test_ownership_mismatch(self, catalog_factory: CatalogFactory) -> None:
         catalog, _ = catalog_factory()
         # Construct a bundle where the doc-level user_id matches the team but
@@ -413,3 +506,47 @@ class TestValidateNamespaceCrossNs:
             f"global_errors={report.global_errors!r}"
         )
         assert not any("dangling ref" in m for m in report.global_errors)
+
+    def test_dry_run_non_shareable_cross_ns_ref_appears_in_entry_issues(
+        self, catalog_factory: CatalogFactory
+    ) -> None:
+        """Dry-run (``validate_namespace_yaml``) keeps the shareable-flag gate.
+
+        The overlay stages only same-namespace bundle entries; cross-ns
+        resolution continues to consult the inner repository and the
+        shareable-flag gate. A dry-run bundle carrying a cross-ns marker to a
+        NON-shareable namespace still surfaces the standard "is not shareable"
+        error per entry — the overlay does not loosen the gate.
+        """
+        catalog, _repo = catalog_factory()
+        # Persist a NON-shareable global namespace with a target entry.
+        _seed_team(catalog, "global", user_id="anonymous")
+        catalog.create(make_meta_entry("global", shareable=False))
+        catalog.create(
+            Entry(
+                id="shared",
+                kind="prompt",
+                namespace="global",
+                user_id="anonymous",
+                model_type=_AGENT_TYPE,
+                payload=_agent_payload("shared"),
+            )
+        )
+        agent_with_cross_ns = _agent_payload("a")
+        agent_with_cross_ns["metadata"] = {"ptr": {REF_KEY: "shared", "__namespace__": "global"}}
+        yaml_text = _default_bundle_yaml(
+            namespace="tenant-A",
+            user_id="alice",
+            agents={"a": {"payload": agent_with_cross_ns}},
+        )
+        report = catalog.validate_namespace_yaml(yaml_text)
+        assert report.ok is False
+        assert report.entry_issues, "expected per-entry issue for cross-ns ref"
+        joined = " | ".join(err for issue in report.entry_issues for err in issue.errors)
+        assert "is not shareable" in joined
+        # Cross-ns errors live in entry_issues only — the dangling-ref walker
+        # must NOT flag the cross-ns marker as a global error.
+        assert not any("dangling ref" in m for m in report.global_errors), (
+            f"unexpected dangling-ref leak for cross-ns marker: "
+            f"global_errors={report.global_errors!r}"
+        )
