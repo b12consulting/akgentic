@@ -18,6 +18,7 @@ from akgentic.catalog.env import resolve_env_vars
 from akgentic.catalog.models.entry import Entry, EntryKind
 from akgentic.catalog.models.errors import CatalogValidationError, EntryNotFoundError
 from akgentic.catalog.models.namespace_meta import NamespaceMeta
+from akgentic.catalog.models.native import NativeValue
 from akgentic.catalog.models.queries import CloneRequest, EntryQuery
 from akgentic.catalog.repositories.base import EntryRepository
 from akgentic.catalog.repositories.yaml import YamlEntryRepository
@@ -46,6 +47,7 @@ __all__ = [
     "EntryQuery",
     "EntryRepository",
     "NamespaceMeta",
+    "NativeValue",
     "UNSET_NAMESPACE",
     "YamlEntryRepository",
     "load_model_type",

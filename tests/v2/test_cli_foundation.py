@@ -291,6 +291,46 @@ class TestGetVerb:
         result = runner.invoke(cli_main.app, _base_args(catalog_root) + ["agent", "get", "agent-a"])
         assert result.exit_code == 2
 
+    def test_get_native_value_entry_renders_standard_shape(
+        self, runner: CliRunner, catalog_root: Path
+    ) -> None:
+        """Story 26.1 / AC 15 — ``ak-catalog <kind> get`` on a NativeValue entry
+        renders the standard entry shape (``model_type``, ``payload``) without
+        crashing or special-casing the kind.
+        """
+        # Seed a NativeValue entry under ns-a using the same backend the CLI
+        # will read from.
+        native_catalog = Catalog(YamlEntryRepository(catalog_root))
+        native_catalog.create(
+            Entry(
+                id="id_native_prompt",
+                kind="prompt",
+                namespace="ns-a",
+                user_id="alice",
+                model_type="akgentic.catalog.NativeValue",
+                description="shared prompt body",
+                payload={"value": "You are a helpful assistant."},
+            )
+        )
+        result = runner.invoke(
+            cli_main.app,
+            _base_args(catalog_root)
+            + [
+                "--format",
+                "json",
+                "prompt",
+                "get",
+                "id_native_prompt",
+                "--namespace",
+                "ns-a",
+            ],
+        )
+        assert result.exit_code == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["id"] == "id_native_prompt"
+        assert payload["model_type"] == "akgentic.catalog.NativeValue"
+        assert payload["payload"] == {"value": "You are a helpful assistant."}
+
 
 # --------------------------------------------------------------------------- #
 # `create` and `update` verbs

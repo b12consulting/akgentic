@@ -151,6 +151,22 @@ class TestEntryRepositoryParity:
         assert [e.id for e in backend.list_by_namespace("ns-a")] == ["shared"]
         assert [e.id for e in backend.list_by_namespace("ns-b")] == ["shared"]
 
+    def test_native_value_entry_round_trip(self, backend: EntryRepository) -> None:
+        """Story 26.1 / AC 11-12 — a NativeValue entry round-trips byte-equal.
+
+        The repository must treat ``model_type: akgentic.catalog.NativeValue``
+        like any other entry — no kind-special-casing, no payload introspection.
+        """
+        entry = make_entry(
+            id="id_native",
+            kind="prompt",
+            namespace="ns-1",
+            model_type="akgentic.catalog.NativeValue",
+            payload={"value": "scalar-body"},
+        )
+        backend.put(entry)
+        assert backend.get("ns-1", "id_native") == entry
+
     def test_nested_ref_markers_round_trip(self, backend: EntryRepository) -> None:
         """AC20: nested dicts and list elements with ``__ref__`` / ``__type__`` round-trip."""
         payload = {
