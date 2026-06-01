@@ -27,8 +27,11 @@ import { ApiService } from '../../../services/api.service';
 import { HttpError } from '../../../services/fetch.service';
 import {
   CloneYamlError,
+  extractYamlName,
   extractYamlNamespace,
   rewriteNamespaceInYaml,
+  suggestDestName,
+  suggestDestNamespace,
 } from '../../../services/yaml-clone.helper';
 import { ValidationReportComponent } from './validation-report/validation-report.component';
 
@@ -166,6 +169,14 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
    * successful clone (AC 3, AC 8, AC 12).
    */
   cloneDestNs: string = '';
+  /**
+   * Destination display name typed into the Clone dialog — rewritten into
+   * the bundle's root `name:` field (the meta header surfaced in the
+   * home-page dropdown). Pre-filled with a `<source>_copy` suggestion when
+   * the modal opens; reset to `''` on dialog dismiss AND on successful
+   * clone, mirroring `cloneDestNs`.
+   */
+  cloneDestName: string = '';
   /**
    * True while a clone-import request is in flight (AC 8 + AC 14). Gates
    * the Confirm button (defence in depth alongside the pre-flight
@@ -800,6 +811,14 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     if (this.cloning) {
       return;
     }
+    // Pre-fill the modal inputs from the current buffer. Source values are
+    // best-effort: `extractYamlName` returns null on a header-less bundle,
+    // in which case the name suggestion falls back to the namespace string
+    // (rare path — meta header is required by the v17.5+ wire format).
+    const srcNs = extractYamlNamespace(this.buffer) ?? this.namespace;
+    const srcName = extractYamlName(this.buffer) ?? srcNs;
+    this.cloneDestNs = suggestDestNamespace(srcNs);
+    this.cloneDestName = suggestDestName(srcName);
     this.cloneDialogVisible = true;
   }
 
@@ -811,6 +830,7 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
   onCloneCancelClick(): void {
     this.cloneDialogVisible = false;
     this.cloneDestNs = '';
+    this.cloneDestName = '';
   }
 
   /**
@@ -824,6 +844,7 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     this.cloneDialogVisible = visible;
     if (!visible) {
       this.cloneDestNs = '';
+      this.cloneDestName = '';
     }
   }
 
@@ -842,6 +863,9 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
       return true;
     }
     if (this.existingNamespaces.includes(trimmed)) {
+      return true;
+    }
+    if (this.cloneDestName.trim() === '') {
       return true;
     }
     if (this.cloning) {
@@ -868,6 +892,9 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     }
     if (this.existingNamespaces.includes(trimmed)) {
       return `Namespace '${trimmed}' already exists`;
+    }
+    if (this.cloneDestName.trim() === '') {
+      return 'Destination name required';
     }
     return null;
   }
@@ -962,6 +989,7 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
    */
   onCloneDialogHide(): void {
     this.cloneDestNs = '';
+    this.cloneDestName = '';
     this.cloneInlineError = null;
     setTimeout(() => {
       this.cloneBtnRef?.nativeElement.focus();
@@ -1008,11 +1036,12 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
       return;
     }
     const destNs = this.cloneDestNs.trim();
+    const destName = this.cloneDestName.trim();
     const sourceYaml = this.buffer;
     this.cloning = true;
     this.lastCloneError = null;
     try {
-      const rewrittenYaml = rewriteNamespaceInYaml(sourceYaml, destNs);
+      const rewrittenYaml = rewriteNamespaceInYaml(sourceYaml, destNs, destName);
       await this.apiService.importNamespace(rewrittenYaml);
       if (this.destroyed) {
         return;
@@ -1023,6 +1052,7 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
       // re-exports the bundle and flips mode to view (Story 11.2).
       this.cloneDialogVisible = false;
       this.cloneDestNs = '';
+      this.cloneDestName = '';
       this.cloneInlineError = null;
       this.saved.emit();
       this.namespace = destNs;

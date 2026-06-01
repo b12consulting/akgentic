@@ -76,6 +76,19 @@
     }
   }
 
+  // Per-field help text under each Clone input. Muted grey + smaller than
+  // body text so it reads as guidance, not an error (which is red). A small
+  // negative top margin pulls the hint close to its input; the bottom margin
+  // separates it from the next field's label.
+  .namespace-panel__clone-hint {
+    display: block;
+    margin-top: -0.25rem;
+    margin-bottom: 0.25rem;
+    color: #6b7280;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+  }
+
   // Pre-flight validation hint (empty / same-as-source / collision).
   // Muted red, smaller than body text so it reads as helper text, not a
   // critical alert — the operator can still re-type.

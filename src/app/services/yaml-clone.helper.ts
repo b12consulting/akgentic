@@ -54,12 +54,19 @@ export class CloneYamlError extends Error {
  * inside payload, block-scalar quoting) are invisible to the user after
  * re-export.
  */
-export function rewriteNamespaceInYaml(input: string, destNs: string): string {
+export function rewriteNamespaceInYaml(
+  input: string,
+  destNs: string,
+  destName?: string,
+): string {
   // Defence-in-depth: the panel's Confirm-button disabled rule prevents
   // empty destNs from ever reaching the helper, but mirror Story 11.3's
   // `savedBuffer` pattern and validate the caller-supplied string.
   if (typeof destNs !== 'string' || destNs.length === 0) {
     throw new CloneYamlError('destNs must be a non-empty string');
+  }
+  if (destName !== undefined && (typeof destName !== 'string' || destName.length === 0)) {
+    throw new CloneYamlError('destName must be a non-empty string when provided');
   }
 
   let parsed: unknown;
@@ -86,6 +93,14 @@ export function rewriteNamespaceInYaml(input: string, destNs: string): string {
   // Rewrite only the document-level namespace key — entries and payload
   // subtrees are untouched (ADR-011 D5 step 3; see docstring above).
   doc['namespace'] = destNs;
+
+  // Optionally rewrite the document-level `name` key (the meta header's
+  // display name surfaced in the home-page namespace dropdown). The export
+  // serializer hoists `meta.payload.name` to a root `name:` field, so the
+  // rewrite happens at the same level as `namespace`.
+  if (destName !== undefined) {
+    doc['name'] = destName;
+  }
 
   return yaml.dump(doc, { sortKeys: false, lineWidth: -1, noRefs: true });
 }
@@ -116,4 +131,64 @@ export function extractYamlNamespace(input: string): string | null {
   }
   const ns = (parsed as Record<string, unknown>)['namespace'];
   return typeof ns === 'string' ? ns : null;
+}
+
+/**
+ * Best-effort extraction of the top-level `name:` field (the meta header's
+ * display name) from a bundle YAML string. Returns `null` when the input
+ * cannot be parsed, the root is not a mapping, or the `name` key is missing
+ * or not a string. Used by the Clone modal to pre-fill the destination-name
+ * input with a "<source>_copy" suggestion.
+ */
+export function extractYamlName(input: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(input);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const name = (parsed as Record<string, unknown>)['name'];
+  return typeof name === 'string' ? name : null;
+}
+
+const RANDOM_SUFFIX_RE = /_[A-Za-z0-9]{5}$/;
+const RANDOM_SUFFIX_ALPHABET =
+  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function randomAlphanumeric(length: number): string {
+  // crypto.getRandomValues is available in every browser Angular targets and
+  // in jsdom (Karma test env). Avoids Math.random's predictability without
+  // pulling in a dependency.
+  const out: string[] = [];
+  const buf = new Uint32Array(length);
+  crypto.getRandomValues(buf);
+  for (let i = 0; i < length; i++) {
+    out.push(RANDOM_SUFFIX_ALPHABET[buf[i] % RANDOM_SUFFIX_ALPHABET.length]);
+  }
+  return out.join('');
+}
+
+/**
+ * Suggest a destination namespace for a clone: strip a trailing
+ * `_<5 alphanumerics>` suffix from `srcNs` if one is present, then append a
+ * freshly-generated `_<5 alphanumerics>` suffix. So `foo_a1b2c` becomes
+ * `foo_x9k2m`, and `foo` becomes `foo_x9k2m`. The collision check in the
+ * Clone modal still applies, so the operator can re-roll by reopening the
+ * dialog if the suggestion happens to clash with an existing namespace.
+ */
+export function suggestDestNamespace(srcNs: string): string {
+  const base = srcNs.replace(RANDOM_SUFFIX_RE, '');
+  return `${base}_${randomAlphanumeric(5)}`;
+}
+
+/**
+ * Suggest a destination display name for a clone: append `_copy` to the
+ * source name. Returns `'_copy'` for the empty string (rare — the meta
+ * header is required) so the suggestion is always non-empty.
+ */
+export function suggestDestName(srcName: string): string {
+  return `${srcName}_copy`;
 }
