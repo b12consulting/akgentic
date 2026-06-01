@@ -32,30 +32,36 @@ graph TB
     subgraph "Single Process"
         API[FastAPI Server]
         SVC[TeamService]
-        NA[NoAuth]
+        NA["NoAuth<br/>&lt;AuthStrategy&gt;"]
         CAT[Catalog API<br/>YAML backend]
-        LP[LocalPlacement]
-        LWH[LocalWorkerHandle]
-        LRC[LocalRuntimeCache]
+        LP["LocalPlacement<br/>&lt;PlacementStrategy&gt;"]
+        LWH["LocalWorkerHandle<br/>&lt;WorkerHandle&gt;"]
+        LRC["LocalRuntimeCache<br/>&lt;RuntimeCache&gt;"]
         TM[TeamManager]
         AS[ActorSystem]
         YE[YamlEventStore]
-        PS[PersistenceSubscriber]
-        TS[TelemetrySubscriber]
-        ICD[InteractionChannelDispatcher]
-        LI[LocalIngestion]
-        YCR[YamlChannelRegistry]
+        PS["PersistenceSubscriber<br/>&lt;EventSubscriber&gt;"]
+        TS["TelemetrySubscriber<br/>&lt;EventSubscriber&gt;"]
+        ICD["InteractionChannelDispatcher<br/>&lt;EventSubscriber&gt;"]
+        ESS["EventStreamSubscriber<br/>&lt;EventSubscriber&gt;"]
+        LES["LocalEventStream<br/>&lt;EventStream&gt;"]
+        LI["LocalIngestion<br/>&lt;InteractionChannelIngestion&gt;"]
+        YCR["YamlChannelRegistry<br/>&lt;ChannelRegistry&gt;"]
     end
 
-    FE[Angular Frontend<br/>browser]
-    CLI[ak-infra CLI]
+    subgraph Clients [" "]
+        direction LR
+        FE[Angular Frontend<br/>browser]
+        CLI[ak-infra CLI]
+    end
 
-    CLI -->|REST + WS| API
     FE -->|REST + WS| API
+    CLI -->|REST + WS| API
     API --> NA
     API --> SVC
     API --> CAT
     API --> LI
+    API -->|WS: read stream| LES
     SVC --> LP
     SVC --> LWH
     SVC --> LRC
@@ -63,6 +69,11 @@ graph TB
     LWH --> TM
     TM --> AS
     TM --> YE
+    AS --> PS
+    AS --> TS
+    AS --> ICD
+    AS --> ESS
+    ESS --> LES
     PS --> YE
     LI --> SVC
     LI --> YCR
@@ -71,79 +82,95 @@ graph TB
     style API fill:#2196F3,color:white
     style SVC fill:#FF9800,color:white
     style TM fill:#FF9800,color:white
+    style LES fill:#F44336,color:white
 ```
 
 ### Department (Docker Compose)
 
 ```mermaid
 graph TB
-    subgraph "Caddy"
-        PROXY[Reverse Proxy<br/>TLS]
+    subgraph Clients [" "]
+        direction LR
+        FE[Angular Frontend<br/>browser]
+        CLI[ak-infra CLI]
     end
 
     subgraph "Server Container"
-        FE[Angular Frontend]
         SRV[FastAPI Server<br/>stateless]
         SVC_S[TeamService]
-        AUTH[OAuth2 + API Key]
+        AUTH["OAuth2 + API Key<br/>&lt;AuthStrategy&gt;"]
+        PS_SRV["LeastTeamsPlacement<br/>&lt;PlacementStrategy&gt;"]
+        HM["RedisHealthMonitor<br/>&lt;HealthMonitor&gt;"]
+        RP["MarkStoppedRecovery<br/>&lt;RecoveryPolicy&gt;"]
+        RWH["RemoteWorkerHandle · HTTP<br/>&lt;WorkerHandle&gt;"]
+        RES_R["RedisEventStream<br/>&lt;EventStream&gt;"]
         CAT[Catalog API<br/>MongoDB backend]
-        PS_SRV[LeastTeamsPlacement]
-        RWH[RemoteWorkerHandle<br/>HTTP]
-        HM[RedisHealthMonitor]
-        RP[MarkStoppedRecovery]
     end
 
     subgraph "Worker 1"
         W1_API[FastAPI Worker]
+        W1_LWH["LocalWorkerHandle<br/>&lt;WorkerHandle&gt;"]
         W1_TM[TeamManager]
         W1_AS[ActorSystem]
         W1_HB[Heartbeat Loop]
-        W1_PS[PersistenceSubscriber]
-        W1_RSS[RedisStreamSubscriber]
-        W1_TS[TelemetrySubscriber]
-        W1_ICD[InteractionChannelDispatcher]
-    end
-
-    subgraph "Worker 2"
-        W2_API[FastAPI Worker]
-        W2_TM[TeamManager]
+        W1_PS["PersistenceSubscriber<br/>&lt;EventSubscriber&gt;"]
+        W1_RSS["RedisStreamSubscriber<br/>&lt;EventSubscriber&gt;"]
+        W1_RES["RedisEventStream<br/>&lt;EventStream&gt;"]
+        W1_TS["TelemetrySubscriber<br/>&lt;EventSubscriber&gt;"]
+        W1_ICD["InteractionChannelDispatcher<br/>&lt;EventSubscriber&gt;"]
     end
 
     subgraph "Infrastructure"
         MONGO[(MongoDB)]
-        REDIS[(Redis)]
+        REDIS[("Redis<br/>controller:{team_id}:events")]
     end
 
-    PROXY --> FE
-    PROXY -->|/api/*| SRV
+    %% Clients → Server
+    FE -->|REST + WS| SRV
+    CLI -->|REST + WS| SRV
+
+    %% Server-internal wiring
     SRV --> AUTH
     SRV --> SVC_S
     SRV --> CAT
-    SVC_S --> PS_SRV
-    SVC_S --> RWH
-    PS_SRV -->|find worker| REDIS
-    RWH -->|HTTP proxy| W1_API
-    RWH -->|HTTP proxy| W2_API
-    HM -->|check heartbeat| REDIS
+    SRV -->|WS: subscribe| RES_R
+    SVC_S -->|create| PS_SRV
+    SVC_S -->|stop / delete / resume / get| RWH
     HM -->|expired workers| RP
-    W1_API --> W1_TM
+
+    %% Server → Worker
+    PS_SRV -->|POST /teams create| W1_API
+    RWH -->|HTTP proxy| W1_API
+
+    %% Worker-internal wiring
+    W1_API -->|stop / delete / resume| W1_LWH
+    W1_API -->|create| W1_TM
+    W1_LWH --> W1_TM
     W1_TM --> W1_AS
-    W1_HB -->|heartbeat TTL| REDIS
-    W1_PS --> MONGO
-    W1_RSS --> REDIS
     W1_AS --> W1_PS
     W1_AS --> W1_RSS
     W1_AS --> W1_TS
     W1_AS --> W1_ICD
-    CAT --> MONGO
+    W1_RSS -->|append| W1_RES
 
-    style PROXY fill:#9C27B0,color:white
+    %% → Infrastructure
+    CAT --> MONGO
+    W1_PS --> MONGO
+    RES_R -->|XREAD / XRANGE| REDIS
+    W1_RES -->|XADD| REDIS
+    PS_SRV -->|find worker| REDIS
+    RWH -->|locate team| REDIS
+    HM -->|check heartbeat| REDIS
+    W1_HB -->|heartbeat TTL| REDIS
+
+    style FE fill:#4CAF50,color:white
     style SRV fill:#2196F3,color:white
     style SVC_S fill:#FF9800,color:white
     style W1_API fill:#FF9800,color:white
-    style W2_API fill:#FF9800,color:white
     style MONGO fill:#4CAF50,color:white
     style REDIS fill:#F44336,color:white
+    style RES_R fill:#F44336,color:white
+    style W1_RES fill:#F44336,color:white
 ```
 
 ### Enterprise (Kubernetes / Dapr)
@@ -157,13 +184,14 @@ graph TB
     subgraph "Server Pod"
         SRV[FastAPI Server<br/>stateless]
         SVC_E[TeamService]
-        AUTH[OAuth2 + API Key<br/>+ SSO + RBAC]
+        AUTH["OAuth2 + API Key + SSO + RBAC<br/>&lt;AuthStrategy&gt;"]
         CAT[Catalog API<br/>MongoDB backend]
-        PS_SRV[PlacementStrategy<br/>LabelMatch / Weighted / ZoneAware]
-        RWH_E[RemoteWorkerHandle<br/>Dapr]
+        PS_SRV["LabelMatch / Weighted / ZoneAware<br/>&lt;PlacementStrategy&gt;"]
+        RWH_E["RemoteWorkerHandle · Dapr<br/>&lt;WorkerHandle&gt;"]
         DSR[DaprStateServiceRegistry]
-        HM_E[DaprHealthMonitor]
-        RP_E[AutoRestoreRecovery]
+        HM_E["DaprHealthMonitor<br/>&lt;HealthMonitor&gt;"]
+        RP_E["AutoRestoreRecovery<br/>&lt;RecoveryPolicy&gt;"]
+        DES_R["DaprEventStream<br/>&lt;EventStream&gt;"]
         SRV_DAPR[Dapr Sidecar]
     end
 
@@ -171,10 +199,11 @@ graph TB
         W1_API[FastAPI Worker]
         W1_TM[TeamManager]
         W1_AS[ActorSystem]
-        W1_PS[PersistenceSubscriber]
-        W1_DSS[DaprStreamSubscriber]
-        W1_TS[TelemetrySubscriber]
-        W1_ICD[InteractionChannelDispatcher]
+        W1_PS["PersistenceSubscriber<br/>&lt;EventSubscriber&gt;"]
+        W1_DSS["DaprStreamSubscriber<br/>&lt;EventSubscriber&gt;"]
+        W1_DES["DaprEventStream<br/>&lt;EventStream&gt;"]
+        W1_TS["TelemetrySubscriber<br/>&lt;EventSubscriber&gt;"]
+        W1_ICD["InteractionChannelDispatcher<br/>&lt;EventSubscriber&gt;"]
         W1_DAPR[Dapr Sidecar]
     end
 
@@ -189,7 +218,7 @@ graph TB
     end
 
     subgraph "Dapr Components"
-        PUBSUB[Pub/Sub<br/>Redis / NATS / Kafka]
+        PUBSUB["Pub/Sub<br/>Redis / NATS / Kafka"]
         STATE[State Store<br/>Redis / PostgreSQL / Cosmos DB]
     end
 
@@ -197,14 +226,17 @@ graph TB
     SRV --> AUTH
     SRV --> SVC_E
     SRV --> CAT
-    SVC_E --> PS_SRV
-    SVC_E --> RWH_E
+    SVC_E -->|create| PS_SRV
+    SVC_E -->|stop / delete / resume / get| RWH_E
     PS_SRV --> DSR
     DSR --> SRV_DAPR
     RWH_E --> SRV_DAPR
-    SRV_DAPR -->|service invocation| W1_DAPR
-    SRV_DAPR -->|service invocation| WN_DAPR
+    SRV_DAPR -->|invoke POST /teams create| W1_DAPR
+    SRV_DAPR -->|invoke POST /teams create| WN_DAPR
+    SRV_DAPR -->|invoke stop / delete / resume / get| W1_DAPR
     SRV_DAPR --> STATE
+    SRV -->|WS: subscribe| DES_R
+    DES_R -->|subscribe| SRV_DAPR
     HM_E -->|check health| SRV_DAPR
     HM_E -->|expired workers| RP_E
     W1_DAPR --> W1_API
@@ -216,7 +248,8 @@ graph TB
     W1_AS --> W1_TS
     W1_AS --> W1_ICD
     W1_PS --> MONGO
-    W1_DSS --> W1_DAPR
+    W1_DSS -->|append| W1_DES
+    W1_DES -->|publish| W1_DAPR
     W1_DAPR --> PUBSUB
     W1_TS --> OTEL
     CAT --> MONGO
@@ -229,6 +262,8 @@ graph TB
     style MONGO fill:#4CAF50,color:white
     style PUBSUB fill:#F44336,color:white
     style STATE fill:#F44336,color:white
+    style DES_R fill:#F44336,color:white
+    style W1_DES fill:#F44336,color:white
     style OTEL fill:#607D8B,color:white
     style SRV_DAPR fill:#E91E63,color:white
     style W1_DAPR fill:#E91E63,color:white
