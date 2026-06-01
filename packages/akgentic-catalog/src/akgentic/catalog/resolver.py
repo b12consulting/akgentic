@@ -54,6 +54,7 @@ from akgentic.core.utils.deserializer import import_class
 
 from .models.entry import Entry
 from .models.errors import CatalogValidationError
+from .models.native import NativeValue
 from .repositories.base import EntryRepository
 
 # Type alias for the shareable-flag check threaded through the resolver.
@@ -460,11 +461,19 @@ def _populate_ref_marker(
 
     cls = load_model_type(target.model_type)
     try:
-        return cls.model_validate(merged)
+        instance = cls.model_validate(merged)
     except ValidationError as e:
         raise CatalogValidationError(
             [f"Payload of '{target.id}' does not validate against {target.model_type}: {e}"]
         ) from e
+    # ADR-015: NativeValue is the catalog's sanctioned scalar carrier. At the
+    # ref-splice site we return the bare ``.value`` (str / int / bool / list /
+    # dict) so a typed field on the consuming entry can be assigned via a
+    # ``__ref__`` marker without inlining the scalar. Every other model_type
+    # returns the validated BaseModel unchanged.
+    if isinstance(instance, NativeValue):
+        return instance.value
+    return instance
 
 
 def resolve(

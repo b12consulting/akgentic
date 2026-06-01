@@ -237,6 +237,39 @@ class TestDumpNamespace:
         round_tripped = next(e for e in parsed_entries if e.id == "a")
         assert round_tripped.payload == ref_payload
 
+    def test_native_value_bundle_round_trip(self) -> None:
+        """Story 26.1 / AC 14 — a bundle containing a NativeValue entry plus a
+        composite entry that references it round-trips through
+        ``dump_namespace`` / ``load_namespace``. On reload the reference still
+        resolves to the unwrapped scalar — the bundle format treats NativeValue
+        entries as normal entries with no special-casing.
+        """
+        native_type = "akgentic.catalog.NativeValue"
+        native = Entry(
+            id="id_native",
+            kind="prompt",
+            namespace="ns-1",
+            user_id="alice",
+            model_type=native_type,
+            payload={"value": "shared-body"},
+        )
+        consumer = Entry(
+            id="id_consumer",
+            kind="prompt",
+            namespace="ns-1",
+            user_id="alice",
+            model_type=_PROMPT_TYPE,
+            payload={"template": {"__ref__": "id_native"}},
+        )
+        text = dump_namespace([_team(), native, consumer])
+        parsed_entries, _header = load_namespace(text)
+        # Byte-equal payloads after a dump/load cycle.
+        reloaded_native = next(e for e in parsed_entries if e.id == "id_native")
+        reloaded_consumer = next(e for e in parsed_entries if e.id == "id_consumer")
+        assert reloaded_native.model_type == native_type
+        assert reloaded_native.payload == {"value": "shared-body"}
+        assert reloaded_consumer.payload == {"template": {"__ref__": "id_native"}}
+
 
 # --- load_namespace ---------------------------------------------------------
 

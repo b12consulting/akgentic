@@ -18,6 +18,7 @@ backed by a pluggable `EntryRepository`.
 - [Architecture](#architecture)
 - [The Entry Model](#the-entry-model)
 - [Storage Backends](#storage-backends)
+- [Sharing scalars between entries](#sharing-scalars-between-entries)
 - [References Between Entries](#references-between-entries)
 - [Querying the Catalog](#querying-the-catalog)
 - [CLI](#cli)
@@ -300,6 +301,68 @@ catalog = Catalog(PostgresEntryRepository(cfg.connection_string))
 All three backends expose the same `EntryRepository` protocol; parity
 tests under `tests/repositories/test_entry_repository_contract.py` keep
 them interchangeable.
+
+## Sharing scalars between entries
+
+When several entries need to reuse the same bare scalar — a prompt body, a
+default role label, a model id — the catalog ships a sanctioned wrapper
+called `NativeValue`. A `NativeValue` entry carries a single `value` field;
+the resolver unwraps the value at the ref-splice site so a typed `str` /
+`int` / `bool` field on the consuming entry receives the bare scalar
+instead of the wrapper.
+
+```yaml
+# data/catalog/agent-team/prompt/id_team_template.yaml
+id: id_team_template
+kind: prompt
+namespace: agent-team
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: System-prompt template body for team members
+payload:
+  value: "You are {role}. Collaborate with your team."
+
+# data/catalog/agent-team/prompt/id_team_role.yaml
+id: id_team_role
+kind: prompt
+namespace: agent-team
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: Default role label for team members
+payload:
+  value: "a helpful team member"
+
+# data/catalog/agent-team/prompt/id_team_prompt.yaml
+id: id_team_prompt
+kind: prompt
+namespace: agent-team
+user_id: anonymous
+model_type: akgentic.llm.prompts.PromptTemplate
+description: Default system prompt for team members
+payload:
+  template: { __ref__: "id_team_template" }   # resolves to str
+  params:
+    role: { __ref__: "id_team_role" }         # resolves to str
+```
+
+Two things are worth pinning explicitly:
+
+- **The resolver unwraps `.value` at ref-splice time.** From every other
+  layer's perspective — repositories, CLI, HTTP, bundle export — a
+  `NativeValue` entry is a normal entry with a `{"value": <scalar>}`
+  payload. The unwrap fires only when a `__ref__` marker targets a
+  `NativeValue`; direct retrieval via `Catalog.get` returns the `Entry`
+  like any other entry.
+- **`NativeValue.value: dict[str, Any]` is for JSON literals at boundaries,
+  NOT for structured catalog content.** Storing a typed structure under
+  `value` as an untyped dict effectively bypasses the "payload is a
+  `BaseModel`" invariant — the consuming side has nothing to validate
+  against. If you need typed structured content, write a real
+  `BaseModel`. The catalog does not mechanically block this anti-pattern;
+  the discipline is on the catalog author.
+
+See `_bmad-output/akgentic-catalog/decisions/adr-15-native-value-refs.md`
+for the full rationale and design.
 
 ## References Between Entries
 

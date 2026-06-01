@@ -192,6 +192,32 @@ class TestGet:
         response = client.get("/catalog/team/team")
         assert response.status_code == 422
 
+    def test_get_native_value_entry_returns_standard_shape(
+        self, api_client: tuple[TestClient, Catalog]
+    ) -> None:
+        """Story 26.1 / AC 16 — ``GET /catalog/{ns}/{id}`` on a NativeValue
+        entry returns the standard entry JSON shape (``model_type``,
+        ``payload``) with no special-casing of the kind.
+        """
+        client, catalog = api_client
+        _seed_team(catalog, "ns-native")
+        catalog.create(
+            Entry(
+                id="id_native",
+                kind="prompt",
+                namespace="ns-native",
+                user_id="anonymous",
+                model_type="akgentic.catalog.NativeValue",
+                payload={"value": "shared-prompt-body"},
+            )
+        )
+        response = client.get("/catalog/prompt/id_native", params={"namespace": "ns-native"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == "id_native"
+        assert body["model_type"] == "akgentic.catalog.NativeValue"
+        assert body["payload"] == {"value": "shared-prompt-body"}
+
 
 class TestUpdate:
     """PUT /catalog/{kind}/{id} — AC9."""
