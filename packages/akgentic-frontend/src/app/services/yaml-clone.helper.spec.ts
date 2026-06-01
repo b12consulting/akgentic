@@ -2,8 +2,11 @@ import yaml from 'js-yaml';
 
 import {
   CloneYamlError,
+  extractYamlName,
   extractYamlNamespace,
   rewriteNamespaceInYaml,
+  suggestDestName,
+  suggestDestNamespace,
 } from './yaml-clone.helper';
 
 /**
@@ -210,5 +213,104 @@ describe('extractYamlNamespace', () => {
 
   it('returns null when namespace is not a string (e.g. a number)', () => {
     expect(extractYamlNamespace('namespace: 42\nentries: {}\n')).toBeNull();
+  });
+});
+
+describe('rewriteNamespaceInYaml — destName parameter', () => {
+  it('rewrites root `name` when destName is provided', () => {
+    const input = 'namespace: src\nname: Source Display\nentries: {}\n';
+    const out = rewriteNamespaceInYaml(input, 'dst', 'Dest Display');
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['namespace']).toBe('dst');
+    expect(parsed['name']).toBe('Dest Display');
+  });
+
+  it('leaves root `name` unchanged when destName is omitted', () => {
+    const input = 'namespace: src\nname: Source Display\nentries: {}\n';
+    const out = rewriteNamespaceInYaml(input, 'dst');
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['namespace']).toBe('dst');
+    expect(parsed['name']).toBe('Source Display');
+  });
+
+  it('adds a root `name` when the bundle has none and destName is provided', () => {
+    const input = 'namespace: src\nentries: {}\n';
+    const out = rewriteNamespaceInYaml(input, 'dst', 'Dest Display');
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['name']).toBe('Dest Display');
+  });
+
+  it('throws CloneYamlError when destName is the empty string', () => {
+    const valid = 'namespace: src\nname: Source\nentries: {}\n';
+    expect(() => rewriteNamespaceInYaml(valid, 'dst', '')).toThrowError(
+      CloneYamlError,
+      'destName must be a non-empty string when provided',
+    );
+  });
+});
+
+describe('extractYamlName', () => {
+  it('returns the top-level name string on a header-bearing bundle', () => {
+    const input = 'namespace: foo\nname: Foo Display\nentries: {}\n';
+    expect(extractYamlName(input)).toBe('Foo Display');
+  });
+
+  it('returns null when the mapping has no name key', () => {
+    expect(extractYamlName('namespace: foo\nentries: {}\n')).toBeNull();
+  });
+
+  it('returns null when name is not a string', () => {
+    expect(extractYamlName('namespace: foo\nname: 42\nentries: {}\n')).toBeNull();
+  });
+
+  it('returns null on malformed YAML', () => {
+    expect(extractYamlName('namespace: foo\nentries: [\n  unclosed\n')).toBeNull();
+  });
+
+  it('returns null when the root is not a mapping', () => {
+    expect(extractYamlName('- 1\n- 2\n')).toBeNull();
+  });
+});
+
+describe('suggestDestNamespace', () => {
+  it('appends a fresh _<5 alphanumerics> suffix when none is present', () => {
+    const out = suggestDestNamespace('foo');
+    expect(out).toMatch(/^foo_[A-Za-z0-9]{5}$/);
+  });
+
+  it('strips a trailing _<5 alphanumerics> suffix and appends a fresh one', () => {
+    const out = suggestDestNamespace('foo_a1b2c');
+    expect(out).toMatch(/^foo_[A-Za-z0-9]{5}$/);
+    // The fresh suffix is almost-certainly different from the source's
+    // (collision probability ~1 / 62^5 ≈ 1e-9 — negligible for a unit
+    // test). Asserting inequality guards the strip-then-append behaviour.
+    expect(out).not.toBe('foo_a1b2c');
+  });
+
+  it('does not strip a trailing underscore-suffix of the wrong length', () => {
+    // 4 chars — should not match the strip regex; the whole input becomes the base.
+    const out = suggestDestNamespace('foo_abcd');
+    expect(out).toMatch(/^foo_abcd_[A-Za-z0-9]{5}$/);
+  });
+
+  it('does not strip a trailing suffix containing non-alphanumerics', () => {
+    const out = suggestDestNamespace('foo_a-b2c');
+    expect(out).toMatch(/^foo_a-b2c_[A-Za-z0-9]{5}$/);
+  });
+
+  it('produces different suggestions across calls (randomness sanity-check)', () => {
+    const a = suggestDestNamespace('foo');
+    const b = suggestDestNamespace('foo');
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('suggestDestName', () => {
+  it('appends _copy to the source name', () => {
+    expect(suggestDestName('Foo Display')).toBe('Foo Display_copy');
+  });
+
+  it('handles the empty source name', () => {
+    expect(suggestDestName('')).toBe('_copy');
   });
 });

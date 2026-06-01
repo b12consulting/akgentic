@@ -186,9 +186,25 @@
     data-test="clone-dialog"
   >
     <div class="namespace-panel__clone-body">
-      <label for="clone-dest-ns-input">Destination namespace name</label>
+      <label for="clone-dest-name-input">Destination name</label>
       <input
         #cloneDestInput
+        id="clone-dest-name-input"
+        type="text"
+        pInputText
+        name="cloneDestName"
+        [(ngModel)]="cloneDestName"
+        (ngModelChange)="onCloneDestNsChange()"
+        data-test="clone-destname-input"
+        autocomplete="off"
+        aria-describedby="clone-dest-name-hint"
+      />
+      <small id="clone-dest-name-hint" class="namespace-panel__clone-hint">
+        Used to select this team configuration in the dropdown (user-facing).
+        Can be changed later by editing the configuration header.
+      </small>
+      <label for="clone-dest-ns-input">Destination namespace</label>
+      <input
         id="clone-dest-ns-input"
         type="text"
         pInputText
@@ -197,7 +213,12 @@
         (ngModelChange)="onCloneDestNsChange()"
         data-test="clone-destns-input"
         autocomplete="off"
+        aria-describedby="clone-dest-ns-hint"
       />
+      <small id="clone-dest-ns-hint" class="namespace-panel__clone-hint">
+        Technical identifier that uniquely groups all elements of the
+        configuration (DB view). Cannot be changed after cloning.
+      </small>
       <div
         *ngIf="cloneValidationError"
         class="namespace-panel__clone-error"
