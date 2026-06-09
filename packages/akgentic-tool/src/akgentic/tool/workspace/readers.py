@@ -101,8 +101,8 @@ class DocumentReader(BaseModel):
         }
     )
 
-    llm_client: Literal["openai"] | None = None
-    llm_model: str = "gpt-4o"
+    llm_client: Literal["openai"] | None = "openai"
+    llm_model: str = "gpt-5.4-mini"
 
     _openai_client: OpenAI | None = PrivateAttr(default=None)
 
