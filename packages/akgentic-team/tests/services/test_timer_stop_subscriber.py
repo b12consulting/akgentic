@@ -140,6 +140,41 @@ def test_lifecycle_methods_reject_wrong_team_id() -> None:
     assert manager.calls == []
 
 
+def test_timer_stop_still_offthread() -> None:
+    """AC4: ``TimerStopSubscriber`` drains ``stop_team`` on a *separate* daemon
+    thread, never on the calling (orchestrator actor) thread.
+
+    This is the load-bearing invariant for ADR-19's ``.wait()``: because
+    ``_teardown_team`` now blocks on the orchestrator's stop event, running it
+    on the orchestrator's own actor thread would self-deadlock (the thread that
+    must ``set()`` the event would be the one blocked waiting for it). The
+    daemon-thread offload guarantees the wait lands off the actor thread.
+    ``subscriber.py`` is unchanged; this test pins the behaviour it relies on.
+    """
+    seen: dict[str, int | bool] = {}
+    done = threading.Event()
+
+    class _ThreadRecordingManager:
+        def stop_team(self, team_id: uuid.UUID) -> None:
+            seen["thread_id"] = threading.get_ident()
+            seen["is_daemon"] = threading.current_thread().daemon
+            done.set()
+
+    manager = _ThreadRecordingManager()
+    team_id = uuid.uuid4()
+    sub = TimerStopSubscriber(manager, team_id)  # type: ignore[arg-type]
+
+    caller_thread_id = threading.get_ident()
+    sub.on_stop_request(team_id)
+
+    assert done.wait(timeout=2.0), "stop_team never ran on a background thread"
+    assert seen["thread_id"] != caller_thread_id, (
+        "stop_team ran on the calling thread — the .wait() would self-deadlock "
+        "if this were the orchestrator actor thread"
+    )
+    assert seen["is_daemon"] is True, "stop_team must run on a daemon thread"
+
+
 def test_on_stop_request_uses_background_thread() -> None:
     """Ensure on_stop_request returns before stop_team fires (no sync recursion)."""
     started = threading.Event()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from datetime import UTC, datetime
@@ -32,7 +33,7 @@ from akgentic.team.models import (
     TeamRuntime,
     TeamStatus,
 )
-from akgentic.team.restorer import TeamRestorer
+from akgentic.team.restorer import GRACE_TIMEOUT_SECONDS, TeamRestorer
 from tests.services.conftest import InMemoryEventStore
 
 # ---------------------------------------------------------------------------
@@ -707,6 +708,81 @@ class TestTeamRestorerRollback:
         actors_after = len(pykka.ActorRegistry.get_all())
         assert actors_after == actors_before, (
             f"Rollback failed: {actors_after - actors_before} actor(s) leaked"
+        )
+
+    def test_restorer_rollback_waits_on_orchestrator(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC2 (restore path): rollback stops agents blocking, then waits on the
+        orchestrator entry's stop event; the orchestrator wait runs last.
+
+        We build a team with two agents and make agent-class resolution succeed
+        for the first agent and fail for the second, so exactly one agent is
+        spawned before the failure. Rollback then stops that agent (blocking
+        ``Akgent.stop``) and waits on the orchestrator (non-blocking
+        ``Orchestrator.stop(grace).wait()``), in that order.
+        """
+        worker = _make_member("worker", "Worker")
+        tc = _make_team_card(members=[worker])
+        team_id, process = _populate_stopped_team(event_store, tc)
+
+        events: list[str] = []
+        grace_args: list[float] = []
+
+        real_orch_stop = Orchestrator.stop
+        real_agent_stop = Akgent.stop
+
+        from akgentic.team import restorer as restorer_module
+
+        real_import_class = restorer_module.import_class
+        call_count = {"n": 0}
+
+        def flaky_import_class(path: str) -> Any:
+            call_count["n"] += 1
+            if call_count["n"] >= 2:
+                raise ImportError("cannot resolve second agent class")
+            return real_import_class(path)
+
+        def wrapped_orch_stop(
+            self: Orchestrator, grace_timeout: float = GRACE_TIMEOUT_SECONDS
+        ) -> threading.Event:
+            grace_args.append(grace_timeout)
+            evt = real_orch_stop(self, grace_timeout)
+
+            class _RecordingEvent:
+                def __init__(self, inner: threading.Event) -> None:
+                    self._inner = inner
+
+                def wait(self, timeout: float | None = None) -> bool:
+                    events.append("orchestrator-wait")
+                    return self._inner.wait(timeout)
+
+            return _RecordingEvent(evt)  # type: ignore[return-value]
+
+        def wrapped_agent_stop(self: Akgent[Any, Any]) -> None:
+            if not isinstance(self, Orchestrator):
+                events.append("agent-stop")
+            return real_agent_stop(self)
+
+        restorer = TeamRestorer(actor_system, event_store)
+
+        with (
+            patch.object(restorer_module, "import_class", flaky_import_class),
+            patch.object(Orchestrator, "stop", wrapped_orch_stop),
+            patch.object(Akgent, "stop", wrapped_agent_stop),
+        ):
+            with pytest.raises(ImportError, match="second agent class"):
+                restorer.restore(process)
+
+        # Orchestrator stop received the single grace timeout; its wait() ran
+        # last, after the (blocking) agent stop in reversed spawn order.
+        assert grace_args == [GRACE_TIMEOUT_SECONDS]
+        assert events.count("agent-stop") >= 1, f"no agent stops recorded: {events}"
+        assert "orchestrator-wait" in events
+        assert events.index("orchestrator-wait") == len(events) - 1, (
+            f"orchestrator wait must be last (after agent stops): {events}"
         )
 
     def test_subscribers_registered_with_orchestrator(

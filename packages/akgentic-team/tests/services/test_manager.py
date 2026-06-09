@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from akgentic.core.actor_system_impl import ActorSystem
@@ -14,9 +15,9 @@ from akgentic.core.agent_card import AgentCard
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message
-from akgentic.core.orchestrator import EventSubscriber
+from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 
-from akgentic.team.manager import TeamManager
+from akgentic.team.manager import GRACE_TIMEOUT_SECONDS, TeamManager
 from akgentic.team.models import (
     Process,
     TeamCard,
@@ -1206,3 +1207,166 @@ def _create_and_stop_team_with_namespace(
 
     manager.stop_team(team_id)
     return team_id
+
+
+# ---------------------------------------------------------------------------
+# Tests: _teardown_team waits on the orchestrator stop event (ADR-19 §1)
+# ---------------------------------------------------------------------------
+
+
+class TestTeardownWaitsOnStopEvent:
+    """AC1: ``_teardown_team`` waits on the orchestrator's stop event.
+
+    The non-blocking ``Orchestrator.stop(grace_timeout)`` returns a
+    ``threading.Event`` immediately; ``_teardown_team`` must ``.wait()`` on it
+    so that ``stop_team`` persists ``STOPPED`` / deregisters only AFTER the
+    actors are actually down.
+    """
+
+    def test_teardown_team_waits_for_stop_event(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC1: ``stop()`` returns a real Event; STOPPED/deregister happen only
+        after that event is set.
+
+        The mocked orchestrator stops by returning an unset event that a
+        background thread sets after a delay. We record the moment ``STOPPED``
+        is persisted and the moment ``deregister_team`` runs, and assert both
+        occur strictly after the event was set — proving the wait gates the
+        write path (behaviour only, no ADR-string assertions).
+        """
+        mock_registry = MagicMock(spec=NullServiceRegistry)
+        instance_id = uuid.uuid4()
+        mgr = TeamManager(
+            actor_system=actor_system,
+            event_store=event_store,
+            service_registry=mock_registry,
+            instance_id=instance_id,
+        )
+        tc = _make_team_card()
+        runtime = mgr.create_team(tc)
+        team_id = runtime.id
+        mock_registry.deregister_team.reset_mock()
+
+        stop_event = threading.Event()
+        set_time: dict[str, float] = {}
+
+        def _set_after_delay() -> None:
+            time.sleep(0.3)
+            set_time["event"] = time.monotonic()
+            stop_event.set()
+
+        # Mock proxy_ask so the orchestrator proxy's stop() returns our event.
+        orchestrator_proxy = MagicMock()
+        orchestrator_proxy.stop.return_value = stop_event
+
+        def fake_proxy_ask(addr: Any, cls: type[Any]) -> Any:
+            if cls is Orchestrator:
+                return orchestrator_proxy
+            return MagicMock()
+
+        deregister_time: dict[str, float] = {}
+
+        def timed_deregister(*args: Any, **kwargs: Any) -> None:
+            # Stamp the moment deregister runs. The MagicMock still records the
+            # call args for assert_called_*; the side_effect only adds timing.
+            deregister_time["t"] = time.monotonic()
+
+        mock_registry.deregister_team.side_effect = timed_deregister
+
+        setter = threading.Thread(target=_set_after_delay)
+        with patch.object(actor_system, "proxy_ask", side_effect=fake_proxy_ask):
+            setter.start()
+            mgr.stop_team(team_id)
+        setter.join()
+
+        # stop() was called with the single grace timeout, and .wait() gated
+        # the subsequent write path.
+        orchestrator_proxy.stop.assert_called_once_with(GRACE_TIMEOUT_SECONDS)
+        assert stop_event.is_set()
+
+        # Process is STOPPED and deregister ran — but only after the event set.
+        process = event_store.load_team(team_id)
+        assert process is not None
+        assert process.status == TeamStatus.STOPPED
+        assert "event" in set_time, "stop event was never set by the background thread"
+        assert "t" in deregister_time, "deregister_team was not called"
+        assert deregister_time["t"] >= set_time["event"], (
+            "deregister_team ran before the orchestrator stop event was set — "
+            "_teardown_team did not wait()"
+        )
+
+    def test_teardown_team_best_effort_on_dead_proxy(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC1: a failing ``stop()``/``proxy_ask`` still logs and never raises;
+        ``stop_team`` still persists ``STOPPED``."""
+        mgr = TeamManager(actor_system=actor_system, event_store=event_store)
+        tc = _make_team_card()
+        runtime = mgr.create_team(tc)
+        team_id = runtime.id
+
+        def boom_proxy_ask(addr: Any, cls: type[Any]) -> Any:
+            raise RuntimeError("dead proxy")
+
+        with patch.object(actor_system, "proxy_ask", side_effect=boom_proxy_ask):
+            # Must not raise — _teardown_team is best-effort.
+            mgr.stop_team(team_id)
+
+        process = event_store.load_team(team_id)
+        assert process is not None
+        assert process.status == TeamStatus.STOPPED
+
+    def test_grace_timeout_passed_into_stop(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC3: ``stop()`` is called with the single ``GRACE_TIMEOUT_SECONDS``;
+        no separate caller-side wait-timeout constant exists."""
+        import akgentic.team.manager as manager_module
+
+        mgr = TeamManager(actor_system=actor_system, event_store=event_store)
+        tc = _make_team_card()
+        runtime = mgr.create_team(tc)
+        team_id = runtime.id
+
+        already_set = threading.Event()
+        already_set.set()
+        orchestrator_proxy = MagicMock()
+        orchestrator_proxy.stop.return_value = already_set
+
+        def fake_proxy_ask(addr: Any, cls: type[Any]) -> Any:
+            if cls is Orchestrator:
+                return orchestrator_proxy
+            return MagicMock()
+
+        with patch.object(actor_system, "proxy_ask", side_effect=fake_proxy_ask):
+            mgr.stop_team(team_id)
+
+        orchestrator_proxy.stop.assert_called_once_with(GRACE_TIMEOUT_SECONDS)
+
+        # The grace timeout passed into stop() is the single stop timeout
+        # (ADR-19 §4). There is deliberately NO separate caller-side wait
+        # timeout: no WAIT-named constant, and the only team-owned grace
+        # constant is GRACE_TIMEOUT_SECONDS. (``STOP_TIMEOUT`` is the
+        # re-exported core constant that GRACE_TIMEOUT_SECONDS defaults to,
+        # not a caller-side wait knob.)
+        wait_consts = [
+            n for n in dir(manager_module) if n.isupper() and "WAIT" in n
+        ]
+        assert wait_consts == [], (
+            f"Unexpected caller-side wait constant(s) in manager module: {wait_consts}"
+        )
+        grace_consts = [
+            n
+            for n in dir(manager_module)
+            if n.isupper() and "GRACE" in n
+        ]
+        assert grace_consts == ["GRACE_TIMEOUT_SECONDS"], (
+            f"Unexpected grace constants in manager module: {grace_consts}"
+        )
