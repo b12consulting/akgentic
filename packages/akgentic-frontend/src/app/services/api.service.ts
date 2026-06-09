@@ -163,11 +163,20 @@ export class ApiService {
    * creation dropdown. Consumes catalog Story 16.6's `GET /catalog/namespaces`
    * endpoint, which returns `NamespaceSummary[]` directly (always a list,
    * even when empty).
+   *
+   * The optional `all` flag appends `?all=true`, the admin-only "see all"
+   * lever: it surfaces every tenant's namespaces (not just owner+public).
+   * `all=true` is honoured server-side ONLY for callers whose roles include
+   * `admin`; a non-admin (or anonymous) caller sending it is silently treated
+   * as the normal owner+public list (no error, no privilege grant). The flag
+   * is therefore a convenience surface, not the authorization boundary — the
+   * infra unscoping of admin reads is the boundary.
    */
-  async getNamespaces(): Promise<NamespaceSummary[]> {
-    return await this.fetchService.fetch({
-      url: `${this.apiUrl}/admin/catalog/namespaces`,
-    });
+  async getNamespaces(opts?: { all?: boolean }): Promise<NamespaceSummary[]> {
+    const url = opts?.all
+      ? `${this.apiUrl}/admin/catalog/namespaces?all=true`
+      : `${this.apiUrl}/admin/catalog/namespaces`;
+    return await this.fetchService.fetch({ url });
   }
 
   /**
@@ -175,10 +184,21 @@ export class ApiService {
    *
    * Hits `GET /admin/catalog/namespace/{namespace}/export` which returns
    * `application/yaml` — the response is consumed as text (not JSON).
+   *
+   * The optional `all` flag appends `?all=true` so an admin can open a
+   * foreign-owned namespace surfaced by the home "show all" list. As with
+   * `getNamespaces`, `all=true` is honoured server-side only for admins (the
+   * `/admin/catalog/*` mount unscopes admin GETs); a non-admin sending it gets
+   * the normal owner-scoped read. It widens reads only — never writes.
    */
-  async exportNamespace(namespace: string): Promise<string> {
+  async exportNamespace(
+    namespace: string,
+    opts?: { all?: boolean },
+  ): Promise<string> {
+    const base = `${this.apiUrl}/admin/catalog/namespace/${namespace}/export`;
+    const url = opts?.all ? `${base}?all=true` : base;
     return await this.fetchService.fetch({
-      url: `${this.apiUrl}/admin/catalog/namespace/${namespace}/export`,
+      url,
       responseType: 'text',
     });
   }
@@ -234,6 +254,24 @@ export class ApiService {
         body: yaml,
         headers: { 'Content-Type': 'application/yaml' },
       },
+    });
+  }
+
+  /**
+   * Delete a catalog namespace and all its entries.
+   *
+   * Hits `DELETE /admin/catalog/namespace/{namespace}` (ADR-028 §Decision 5).
+   * A `204` resolves with no body (FetchService returns `undefined` for
+   * 204 / empty-body responses). NO `successMessage` is passed — the panel
+   * owns the success toast / live-region announcement so the messaging stays
+   * consistent with the Clone flow. Non-2xx responses reject with an
+   * `HttpError` carrying `.status` / `.body` so the caller can branch on
+   * `403` (not-authorized), `409`/`422` (inbound-reference blocker), etc.
+   */
+  async deleteNamespace(namespace: string): Promise<void> {
+    await this.fetchService.fetch({
+      url: `${this.apiUrl}/admin/catalog/namespace/${namespace}`,
+      options: { method: 'DELETE' },
     });
   }
 

@@ -12,6 +12,7 @@ import { ButtonModule } from 'primeng/button';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 
 import { ApiService } from '../../../services/api.service';
@@ -133,6 +134,7 @@ describe('NamespacePanelComponent — import atomicity (NFR5)', () => {
             ConfirmDialogModule,
             DialogModule,
             InputTextModule,
+            ToggleSwitchModule,
             TooltipModule,
             StubMonacoEditorComponent,
             ValidationReportComponent,

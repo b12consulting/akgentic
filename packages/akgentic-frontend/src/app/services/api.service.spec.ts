@@ -58,6 +58,31 @@ describe('ApiService', () => {
     });
   });
 
+  describe('getNamespaces ?all=true (Story 14.4 AC5, AC16)', () => {
+    it('appends ?all=true when opts.all is truthy', async () => {
+      await service.getNamespaces({ all: true });
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(/\/admin\/catalog\/namespaces\?all=true$/);
+    });
+
+    it('issues the bare URL (no query) when opts.all is false', async () => {
+      await service.getNamespaces({ all: false });
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(/\/admin\/catalog\/namespaces$/);
+      expect(callArgs.url).not.toContain('?all');
+    });
+
+    it('issues the bare URL (no query) when opts is omitted', async () => {
+      await service.getNamespaces();
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(/\/admin\/catalog\/namespaces$/);
+      expect(callArgs.url).not.toContain('?all');
+    });
+  });
+
   describe('createTeam (Story 1.9)', () => {
     it('POSTs {catalog_namespace, params:{}} — not catalog_entry_id', async () => {
       fetchServiceSpy.fetch.and.returnValue(Promise.resolve({} as any));
@@ -85,6 +110,31 @@ describe('ApiService', () => {
       expect(callArgs.options?.method).toBeUndefined(); // defaults to GET
       expect(callArgs.responseType).toBe('text');
       expect(result).toBe(yamlText);
+    });
+
+    it('(Story 14.4 AC8) appends ?all=true for an admin foreign-open', async () => {
+      const yamlText = 'namespace: foo\n';
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(yamlText));
+
+      await service.exportNamespace('foo', { all: true });
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(
+        /\/admin\/catalog\/namespace\/foo\/export\?all=true$/,
+      );
+      expect(callArgs.responseType).toBe('text');
+    });
+
+    it('(Story 14.4 AC8) issues the bare export URL when all is false/omitted', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve('x'));
+
+      await service.exportNamespace('foo', { all: false });
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(
+        /\/admin\/catalog\/namespace\/foo\/export$/,
+      );
+      expect(callArgs.url).not.toContain('?all');
     });
   });
 
@@ -165,6 +215,22 @@ describe('ApiService', () => {
         'Content-Type': 'application/yaml',
       });
       expect(result).toEqual(report);
+    });
+  });
+
+  describe('deleteNamespace (Story 14.1)', () => {
+    it('DELETEs /admin/catalog/namespace/{ns} and resolves void', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(undefined));
+
+      const result = await service.deleteNamespace('foo');
+
+      expect(fetchServiceSpy.fetch).toHaveBeenCalledTimes(1);
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(/\/admin\/catalog\/namespace\/foo$/);
+      expect(callArgs.options?.method).toBe('DELETE');
+      // The panel owns the success toast — no successMessage passed here.
+      expect(callArgs.successMessage).toBeUndefined();
+      expect(result).toBeUndefined();
     });
   });
 

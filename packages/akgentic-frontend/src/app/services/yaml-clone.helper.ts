@@ -53,11 +53,24 @@ export class CloneYamlError extends Error {
  * for the import to succeed — minor cosmetic differences (key ordering
  * inside payload, block-scalar quoting) are invisible to the user after
  * re-export.
+ *
+ * Optional trailing arguments rewrite three further root keys, each the
+ * identical one-key rewrite as `namespace`:
+ *   - `destName`  → root `name` (display name; only when not `undefined`,
+ *     and only when non-empty — empty/non-string throws CloneYamlError).
+ *   - `shareable` → root `shareable` boolean (cross-namespace referenceability).
+ *   - `isPublic`  → root `public` boolean (listability/cloneability by others).
+ *
+ * For the two boolean flags, `undefined` is the ONLY "leave the key
+ * untouched" signal; an explicit `false` is written verbatim (the operator's
+ * deliberate choice MUST land in the output).
  */
 export function rewriteNamespaceInYaml(
   input: string,
   destNs: string,
   destName?: string,
+  shareable?: boolean,
+  isPublic?: boolean,
 ): string {
   // Defence-in-depth: the panel's Confirm-button disabled rule prevents
   // empty destNs from ever reaching the helper, but mirror Story 11.3's
@@ -100,6 +113,22 @@ export function rewriteNamespaceInYaml(
   // rewrite happens at the same level as `namespace`.
   if (destName !== undefined) {
     doc['name'] = destName;
+  }
+
+  // Optionally rewrite the document-level `shareable` / `public` booleans
+  // (the meta header's visibility/sharing flags hoisted to root level by the
+  // export serializer, at the same level as `namespace` / `name`).
+  //
+  // CRITICAL: an explicit `false` is a meaningful value the operator chose
+  // and MUST land in the output — `undefined` is the ONLY "do not touch the
+  // key" signal. A falsy check (`if (shareable)`) would silently drop a
+  // chosen `false`, letting the imported clone inherit the source's `true`
+  // and defeating the toggle. Use an explicit `!== undefined` guard.
+  if (shareable !== undefined) {
+    doc['shareable'] = shareable;
+  }
+  if (isPublic !== undefined) {
+    doc['public'] = isPublic;
   }
 
   return yaml.dump(doc, { sortKeys: false, lineWidth: -1, noRefs: true });
@@ -152,6 +181,79 @@ export function extractYamlName(input: string): string | null {
   }
   const name = (parsed as Record<string, unknown>)['name'];
   return typeof name === 'string' ? name : null;
+}
+
+/**
+ * Best-effort extraction of the top-level `user_id:` field (the namespace
+ * owner anchor) from a bundle YAML string. Returns `null` when the input
+ * cannot be parsed, the root is not a mapping, or the `user_id` key is
+ * missing / not a string.
+ *
+ * Powers the advisory owner-or-admin pre-check in
+ * `NamespacePanelComponent.onSaveClick`: the panel compares this owner
+ * against the current user to surface a friendly "you don't own this"
+ * message before the import fires. Returning `null` (unknown ownership)
+ * intentionally defers the decision to the server — the frontend guard is
+ * advisory only and the server's import gate is the real boundary, so a
+ * missing/`null` owner must NOT pre-block a legitimate first-save/create.
+ */
+export function extractYamlUserId(input: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(input);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const userId = (parsed as Record<string, unknown>)['user_id'];
+  return typeof userId === 'string' ? userId : null;
+}
+
+/**
+ * Best-effort extraction of a top-level boolean key from a bundle YAML
+ * string. Shared implementation behind {@link extractYamlShareable} and
+ * {@link extractYamlPublic}. Returns `null` when the input cannot be parsed,
+ * the root is not a mapping, the key is missing, or the value is not a
+ * boolean (a string `"yes"` or a number all yield `null` — only a genuine
+ * YAML boolean is honoured). Mirrors the `extractYamlName` / `extractYamlNamespace`
+ * defer-to-server contract.
+ */
+function extractYamlRootBool(input: string, key: string): boolean | null {
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(input);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const value = (parsed as Record<string, unknown>)[key];
+  return typeof value === 'boolean' ? value : null;
+}
+
+/**
+ * Best-effort extraction of the top-level `shareable:` boolean (the meta
+ * header's cross-namespace referenceability flag) from a bundle YAML string.
+ * Returns `null` when the input cannot be parsed, the root is not a mapping,
+ * the `shareable` key is missing, or the value is not a boolean. Used by the
+ * Clone modal to pre-fill the Shareable toggle from the source bundle.
+ */
+export function extractYamlShareable(input: string): boolean | null {
+  return extractYamlRootBool(input, 'shareable');
+}
+
+/**
+ * Best-effort extraction of the top-level `public:` boolean (the meta
+ * header's listability/cloneability flag) from a bundle YAML string. Returns
+ * `null` when the input cannot be parsed, the root is not a mapping, the
+ * `public` key is missing, or the value is not a boolean. Used by the Clone
+ * modal to pre-fill the Public toggle from the source bundle.
+ */
+export function extractYamlPublic(input: string): boolean | null {
+  return extractYamlRootBool(input, 'public');
 }
 
 const RANDOM_SUFFIX_RE = /_[A-Za-z0-9]{5}$/;

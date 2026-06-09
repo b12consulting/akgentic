@@ -89,6 +89,22 @@
         data-test="clone-btn"
       ></button>
 
+      <!-- Delete. VIEW-MODE ONLY (Story 14.1 / ADR-028 frontend leg). Dark-red
+           destructive action; opens a confirm naming the namespace before
+           issuing DELETE. Disabled while a delete is in flight. -->
+      <button
+        *ngIf="mode === 'view'"
+        pButton
+        type="button"
+        size="small"
+        severity="danger"
+        label="Delete"
+        icon="pi pi-trash"
+        [disabled]="deleting"
+        (click)="onDeleteClick()"
+        data-test="delete-ns-btn"
+      ></button>
+
       <!-- EDIT mode: Validate · Save · Reset · Cancel (in that order) -->
 
       <!-- Validate buffer. Same flash pattern as the view-mode counterpart. -->
@@ -218,6 +234,33 @@
       <small id="clone-dest-ns-hint" class="namespace-panel__clone-hint">
         Technical identifier that uniquely groups all elements of the
         configuration (DB view). Cannot be changed after cloning.
+      </small>
+      <!-- Story 12.2 — Shareable toggle. Controls cross-namespace
+           REFERENCEABILITY (distinct from listing/cloning). -->
+      <label for="clone-shareable-toggle">Shareable</label>
+      <p-toggleswitch
+        [(ngModel)]="cloneShareable"
+        name="cloneShareable"
+        inputId="clone-shareable-toggle"
+        data-test="clone-shareable-toggle"
+        aria-describedby="clone-shareable-hint"
+      ></p-toggleswitch>
+      <small id="clone-shareable-hint" class="namespace-panel__clone-hint">
+        Other namespaces can reference entries in this one (cross-namespace
+        links).
+      </small>
+      <!-- Story 12.2 — Public toggle. Controls LISTABILITY / CLONEABILITY by
+           other users (distinct from referenceability). -->
+      <label for="clone-public-toggle">Public</label>
+      <p-toggleswitch
+        [(ngModel)]="clonePublic"
+        name="clonePublic"
+        inputId="clone-public-toggle"
+        data-test="clone-public-toggle"
+        aria-describedby="clone-public-hint"
+      ></p-toggleswitch>
+      <small id="clone-public-hint" class="namespace-panel__clone-hint">
+        Other users can list, read, and clone this namespace.
       </small>
       <div
         *ngIf="cloneValidationError"

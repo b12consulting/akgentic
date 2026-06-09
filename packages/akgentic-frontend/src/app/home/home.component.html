@@ -17,6 +17,28 @@
       </ng-template>
     </p-select>
     &nbsp;
+    <!--
+      Story 14.4 — admin-only "show all namespaces" toggle (ADR-028 §Decision 9).
+      Admin-gated UX affordance only; NOT the security boundary (the infra
+      unscoping of admin reads is authoritative). `*ngIf="(isAdmin$ | async)"`
+      so non-admins (incl. anonymous, no roles) never see it — hidden, not
+      merely disabled. Default off (firehose is opt-in). Flips
+      `showAllNamespaces` via `onToggleShowAll`, which re-runs the single
+      `loadNamespaces()` path so `?all=true` flows through it.
+    -->
+    <span
+      *ngIf="(isAdmin$ | async)"
+      class="show-all-namespaces"
+    >
+      <p-toggleswitch
+        [ngModel]="showAllNamespaces"
+        (ngModelChange)="onToggleShowAll($event)"
+        data-test="show-all-namespaces-toggle"
+        inputId="show-all-namespaces-toggle"
+      ></p-toggleswitch>
+      <label for="show-all-namespaces-toggle">Show all namespaces</label>
+    </span>
+    &nbsp;
     <button
       pButton
       size="small"
@@ -243,6 +265,7 @@
     <app-namespace-panel
       [namespace]="((selectedNamespace$ | async)?.namespace) ?? ''"
       [existingNamespaces]="namespaceIdentifiers"
+      [showAll]="showAllNamespaces"
       (closed)="namespacePanelVisible = false"
       (saved)="onNamespaceSaved()"
     />

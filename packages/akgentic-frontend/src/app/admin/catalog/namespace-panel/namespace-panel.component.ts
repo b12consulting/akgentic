@@ -20,15 +20,20 @@ import { ButtonModule } from 'primeng/button';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 
 import { NamespaceValidationReport } from '../../../models/catalog.interface';
 import { ApiService } from '../../../services/api.service';
+import { AuthService } from '../../../services/auth.service';
 import { HttpError } from '../../../services/fetch.service';
 import {
   CloneYamlError,
   extractYamlName,
   extractYamlNamespace,
+  extractYamlPublic,
+  extractYamlShareable,
+  extractYamlUserId,
   rewriteNamespaceInYaml,
   suggestDestName,
   suggestDestNamespace,
@@ -76,6 +81,7 @@ import { ValidationReportComponent } from './validation-report/validation-report
     DialogModule,
     InputTextModule,
     NuMonacoEditorModule,
+    ToggleSwitchModule,
     TooltipModule,
     ValidationReportComponent,
   ],
@@ -96,12 +102,24 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
    * Collision-on-race).
    */
   @Input() existingNamespaces: string[] = [];
+  /**
+   * Story 14.4 — admin "show all" context, propagated from the home toggle
+   * (`showAllNamespaces`). When `true`, the panel's entry-read
+   * (`exportNamespace`) carries `?all=true` so an admin can open a
+   * foreign-owned namespace surfaced by the "show all" list. `all=true` is
+   * honoured server-side only for admins (the `/admin/catalog/*` mount
+   * unscopes admin GETs — see ADR-028 §Decision 9); for a non-admin (or when
+   * the host toggle is off) it is the normal owner-scoped read. Default
+   * `false` keeps every existing caller on the unchanged owner-scoped path.
+   */
+  @Input() showAll: boolean = false;
   @Output() closed = new EventEmitter<void>();
   @Output() saved = new EventEmitter<void>();
 
   private apiService: ApiService = inject(ApiService);
   private messageService: MessageService = inject(MessageService);
   private confirmationService: ConfirmationService = inject(ConfirmationService);
+  private authService: AuthService = inject(AuthService);
   private destroyRef: DestroyRef = inject(DestroyRef);
 
   // Internal state — initial values per AC 2.
@@ -178,6 +196,24 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
    */
   cloneDestName: string = '';
   /**
+   * Story 12.2 — Clone visibility/sharing toggles, two-way bound via
+   * `[(ngModel)]` to the modal's `p-toggleswitch` controls. The two flags
+   * are ORTHOGONAL:
+   *   - `cloneShareable` → root `shareable`: other namespaces may reference
+   *     entries in this one cross-namespace (referenceability).
+   *   - `clonePublic`    → root `public`: non-owner users may list, read, and
+   *     clone this namespace (listability/cloneability).
+   *
+   * Both pre-fill from the source buffer on `onCloneClick` and follow the
+   * SAME reset-parity contract as `cloneDestName`: wherever
+   * `cloneDestName = ''` resets on a dismiss/success path, both toggles reset
+   * to `false` alongside it (`onCloneCancelClick`,
+   * `onCloneDialogVisibleChange(false)`, `onCloneDialogHide`, and the 2xx
+   * success branch of `onCloneConfirmClick`).
+   */
+  cloneShareable: boolean = false;
+  clonePublic: boolean = false;
+  /**
    * True while a clone-import request is in flight (AC 8 + AC 14). Gates
    * the Confirm button (defence in depth alongside the pre-flight
    * validation) and the outer Clone button so the operator cannot
@@ -191,6 +227,19 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
    * — re-clicking Clone Confirm is the natural retry path.
    */
   lastCloneError: Error | null = null;
+
+  // -------------------------------------------------------------------
+  // Story 14.1 — Delete-namespace flow (ADR-028 §Decision 5, frontend leg).
+  // -------------------------------------------------------------------
+
+  /**
+   * True while a `deleteNamespace` request is in flight (AC 4). Mirrors the
+   * `cloning` gate: disables the Delete button (`[disabled]="deleting"`) and
+   * makes both `onDeleteClick()` and `onDeleteConfirm()` no-ops, guarding
+   * against double-submit. Cleared in a `finally` block guarded by the
+   * `destroyed` idiom.
+   */
+  deleting: boolean = false;
 
   // -------------------------------------------------------------------
   // Story 11.7 — UX-polish state (FR14 gate, FR16 a11y, FR17 Clone modal,
@@ -426,7 +475,12 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     }
     this.refreshingForEdit = true;
     try {
-      const latestYaml = await this.apiService.exportNamespace(this.namespace);
+      // Story 14.4 — the Edit drift-check re-read must also carry the admin
+      // "show all" flag, else an admin editing a foreign-owned namespace would
+      // hit an owner-scoped read here and fail the drift check.
+      const latestYaml = await this.apiService.exportNamespace(this.namespace, {
+        all: this.showAll,
+      });
       if (this.destroyed) {
         return;
       }
@@ -572,6 +626,27 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
         severity: 'error',
         summary: 'Cannot change namespace on Save',
         detail: `The buffer's namespace is "${bufferNamespace}" but the panel is editing "${this.namespace}". Use Clone to save under a new namespace name.`,
+        sticky: true,
+      });
+      return;
+    }
+
+    // Advisory pre-flight (NOT the security boundary — the infra import gate
+    // is). Mirror the namespace-change guard above: block obviously-doomed
+    // Saves with a clear message instead of letting the server bounce a 403.
+    // This check lives in the browser and can be bypassed (devtools, direct
+    // API call), so it must NEVER be relied upon for enforcement — the
+    // server's owner-or-admin import gate is authoritative. Admin is checked
+    // first; an unresolvable owner (null) falls through to the server.
+    const me = this.authService.currentUserValue;
+    const namespaceOwner = extractYamlUserId(savedBuffer);
+    const isAdmin = me?.roles?.includes('admin') === true;
+    const isOwner = namespaceOwner !== null && namespaceOwner === me?.user_id;
+    if (!isAdmin && !isOwner && namespaceOwner !== null) {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Cannot save changes to this namespace',
+        detail: 'You can only save changes to namespaces you own.',
         sticky: true,
       });
       return;
@@ -819,6 +894,10 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     const srcName = extractYamlName(this.buffer) ?? srcNs;
     this.cloneDestNs = suggestDestNamespace(srcNs);
     this.cloneDestName = suggestDestName(srcName);
+    // Story 12.2 — pre-fill the visibility/sharing toggles from the same
+    // buffer. Absent / non-boolean / unparseable → default to false.
+    this.cloneShareable = extractYamlShareable(this.buffer) ?? false;
+    this.clonePublic = extractYamlPublic(this.buffer) ?? false;
     this.cloneDialogVisible = true;
   }
 
@@ -831,6 +910,8 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     this.cloneDialogVisible = false;
     this.cloneDestNs = '';
     this.cloneDestName = '';
+    this.cloneShareable = false;
+    this.clonePublic = false;
   }
 
   /**
@@ -845,6 +926,8 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     if (!visible) {
       this.cloneDestNs = '';
       this.cloneDestName = '';
+      this.cloneShareable = false;
+      this.clonePublic = false;
     }
   }
 
@@ -990,6 +1073,8 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
   onCloneDialogHide(): void {
     this.cloneDestNs = '';
     this.cloneDestName = '';
+    this.cloneShareable = false;
+    this.clonePublic = false;
     this.cloneInlineError = null;
     setTimeout(() => {
       this.cloneBtnRef?.nativeElement.focus();
@@ -1037,11 +1122,22 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     }
     const destNs = this.cloneDestNs.trim();
     const destName = this.cloneDestName.trim();
+    // Story 12.2 — capture the toggle values once at the top (mirroring the
+    // destNs / destName trim-once capture) so they are stable across the
+    // async boundary. `isPublic` avoids the reserved-ish local name `public`.
+    const shareable = this.cloneShareable;
+    const isPublic = this.clonePublic;
     const sourceYaml = this.buffer;
     this.cloning = true;
     this.lastCloneError = null;
     try {
-      const rewrittenYaml = rewriteNamespaceInYaml(sourceYaml, destNs, destName);
+      const rewrittenYaml = rewriteNamespaceInYaml(
+        sourceYaml,
+        destNs,
+        destName,
+        shareable,
+        isPublic,
+      );
       await this.apiService.importNamespace(rewrittenYaml);
       if (this.destroyed) {
         return;
@@ -1053,6 +1149,8 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
       this.cloneDialogVisible = false;
       this.cloneDestNs = '';
       this.cloneDestName = '';
+      this.cloneShareable = false;
+      this.clonePublic = false;
       this.cloneInlineError = null;
       this.saved.emit();
       this.namespace = destNs;
@@ -1141,6 +1239,125 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     });
   }
 
+  // -------------------------------------------------------------------
+  // Story 14.1 — Delete flow (ADR-028 §Decision 5, frontend leg). The
+  // backend authorizes the request (owner-or-admin); this client only
+  // issues the DELETE and reacts to the status code — no role/ownership
+  // logic lives here (ADR-028 §Decision 6).
+  // -------------------------------------------------------------------
+
+  /**
+   * View-mode Delete handler (AC 3). No-op while a delete is in flight
+   * (defence in depth alongside `[disabled]="deleting"`). Opens the PrimeNG
+   * confirm naming the current namespace; `accept` runs `onDeleteConfirm()`.
+   * No `reject` — cancelling is a no-op (panel unchanged, no network call).
+   */
+  onDeleteClick(): void {
+    if (this.deleting) {
+      return;
+    }
+    this.confirmationService.confirm({
+      header: 'Delete namespace',
+      icon: 'pi pi-trash',
+      message: `Delete namespace "${this.namespace}" and all its entries? This cannot be undone.`,
+      accept: () => {
+        void this.onDeleteConfirm();
+      },
+      // `reject` intentionally omitted — cancelling leaves the panel exactly
+      // as it was and fires no network request (AC 3).
+    });
+  }
+
+  /**
+   * Issues the DELETE and runs the result paths (AC 6–AC 10). No-op while a
+   * delete is in flight. Success (`204`): emit `saved` (host refreshes the
+   * namespace list) AND `closed` (Home dialog dismisses; route-shell ignores
+   * `closed` harmlessly) — Option A, zero host edits. Failure branches
+   * delegate to `handleDeleteError`; in every failure branch `namespace`,
+   * `serverYaml`, `buffer`, and `mode` are unchanged. The `deleting` flag is
+   * always cleared in `finally`, guarded by the `destroyed` idiom.
+   */
+  async onDeleteConfirm(): Promise<void> {
+    if (this.deleting) {
+      return;
+    }
+    this.deleting = true;
+    try {
+      await this.apiService.deleteNamespace(this.namespace);
+      if (this.destroyed) {
+        return;
+      }
+      // Success path mirrors the Clone-success UX (AC 6).
+      this.a11yAnnouncement = `Namespace '${this.namespace}' deleted`;
+      this.saved.emit();
+      this.closed.emit();
+      this.messageService.add({
+        severity: 'success',
+        summary: `Namespace '${this.namespace}' deleted`,
+      });
+    } catch (err) {
+      if (this.destroyed) {
+        return;
+      }
+      this.handleDeleteError(err);
+    } finally {
+      if (!this.destroyed) {
+        this.deleting = false;
+      }
+    }
+  }
+
+  /**
+   * Narrow the caught Delete error (AC 7–AC 9). Branches:
+   *   - `401` → silent return (FetchService already fired the global toast;
+   *     the panel does not mutate `mode` / `buffer` / `serverYaml`).
+   *   - `403` → non-sticky not-authorized toast; panel stays open. NOT
+   *     retried. (Community never returns 403; gated tiers do.)
+   *   - `409` / `422` → inbound-reference blocker. If the body is a
+   *     structured `NamespaceValidationReport`, route it through the findings
+   *     pane (`lastValidation` + `announceValidationOutcome`); otherwise
+   *     surface the raw detail via a non-sticky error toast. Panel stays open.
+   *   - default (other 4xx / 5xx / network) → non-sticky error toast.
+   */
+  private handleDeleteError(err: unknown): void {
+    const status = (err as { status?: number })?.status;
+    if (status === 401) {
+      // Silent — FetchService already fired a global toast.
+      return;
+    }
+    if (status === 403) {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'You are not authorized to delete this namespace',
+      });
+      return;
+    }
+    if (status === 409 || status === 422) {
+      const body = (err as HttpError).body;
+      if (this.isValidationReport(body)) {
+        this.lastValidation = body;
+        this.rawSaveError = null;
+        this.announceValidationOutcome(body);
+        return;
+      }
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Cannot delete namespace',
+        detail:
+          typeof body === 'string'
+            ? body
+            : ((err as Error)?.message ?? String(err)),
+      });
+      return;
+    }
+    // Default: other 4xx / 5xx / network.
+    this.messageService.add({
+      severity: 'error',
+      summary: 'Delete failed',
+      detail: (err as Error)?.message ?? String(err),
+    });
+  }
+
   /** Structural check: does `body` satisfy `NamespaceValidationReport`? */
   private isValidationReport(
     body: unknown,
@@ -1171,7 +1388,12 @@ export class NamespacePanelComponent implements OnInit, OnChanges {
     this.serverYaml = '';
     this.buffer = '';
     try {
-      const yaml = await this.apiService.exportNamespace(namespace);
+      // Story 14.4 — carry the admin "show all" flag so an admin opening a
+      // foreign-owned namespace from the home "show all" list can read it
+      // (the export GET is unscoped server-side for admins when all=true).
+      const yaml = await this.apiService.exportNamespace(namespace, {
+        all: this.showAll,
+      });
       if (this.destroyed || seq !== this.loadSeq) {
         return;
       }

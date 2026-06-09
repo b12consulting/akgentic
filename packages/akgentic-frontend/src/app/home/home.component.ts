@@ -8,7 +8,8 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { BehaviorSubject, firstValueFrom } from 'rxjs';
+import { BehaviorSubject, firstValueFrom, Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 import { ApiService } from '../services/api.service';
 import { TeamContext, isRunning } from '../models/team.interface';
@@ -23,6 +24,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 
 import { AuthService } from '../services/auth.service';
 import { ConfigService } from '../services/config.service';
@@ -47,6 +49,7 @@ import { NamespacePanelComponent } from '../admin/catalog/namespace-panel/namesp
     DialogModule,
     ConfirmDialogModule,
     InputTextModule,
+    ToggleSwitchModule,
     NamespacePanelComponent,
   ],
   // First PrimeNG ConfirmDialog in the HomeComponent — scoped locally for
@@ -79,6 +82,31 @@ export class HomeComponent {
   // component is mounted lazily via @defer in home.component.html so its
   // Monaco-editor dependency is NOT part of the initial home-page chunk.
   namespacePanelVisible: boolean = false;
+
+  // Story 14.4 — admin-only "show all namespaces" toggle (ADR-028 §Decision 9).
+  //
+  // This is an admin-gated UX affordance, NOT the security boundary. The
+  // authoritative "see all" enforcement is the infra unscoping of admin reads
+  // (`?all=true` honoured server-side only when the caller's roles include
+  // `admin`). A non-admin who forges the flag gets the normal owner+public
+  // list back, so the toggle must never be relied upon for enforcement.
+  //
+  // `showAllNamespaces` is the single source of truth read inside
+  // `loadNamespaces()` and forwarded to `getNamespaces`/the panel; it defaults
+  // OFF so even an admin starts on the owner+public list (opt-in, never an
+  // always-on firehose).
+  showAllNamespaces = false;
+
+  // Reactive admin predicate. Derived from `authService.currentUser$` (NOT a
+  // one-shot eager read) because `ngOnInit` fires `checkAuth()` which resolves
+  // `/auth/me` AFTER first render — reading `currentUserValue` once would miss
+  // the late admin resolution. `roles` is read off the verbatim `/auth/me`
+  // body (typed `any`); the optional chain yields `false` for the anonymous
+  // user (no `roles`). Consumed in the template via the `async` pipe so the
+  // toggle appears once the deferred admin user lands.
+  isAdmin$: Observable<boolean> = this.authService.currentUser$.pipe(
+    map((u) => u?.roles?.includes('admin') === true),
+  );
 
   @ViewChildren('descriptionInput') descriptionInputs!: QueryList<ElementRef>;
 
@@ -121,13 +149,35 @@ export class HomeComponent {
    * Load catalog namespaces for the dropdown. Extracted so the 2xx save
    * branch (Story 11.3 AC 6) can re-invoke the same code path without
    * duplicating the error handling.
+   *
+   * Story 14.2 — drop a stale selection / preserve a valid one. After
+   * refreshing the options, reconcile the current selection against the
+   * freshly-fetched list, comparing on the stable `namespace` identifier
+   * (NOT object reference — every fetch returns new objects — and NOT the
+   * display `name`, which two summaries may share). If the current
+   * selection is no longer present (e.g. it was just deleted), re-select
+   * the first remaining namespace, or `null` when the list is empty. If it
+   * is still present, leave the subject untouched to avoid a gratuitous
+   * dropdown flicker on an unrelated refresh. A `null` current selection
+   * is "not present", so a non-empty list still auto-selects `namespaces[0]`
+   * (preserves the Story 1.9 initial-load behavior).
    */
   private async loadNamespaces(): Promise<void> {
     try {
-      const namespaces = await this.apiService.getNamespaces();
+      // Story 14.4 — forward the admin "show all" flag through the single
+      // load path so every caller (initial, save, clone, delete, refresh,
+      // toggle) stays consistent and the Story 14.2 reconciliation below still
+      // runs on every re-fetch. `all=true` is honoured server-side only for
+      // admins; for everyone else it is a no-op (normal owner+public list).
+      const namespaces = await this.apiService.getNamespaces({
+        all: this.showAllNamespaces,
+      });
       this.namespaces$.next(namespaces);
-      if (namespaces.length > 0 && !this.selectedNamespace$.value) {
-        this.selectedNamespace$.next(namespaces[0]);
+      const current = this.selectedNamespace$.value;
+      const stillExists =
+        current != null && namespaces.some((n) => n.namespace === current.namespace);
+      if (!stillExists) {
+        this.selectedNamespace$.next(namespaces.length > 0 ? namespaces[0] : null);
       }
     } catch (error) {
       console.error('Failed to load namespaces:', error);
@@ -296,6 +346,20 @@ export class HomeComponent {
    * fetch logic in one place.
    */
   async onNamespaceSaved(): Promise<void> {
+    await this.loadNamespaces();
+  }
+
+  /**
+   * Story 14.4 — admin "show all namespaces" toggle handler. Flips the
+   * component flag and re-runs the single `loadNamespaces()` path so the
+   * `all` flag flows through it (the toggle never calls `getNamespaces`
+   * directly — that keeps every load path consistent and preserves the
+   * Story 14.2 stale-selection reconciliation on the re-fetch). Turning on
+   * requests `?all=true` (admin firehose); turning off restores the normal
+   * owner+public list.
+   */
+  async onToggleShowAll(value: boolean): Promise<void> {
+    this.showAllNamespaces = value;
     await this.loadNamespaces();
   }
 

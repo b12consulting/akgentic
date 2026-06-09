@@ -4,6 +4,9 @@ import {
   CloneYamlError,
   extractYamlName,
   extractYamlNamespace,
+  extractYamlPublic,
+  extractYamlShareable,
+  extractYamlUserId,
   rewriteNamespaceInYaml,
   suggestDestName,
   suggestDestNamespace,
@@ -216,6 +219,34 @@ describe('extractYamlNamespace', () => {
   });
 });
 
+describe('extractYamlUserId', () => {
+  it('returns the top-level user_id string on a well-formed bundle', () => {
+    const input = 'namespace: foo\nuser_id: alice\nentries: {}\n';
+    expect(extractYamlUserId(input)).toBe('alice');
+  });
+
+  it('returns null on malformed YAML (defers to the server)', () => {
+    const malformed = 'namespace: foo\nentries: [\n  unclosed\n';
+    expect(extractYamlUserId(malformed)).toBeNull();
+  });
+
+  it('returns null when the root is not a mapping', () => {
+    expect(extractYamlUserId('- 1\n- 2\n')).toBeNull();
+  });
+
+  it('returns null when the mapping has no user_id key', () => {
+    expect(extractYamlUserId('namespace: foo\nentries: {}\n')).toBeNull();
+  });
+
+  it('returns null when user_id is null (unknown ownership)', () => {
+    expect(extractYamlUserId('namespace: foo\nuser_id: null\nentries: {}\n')).toBeNull();
+  });
+
+  it('returns null when user_id is not a string (e.g. a number)', () => {
+    expect(extractYamlUserId('namespace: foo\nuser_id: 42\nentries: {}\n')).toBeNull();
+  });
+});
+
 describe('rewriteNamespaceInYaml — destName parameter', () => {
   it('rewrites root `name` when destName is provided', () => {
     const input = 'namespace: src\nname: Source Display\nentries: {}\n';
@@ -312,5 +343,153 @@ describe('suggestDestName', () => {
 
   it('handles the empty source name', () => {
     expect(suggestDestName('')).toBe('_copy');
+  });
+});
+
+// ---------------------------------------------------------------------
+// Story 12.2 — shareable / public extractors + flag-write parameters.
+// ---------------------------------------------------------------------
+
+describe('extractYamlShareable', () => {
+  it('returns true when root shareable is the boolean true', () => {
+    expect(
+      extractYamlShareable('namespace: foo\nshareable: true\nentries: {}\n'),
+    ).toBe(true);
+  });
+
+  it('returns false when root shareable is the boolean false', () => {
+    expect(
+      extractYamlShareable('namespace: foo\nshareable: false\nentries: {}\n'),
+    ).toBe(false);
+  });
+
+  it('returns null when the shareable key is absent', () => {
+    expect(extractYamlShareable('namespace: foo\nentries: {}\n')).toBeNull();
+  });
+
+  it('returns null when shareable is not a boolean (string "yes")', () => {
+    expect(
+      extractYamlShareable('namespace: foo\nshareable: "yes"\nentries: {}\n'),
+    ).toBeNull();
+  });
+
+  it('returns null when shareable is not a boolean (a number)', () => {
+    expect(
+      extractYamlShareable('namespace: foo\nshareable: 1\nentries: {}\n'),
+    ).toBeNull();
+  });
+
+  it('returns null on malformed YAML', () => {
+    expect(
+      extractYamlShareable('namespace: foo\nentries: [\n  unclosed\n'),
+    ).toBeNull();
+  });
+
+  it('returns null when the root is a sequence, not a mapping', () => {
+    expect(extractYamlShareable('- 1\n- 2\n')).toBeNull();
+  });
+});
+
+describe('extractYamlPublic', () => {
+  it('returns true when root public is the boolean true', () => {
+    expect(
+      extractYamlPublic('namespace: foo\npublic: true\nentries: {}\n'),
+    ).toBe(true);
+  });
+
+  it('returns false when root public is the boolean false', () => {
+    expect(
+      extractYamlPublic('namespace: foo\npublic: false\nentries: {}\n'),
+    ).toBe(false);
+  });
+
+  it('returns null when the public key is absent', () => {
+    expect(extractYamlPublic('namespace: foo\nentries: {}\n')).toBeNull();
+  });
+
+  it('returns null when public is not a boolean (string "yes")', () => {
+    expect(
+      extractYamlPublic('namespace: foo\npublic: "yes"\nentries: {}\n'),
+    ).toBeNull();
+  });
+
+  it('returns null when public is not a boolean (a number)', () => {
+    expect(
+      extractYamlPublic('namespace: foo\npublic: 0\nentries: {}\n'),
+    ).toBeNull();
+  });
+
+  it('returns null on malformed YAML', () => {
+    expect(
+      extractYamlPublic('namespace: foo\nentries: [\n  unclosed\n'),
+    ).toBeNull();
+  });
+
+  it('returns null when the root is a sequence, not a mapping', () => {
+    expect(extractYamlPublic('- 1\n- 2\n')).toBeNull();
+  });
+});
+
+describe('rewriteNamespaceInYaml — shareable/public parameters', () => {
+  // AC #3 — writes both flags when provided; destName behaviour unchanged.
+  it('writes root shareable=true and public=false when both args are provided', () => {
+    const out = rewriteNamespaceInYaml(
+      'namespace: src\nname: Source\nentries: {}\n',
+      'dst',
+      'Dest',
+      true,
+      false,
+    );
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['shareable']).toBe(true);
+    expect(parsed['public']).toBe(false);
+    expect(parsed['namespace']).toBe('dst');
+    expect(parsed['name']).toBe('Dest');
+  });
+
+  // AC #4 — the critical case: explicit false overwrites a source true for
+  // BOTH flags. A dropped false would silently inherit the source value.
+  it('writes an explicit false for BOTH flags, overwriting a source true', () => {
+    const source =
+      'namespace: src\nshareable: true\npublic: true\nentries: {}\n';
+    const out = rewriteNamespaceInYaml(source, 'dst', undefined, false, false);
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['shareable']).toBe(false);
+    expect(parsed['public']).toBe(false);
+  });
+
+  // AC #5 — omitting BOTH flag args leaves both keys untouched.
+  it('leaves both keys untouched when neither flag arg is passed', () => {
+    const source =
+      'namespace: src\nshareable: true\npublic: true\nentries: {}\n';
+    const out = rewriteNamespaceInYaml(source, 'dst');
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['shareable']).toBe(true);
+    expect(parsed['public']).toBe(true);
+  });
+
+  // AC #5 — the two flags are independent: setting shareable=false (4th arg)
+  // while omitting the 5th leaves public untouched.
+  it('treats the two flags independently — 4th arg false, 5th omitted', () => {
+    const source =
+      'namespace: src\nshareable: true\npublic: true\nentries: {}\n';
+    const out = rewriteNamespaceInYaml(source, 'dst', undefined, false);
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['shareable']).toBe(false);
+    expect(parsed['public']).toBe(true);
+  });
+
+  // AC #6 — key-add when the source lacks the keys.
+  it('adds both keys when the source bundle lacks them', () => {
+    const out = rewriteNamespaceInYaml(
+      'namespace: src\nentries: {}\n',
+      'dst',
+      undefined,
+      true,
+      true,
+    );
+    const parsed = yaml.load(out) as Record<string, unknown>;
+    expect(parsed['shareable']).toBe(true);
+    expect(parsed['public']).toBe(true);
   });
 });

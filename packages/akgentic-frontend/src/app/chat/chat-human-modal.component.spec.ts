@@ -190,6 +190,56 @@ describe('ChatHumanModalComponent', () => {
     });
   });
 
+  describe('inner message id (ADR-027 Decision 2)', () => {
+    it('emits the INNER message_id, not the outer id, when they differ', () => {
+      const msg = makeChatMessage({ id: 'outer-1', message_id: 'inner-1' });
+      fixture.componentRef.setInput('visible', true);
+      fixture.componentRef.setInput('pendingMessages', [msg]);
+      fixture.detectChanges();
+
+      const emitted: HumanModalReply[] = [];
+      component.reply.subscribe((r: HumanModalReply) => emitted.push(r));
+
+      // Template binds the inner id; buffer is keyed by message_id.
+      component.replyBuffers.set('inner-1', 'inner reply');
+      component.onSendForRequest('inner-1');
+
+      expect(emitted.length).toBe(1);
+      expect(emitted[0].messageId).toBe('inner-1');
+      expect(emitted[0].messageId).not.toBe('outer-1');
+    });
+
+    it('clicking the rendered Send button emits the inner message_id', () => {
+      const msg = makeChatMessage({ id: 'outer-1', message_id: 'inner-1' });
+      fixture.componentRef.setInput('visible', true);
+      fixture.componentRef.setInput('pendingMessages', [msg]);
+      fixture.detectChanges();
+
+      const emitted: HumanModalReply[] = [];
+      component.reply.subscribe((r: HumanModalReply) => emitted.push(r));
+
+      // Type into the textarea via the inner-id-keyed buffer, then click Send.
+      component.setReplyBuffer('inner-1', 'typed via DOM');
+      fixture.detectChanges();
+
+      const sendButton = document.querySelector(
+        '.pending-request .reply-actions button',
+      ) as HTMLButtonElement | null;
+      expect(sendButton).toBeTruthy();
+      sendButton!.click();
+
+      expect(emitted.length).toBe(1);
+      expect(emitted[0].content).toBe('typed via DOM');
+      expect(emitted[0].messageId).toBe('inner-1');
+      expect(emitted[0].messageId).not.toBe('outer-1');
+    });
+
+    it('trackByRequestId returns the inner message_id', () => {
+      const msg = makeChatMessage({ id: 'outer-1', message_id: 'inner-1' });
+      expect(component.trackByRequestId(0, msg)).toBe('inner-1');
+    });
+  });
+
   describe('DOM rendering', () => {
     it('renders one .pending-request per pending message', () => {
       fixture.componentRef.setInput('visible', true);
