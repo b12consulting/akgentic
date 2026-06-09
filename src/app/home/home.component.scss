@@ -4,6 +4,13 @@
     padding: 1rem;
 }
 
+.show-all-namespaces {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    vertical-align: middle;
+}
+
 .team-info {
     display: flex;
     flex-direction: column;

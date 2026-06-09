@@ -50,18 +50,18 @@
           pTextarea
           style="width: 100%; min-height: 80px; max-height: 200px"
           [autoResize]="true"
-          [ngModel]="getReplyBuffer(msg.id)"
-          (ngModelChange)="setReplyBuffer(msg.id, $event)"
+          [ngModel]="getReplyBuffer(msg.message_id)"
+          (ngModelChange)="setReplyBuffer(msg.message_id, $event)"
           placeholder="Type your reply..."
-          (keydown.meta.enter)="onSendForRequest(msg.id)"
-          (keydown.control.enter)="onSendForRequest(msg.id)"
+          (keydown.meta.enter)="onSendForRequest(msg.message_id)"
+          (keydown.control.enter)="onSendForRequest(msg.message_id)"
         ></textarea>
         <div class="reply-actions">
           <p-button
             label="Send"
             size="small"
-            [disabled]="!getReplyBuffer(msg.id).trim()"
-            (click)="onSendForRequest(msg.id)"
+            [disabled]="!getReplyBuffer(msg.message_id).trim()"
+            (click)="onSendForRequest(msg.message_id)"
           />
         </div>
       </div>

@@ -17,6 +17,7 @@ import { ButtonModule } from 'primeng/button';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 
 import {
@@ -139,6 +140,7 @@ describe('NamespacePanelRouteComponent (Story 11.6)', () => {
             ConfirmDialogModule,
             DialogModule,
             InputTextModule,
+            ToggleSwitchModule,
             TooltipModule,
             StubMonacoEditorComponent,
             ValidationReportComponent,

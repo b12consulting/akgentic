@@ -48,7 +48,8 @@ export class ChatHumanModalComponent {
   @Output() visibleChange = new EventEmitter<boolean>();
   @Output() reply = new EventEmitter<HumanModalReply>();
 
-  /** Per-request reply buffer, keyed on `request.id`. */
+  /** Per-request reply buffer, keyed on the inner `request.message_id`
+   *  (ADR-027 Decision 2) — the id the backend resolves human-input by. */
   replyBuffers: Map<string, string> = new Map();
 
   get headerText(): string {
@@ -83,7 +84,9 @@ export class ChatHumanModalComponent {
   }
 
   trackByRequestId(_index: number, msg: ChatMessage): string {
-    return msg.id;
+    // Reply key is the INNER message id (ADR-027 Decision 2): the backend
+    // resolves human-input by ChatMessage.message_id, not the outer envelope id.
+    return msg.message_id;
   }
 
   trackByAnsweredId(_index: number, a: AnsweredRequest): string {
