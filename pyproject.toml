@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-infra"
-version = "1.3.1"
+version = "1.4.0"
 description = "Infrastructure backend: protocol abstractions and community-tier implementations for akgentic"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -36,6 +36,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.3.0",
     "mypy>=1.8.0",
     "ruff>=0.1.0",
     "python-dotenv>=1.0.0",
@@ -86,7 +87,11 @@ markers = [
     "smoke: End-to-end smoke tests using TestModel (no API key required)",
     "e2e: Real end-to-end tests requiring a running server and OPENAI_API_KEY",
 ]
-addopts = "-m 'not integration' --cov=akgentic.infra --cov-branch"
+# --timeout is a deadlock backstop, not a latency budget: a true hang waits
+# forever, so a generous bound catches it while leaving headroom for real-LLM
+# integration/e2e turns (a single poll can take ~60s). --timeout-method=thread
+# dumps every thread's stack when it fires, pinpointing the wedge.
+addopts = "-m 'not integration' --cov=akgentic.infra --cov-branch --timeout=300 --timeout-method=thread"
 filterwarnings = ["ignore:No logs or spans:UserWarning"]
 
 [tool.coverage.report]

@@ -8,7 +8,6 @@ import uuid
 from pathlib import Path
 
 from akgentic.catalog.models.errors import CatalogValidationError, EntryNotFoundError
-from akgentic.core.messages.message import Message
 from akgentic.core.messages.orchestrator import SentMessage
 from akgentic.infra.protocols.event_stream import EventStream
 from akgentic.infra.protocols.runtime_cache import RuntimeCache
@@ -220,12 +219,10 @@ class TeamService:
             ValueError: If team not found, not running, or message not found.
         """
         handle = self._get_running_handle(team_id)
+        # _find_message resolves by inner id and returns only SentMessage, so
+        # event.message is the inner Message to route (ADR-027 §Decision 1).
         event = self._find_message(team_id, message_id)
-        if not isinstance(event, SentMessage):
-            msg = f"Message {message_id} is a {type(event).__name__}, expected SentMessage"
-            raise ValueError(msg)
-        inner = event.message
-        handle.process_human_input(content, inner)
+        handle.process_human_input(content, event.message)
         logger.debug("Human input routed to team %s, message_id=%s", team_id, message_id)
 
     def stop_team(self, team_id: uuid.UUID) -> None:
@@ -325,15 +322,21 @@ class TeamService:
             raise ValueError(msg)
         return handle
 
-    def _find_message(self, team_id: uuid.UUID, message_id: str) -> Message:
-        """Find a message by ID in persisted events.
+    def _find_message(self, team_id: uuid.UUID, message_id: str) -> SentMessage:
+        """Find a SentMessage by its inner ``message.id`` in persisted events.
+
+        Mirrors the worker route's ``_find_message``: resolution is by the
+        **inner** ``SentMessage.message.id`` — the id every distributed tier
+        puts on the wire — not the outer envelope ``SentMessage.id``
+        (ADR-027 §Decision 1).
 
         Raises:
-            ValueError: If message not found.
+            ValueError: If no matching SentMessage is found. The ``not found``
+                substring is load-bearing for the 404 mapping.
         """
         events = self._services.event_store.load_events(team_id)
         for ev in events:
-            if str(ev.event.id) == message_id:
+            if isinstance(ev.event, SentMessage) and str(ev.event.message.id) == message_id:
                 return ev.event
         msg = f"Message {message_id} not found"
         raise ValueError(msg)

@@ -12,7 +12,6 @@ from typing import NoReturn, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from akgentic.core.messages.message import Message
 from akgentic.core.messages.orchestrator import SentMessage
 from akgentic.infra.server.models import HumanInputRequest, SendMessageRequest, TeamResponse
 from akgentic.infra.worker.deps import WorkerServices
@@ -161,15 +160,22 @@ def send_message_from_to(
 
 def _find_message(
     event_store: EventStore, team_id: uuid.UUID, message_id: str
-) -> Message:
-    """Find a message by ID in persisted events.
+) -> SentMessage:
+    """Find a SentMessage by its inner ``message.id`` in persisted events.
+
+    Resolution is by the **inner** ``SentMessage.message.id`` — the id a
+    reply's ``parent_id`` references and the id every distributed tier
+    (``HttpTeamHandle``, ``RemoteTeamHandle``) puts on the wire — not the
+    outer event-envelope ``SentMessage.id`` (ADR-027 §Decision 1).
 
     Raises:
-        ValueError: If message not found.
+        ValueError: If no matching SentMessage is found. The ``not found``
+            substring is load-bearing: ``_raise_action_error`` maps it to
+            HTTP 404.
     """
     events = event_store.load_events(team_id)
     for ev in events:
-        if str(ev.event.id) == message_id:
+        if isinstance(ev.event, SentMessage) and str(ev.event.message.id) == message_id:
             return ev.event
     msg = f"Message {message_id} not found"
     raise ValueError(msg)
@@ -187,12 +193,10 @@ def human_input(
     if handle is None:
         raise HTTPException(status_code=404, detail="Team not found in worker cache")
     try:
+        # _find_message resolves by inner id and returns only SentMessage, so
+        # event.message is the inner Message to route (ADR-027 §Decision 1).
         event = _find_message(services.event_store, team_id, body.message_id)
-        if not isinstance(event, SentMessage):
-            msg = f"Message {body.message_id} is a {type(event).__name__}, expected SentMessage"
-            raise ValueError(msg)
-        inner = event.message
-        handle.process_human_input(body.content, inner)
+        handle.process_human_input(body.content, event.message)
     except ValueError as exc:
         _raise_action_error(exc)
 
