@@ -23,6 +23,7 @@ from akgentic.core.actor_address_impl import ActorAddressImpl
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.messages.message import Message
+from akgentic.core.orchestrator import STOP_TIMEOUT
 from akgentic.core.utils.deserializer import import_class
 
 # Logger for agent operations
@@ -239,30 +240,44 @@ class ActorSystem(ExecutionContext):
 
         This method:
         1. Stops the execution context listener
-        2. Stops all orchestrators in parallel
-        3. Cleans up any remaining actors
+        2. Initiates a non-blocking stop on every orchestrator (the ``timeout``
+           becomes each orchestrator's grace period), then waits on each
+           orchestrator's completion event (ADR-012 §6/shutdown).
+        3. Cleans up any remaining actors as a last-resort force-kill
+
+        Because the per-orchestrator backstops run concurrently, total shutdown
+        stays bounded by ~``timeout`` even if a child wedges — and the former
+        deadlock no longer degrades to a 120 s stall.
 
         Args:
             timeout: Maximum time in seconds to wait for shutdown. Defaults to 120.
         """
         super().shutdown(timeout=timeout)
 
-        # Start all stops in parallel (non-blocking)
-        stop_futures = [actor.proxy().stop() for actor in self.orchestrators]
-
-        # Wait for all stops to complete
-        for future in stop_futures:
+        # Issue the non-blocking stop on every orchestrator FIRST (so the
+        # backstops run concurrently), collecting each completion event.
+        grace = float(timeout) if timeout is not None else STOP_TIMEOUT
+        stop_events: list[Any] = []
+        for actor in self.orchestrators:
             try:
-                future.get(timeout=timeout)
+                stop_events.append(actor.proxy().stop(grace).get(timeout=timeout))
             except pykka.Timeout:
-                logger.warning("Warning: Timeout while stopping an actor.")
-            except Exception as e:
-                logger.error(f"Error: Failed to stop actor: {e}")
+                logger.warning("Warning: Timeout while initiating an orchestrator stop.")
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Error: Failed to initiate orchestrator stop: {e}")
+
+        # Then wait on each event with NO timeout — the backstop guarantees each
+        # is set within ~grace, so this cannot hang.
+        for event in stop_events:
+            try:
+                event.wait()
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Error: Failed to wait on orchestrator stop event: {e}")
 
         # Pykka's proxy().stop() future resolves when the stop() method returns,
-        # NOT when the actor is fully deregistered. Internally, stop() sends 
+        # NOT when the actor is fully deregistered. Internally, stop() sends
         # (fire-and-forget) a _ActorStop() messages to the actor's own mailbox.
-        # The actor thread must still process that message, run on_stop(), and 
+        # The actor thread must still process that message, run on_stop(), and
         # deregister from ActorRegistry. Without this pause, get_all() below may see
         # actors that have accepted the stop request but haven't finished processing it yet.
         sleep(0.2)

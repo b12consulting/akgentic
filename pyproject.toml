@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-core"
-version = "1.3.0"
+version = "1.3.1"
 description = "Actor framework for building agent-based systems"
 readme = "README.md"
 authors = [
@@ -17,6 +17,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.4.0",
     "mypy>=1.8.0",
     "ruff>=0.1.0",
 ]
@@ -32,6 +33,12 @@ packages = ["src/akgentic"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# --timeout is a deadlock backstop, not a latency budget. The actor stop/teardown
+# paths can wedge on a regression (a blocking ask on the actor thread waits forever);
+# a finite per-test bound turns a true hang into a fast failure instead of a frozen
+# suite. core is a pure-unit, no-LLM suite so the bound is generous purely as headroom.
+# --timeout-method=thread dumps every thread's stack when it fires, pinpointing the wedge.
+addopts = "--timeout=300 --timeout-method=thread"
 
 [tool.coverage.run]
 source = ["src/akgentic"]

@@ -129,17 +129,19 @@ class TestActorAddressImpl:
         config.role = "assistant"
         config.squad_id = uuid.UUID("11111111-2222-3333-4444-555555555555")
 
-        # Create actor with flat public attributes (post-7-1 rename)
-        actor = MagicMock()
+        # Create a real actor instance so ``type(actor)`` (ADR-013 §1 caches the
+        # actor type at construction) resolves to the intended agent class for the
+        # serialize ``__actor_type__`` check.
+        mock_agent_cls = type(
+            "MockAgent", (), {"__module__": "test.agents"}
+        )
+        actor = mock_agent_cls()
+        # Flat public attributes (post-7-1 rename)
         actor.agent_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
         actor.config = config
         actor.team_id = uuid.UUID("87654321-4321-8765-4321-876543218765")
         # Add receiveMsg_UserMessage method for handle_user_message check
         actor.receiveMsg_UserMessage = MagicMock()
-        # Set __class__ for serialize test
-        actor.__class__ = type(
-            "MockAgent", (), {"__module__": "test.agents", "__name__": "MockAgent"}
-        )
 
         actor_ref = MagicMock()
         # pykka 4.4.2+: _actor_weakref() returns the actor (callable, not attribute)
@@ -188,8 +190,10 @@ class TestActorAddressImpl:
         """handle_user_message should return False when receiveMsg_UserMessage is absent."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
-        # Use spec to prevent MagicMock from auto-creating receiveMsg_UserMessage
-        limited_actor = MagicMock(spec=["agent_id", "config"])
+        # Use spec to prevent MagicMock from auto-creating receiveMsg_UserMessage,
+        # while keeping every metadata attribute the constructor snapshots so the
+        # cache captures cleanly and only the user-message flag resolves to False.
+        limited_actor = MagicMock(spec=["agent_id", "config", "team_id"])
         mock_actor_ref._actor_weakref = lambda: limited_actor
 
         impl = ActorAddressImpl(mock_actor_ref)
@@ -213,17 +217,32 @@ class TestActorAddressImpl:
         assert serialized["squad_id"] == str(actor.config.squad_id)
         assert serialized["user_message"] is True
 
-    def test_resolve_actor_raises_on_gc(self, mock_actor_ref: MagicMock) -> None:
-        """_resolve_actor raises RuntimeError containing the actor URN when weakref returns None."""
+    def test_dead_ref_at_construction_leaves_safe_snapshot(
+        self, mock_actor_ref: MagicMock
+    ) -> None:
+        """An already-dead ref at construction yields a safe snapshot, never raises.
+
+        Snapshot semantics (ADR-013): metadata is captured at construction. If the
+        weakref is already None when the address is built (rare), the accessors
+        return the safe defaults (None/False) instead of raising RuntimeError.
+        """
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
-        # Simulate GC'd actor: weakref returns None
+        # Simulate a ref whose actor is already gone at construction time.
         mock_actor_ref._actor_weakref = lambda: None
         mock_actor_ref.actor_urn = "urn:mock:gc-actor"
 
         impl = ActorAddressImpl(mock_actor_ref)
-        with pytest.raises(RuntimeError, match="urn:mock:gc-actor"):
-            _ = impl.agent_id
+        # No RuntimeError on any read — everything falls back to the safe snapshot.
+        assert impl.agent_id is None
+        assert impl.name is None
+        assert impl.role is None
+        assert impl.team_id is None
+        assert impl.squad_id is None
+        assert impl.handle_user_message() is False
+        serialized = impl.serialize()
+        assert serialized["__actor_type__"] == ""
+        assert serialized["agent_id"] == ""
 
     def test_equality_and_hashing(self, mock_actor_ref: MagicMock) -> None:
         """Equality and hash should be based on agent_id."""
@@ -233,3 +252,102 @@ class TestActorAddressImpl:
         impl2 = ActorAddressImpl(mock_actor_ref)
         assert impl1 == impl2
         assert hash(impl1) == hash(impl2)
+
+    def test_metadata_reflects_construction_snapshot(self, mock_actor_ref: MagicMock) -> None:
+        """Metadata is a snapshot captured at construction, not a live view (ADR-013).
+
+        An address built earlier keeps the values it captured even after the
+        underlying actor's config is mutated. This documents the
+        snapshot-not-live semantics: reads never re-resolve the actor.
+        """
+        from akgentic.core.actor_address_impl import ActorAddressImpl
+
+        actor = mock_actor_ref._actor_weakref()
+        impl = ActorAddressImpl(mock_actor_ref)
+        captured_name = impl.name
+        captured_role = impl.role
+
+        # Mutate the live actor's config AFTER the address was built.
+        actor.config.name = "renamed-agent"
+        actor.config.role = "renamed-role"
+
+        # The address keeps its construction-time snapshot — it does not track
+        # later mutations.
+        assert impl.name == captured_name == "mock-agent"
+        assert impl.role == captured_role == "assistant"
+
+
+class TestActorAddressImplResilientAfterGC:
+    """ActorAddressImpl reads survive a real actor being stopped and GC-collected.
+
+    Uses real ``akgentic-core`` actors (no mocks) so the Pykka 4.4.2+ weakref is
+    genuinely cleared by ``gc.collect()`` after the actor stops. All assertions
+    are behaviour-only (Golden Rule #8).
+    """
+
+    @staticmethod
+    def _build_dead_address() -> "ActorAddressImpl":  # type: ignore[name-defined]  # noqa: F821
+        """Create an actor, capture its address, then stop + GC the actor.
+
+        Returns an ``ActorAddressImpl`` whose underlying actor has been collected
+        (its weakref now resolves to None), plus the metadata captured before
+        teardown is verified by the caller via the returned address only.
+        """
+        import gc
+
+        from akgentic.core.actor_address_impl import ActorAddressImpl
+        from akgentic.core.actor_system_impl import ActorSystem
+        from akgentic.core.agent import Akgent
+        from akgentic.core.agent_config import BaseConfig
+
+        squad = uuid.uuid4()
+        system = ActorSystem()
+        address = system.createActor(
+            Akgent,
+            config=BaseConfig(name="gc-agent", role="worker", squad_id=squad),
+        )
+        assert isinstance(address, ActorAddressImpl)
+
+        # Stop the actor and drop every strong reference, then force collection so
+        # the ActorRef's weakref resolves to None.
+        system.proxy_ask(address, Akgent).stop()
+        system.shutdown()
+        gc.collect()
+        return address
+
+    def test_metadata_survives_actor_gc(self) -> None:
+        """All metadata accessors return captured values after stop + GC (no raise)."""
+        address = self._build_dead_address()
+        assert address.name == "gc-agent"
+        assert address.role == "worker"
+        assert isinstance(address.agent_id, uuid.UUID)
+        assert isinstance(address.team_id, uuid.UUID)
+        assert isinstance(address.squad_id, uuid.UUID)
+        # Base Akgent has no receiveMsg_UserMessage handler.
+        assert address.handle_user_message() is False
+
+    def test_serialize_survives_actor_gc(self) -> None:
+        """serialize() returns the full dict after stop + GC (the §3.1 serialize case)."""
+        address = self._build_dead_address()
+        serialized = address.serialize()
+        assert serialized["__actor_address__"] is True
+        assert serialized["__actor_type__"].endswith(".Akgent")
+        assert serialized["name"] == "gc-agent"
+        assert serialized["role"] == "worker"
+        assert serialized["agent_id"] != ""
+        assert serialized["team_id"] != ""
+        assert serialized["squad_id"] != ""
+        assert serialized["user_message"] is False
+
+    def test_is_alive_false_after_gc(self) -> None:
+        """is_alive() returns False (not raises) after stop + GC."""
+        address = self._build_dead_address()
+        assert address.is_alive() is False
+
+    def test_eq_hash_survive_gc(self) -> None:
+        """__eq__ / __hash__ keep working after stop + GC (cached agent_id)."""
+        address = self._build_dead_address()
+        # Self-equality and hashability both rely on the cached agent_id.
+        assert address == address
+        assert hash(address) == hash(address.agent_id)
+        assert len({address, address}) == 1
