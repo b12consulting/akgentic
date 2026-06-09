@@ -59,6 +59,7 @@ class WorkspaceRead(BaseToolParam):
     expose: set[Channels] = {TOOL_CALL}
     default_limit: int = 2000
     force_document_regeneration: bool = False
+    document_reader: DocumentReader | bool = True
 
 
 class WorkspaceList(BaseToolParam):
@@ -410,7 +411,9 @@ class WorkspaceTool(ToolCard):
     ``read_only=False`` also exposes write-side tools (write, delete, edit,
     multi_edit, patch, mkdir).
 
-    ``document_reader`` controls binary file extraction:
+    Binary-extraction config lives on the nested :class:`WorkspaceRead` capability
+    (``workspace_read=WorkspaceRead(document_reader=...)``), co-located with the read
+    capability that uses it. ``WorkspaceRead.document_reader`` controls extraction:
     - ``True`` (default): uses a default ``DocumentReader()`` (Pass 1 only, no LLM).
     - ``False``: binary reads raise ``ValueError`` with install hint.
     - ``DocumentReader(...)`` instance: custom extraction config (e.g. with LLM).
@@ -423,7 +426,6 @@ class WorkspaceTool(ToolCard):
     workspace_list: WorkspaceList | bool = True
     workspace_glob: WorkspaceGlob | bool = True
     workspace_grep: WorkspaceGrep | bool = True
-    document_reader: DocumentReader | bool = True
     expand_media_refs: ExpandMediaRefs | bool = True
 
     # Read-only gate (NEW)
@@ -630,7 +632,7 @@ class WorkspaceTool(ToolCard):
             Callable that reads a workspace file with pagination.
         """
         backend = self.workspace
-        _dr_cfg = self.document_reader
+        _dr_cfg = params.document_reader
         if _dr_cfg is True:
             document_reader: DocumentReader | None = DocumentReader()
         elif _dr_cfg is False:
