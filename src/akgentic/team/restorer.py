@@ -20,7 +20,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StopMessage,
 )
-from akgentic.core.orchestrator import EventSubscriber, Orchestrator
+from akgentic.core.orchestrator import STOP_TIMEOUT, EventSubscriber, Orchestrator
 from akgentic.core.utils.deserializer import import_class
 from akgentic.team.models import (
     AgentStateSnapshot,
@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 # Role string used by ToolActor agents (PlanningTool, KnowledgeGraphTool, Sandbox).
 # Duplicated here because akgentic-team MUST NOT import from akgentic-tool.
 _TOOL_ACTOR_ROLE = "ToolActor"
+
+# Grace period passed into the non-blocking ``Orchestrator.stop(grace_timeout)``
+# on the rollback path (ADR-19 §3). Defaulted to core's ``STOP_TIMEOUT``; the
+# returned event is ``.wait()``-ed with no caller-side timeout because core's
+# backstop guarantees it is set within ~this many seconds.
+GRACE_TIMEOUT_SECONDS = STOP_TIMEOUT
 
 
 @dataclass
@@ -134,10 +140,22 @@ class TeamRestorer:
             return runtime
 
         except Exception:
-            # Rollback: stop all spawned actors in reverse order via proxy API
+            # Rollback: stop all spawned actors in reverse order via proxy API.
+            # The orchestrator (created first, so ``spawned_addrs[0]``) is stopped
+            # last and uses the non-blocking ``Orchestrator.stop(grace).wait()``
+            # (akgentic-core ADR-012) so rollback does not return while a live
+            # orchestrator (subscribers attached, event stream open) lingers;
+            # agent entries keep the unchanged blocking ``Akgent.stop()``
+            # (ADR-19 §3).
+            orchestrator_addr = spawned_addrs[0] if spawned_addrs else None
             for addr in reversed(spawned_addrs):
                 try:
-                    self._actor_system.proxy_ask(addr, Akgent).stop()
+                    if addr == orchestrator_addr:
+                        self._actor_system.proxy_ask(addr, Orchestrator).stop(
+                            GRACE_TIMEOUT_SECONDS
+                        ).wait()
+                    else:
+                        self._actor_system.proxy_ask(addr, Akgent).stop()
                 except Exception:
                     logger.warning("Failed to stop actor during rollback: %s", addr)
             raise

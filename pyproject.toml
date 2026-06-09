@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-team"
-version = "1.3.0"
+version = "1.3.1"
 description = "Team lifecycle management — create, resume, stop, delete teams with event-sourced persistence"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,6 +23,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.4.0",
     "mypy>=1.8.0",
     "ruff>=0.1.0",
     "mongomock>=4.0.0",
@@ -67,7 +68,11 @@ markers = ["integration: Full lifecycle tests requiring real LLM and API keys"]
 # --ignore: integration tests import akgentic.agent (not a dependency of
 # akgentic-team); skip collecting them so the import does not error before the
 # 'not integration' marker filter is applied.
-addopts = "-m 'not integration' --ignore=tests/integration"
+# --timeout is a deadlock backstop, not a latency budget: the team stop/teardown
+# paths now wait on the orchestrator's stop event; a regression that blocks the
+# actor thread would hang forever, so a finite per-test bound fails it fast.
+# --timeout-method=thread dumps every thread's stack when it fires.
+addopts = "-m 'not integration' --ignore=tests/integration --timeout=300 --timeout-method=thread"
 
 [tool.ruff]
 target-version = "py312"

@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 from akgentic.core.actor_system_impl import ActorSystem
-from akgentic.core.orchestrator import EventSubscriber, Orchestrator
+from akgentic.core.orchestrator import STOP_TIMEOUT, EventSubscriber, Orchestrator
 from akgentic.team.factory import TeamFactory
 from akgentic.team.models import Process, TeamCard, TeamRuntime, TeamStatus
 from akgentic.team.ports import EventStore, NullServiceRegistry, ServiceRegistry
@@ -15,6 +15,13 @@ from akgentic.team.restorer import TeamRestorer
 from akgentic.team.subscriber import PersistenceSubscriber, TimerStopSubscriber
 
 logger = logging.getLogger(__name__)
+
+# Grace period passed into the non-blocking ``Orchestrator.stop(grace_timeout)``
+# at every orchestrator-stop site. It is the single stop timeout (ADR-19 §4):
+# core's backstop guarantees the returned event is set within ~this many seconds,
+# so callers ``.wait()`` with NO separate caller-side timeout. Defaulted to core's
+# ``STOP_TIMEOUT`` so the team grace period tracks the framework default.
+GRACE_TIMEOUT_SECONDS = STOP_TIMEOUT
 
 
 class TeamManager:
@@ -257,7 +264,20 @@ class TeamManager:
         return runtime
 
     def _teardown_team(self, team_id: uuid.UUID, runtime: TeamRuntime) -> None:
-        """Trigger graceful orchestrator stop via proxy.
+        """Trigger graceful orchestrator stop via proxy and wait for completion.
+
+        ``Orchestrator.stop(grace_timeout)`` is non-blocking (akgentic-core
+        ADR-012): the ``proxy_ask`` resolves immediately and returns a
+        ``threading.Event`` that core sets once teardown is complete (mailbox
+        drained, subscribers' ``on_stop`` fired, actor deregistered). We
+        ``.wait()`` on that event — on this caller/daemon thread, NOT the
+        orchestrator's actor thread — so ``stop_team`` only persists ``STOPPED``
+        and deregisters AFTER the actors are actually down.
+
+        The wait takes no timeout: core's backstop guarantees the event is set
+        within ~``GRACE_TIMEOUT_SECONDS``, so it cannot hang and always returns
+        ``True``. There is therefore no ``if not stopped:`` branch — the
+        "had to force it" WARNING lives in core's ``_force_stop``.
 
         The orchestrator's own ``on_stop`` fans out ``on_stop(team_id)`` to
         every attached subscriber *before* tearing actors down and clearing
@@ -276,7 +296,7 @@ class TeamManager:
             orchestrator_proxy: Orchestrator = self._actor_system.proxy_ask(
                 runtime.orchestrator_addr, Orchestrator
             )
-            orchestrator_proxy.stop()
+            orchestrator_proxy.stop(GRACE_TIMEOUT_SECONDS).wait()
         except Exception:
             logger.warning(
                 "Failed to teardown orchestrator for team %s",

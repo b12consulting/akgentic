@@ -11,11 +11,17 @@ from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.messages.orchestrator import SentMessage
-from akgentic.core.orchestrator import EventSubscriber, Orchestrator
+from akgentic.core.orchestrator import STOP_TIMEOUT, EventSubscriber, Orchestrator
 from akgentic.team.messages import WelcomeMessage
 from akgentic.team.models import TeamCard, TeamCardMember, TeamRuntime
 
 logger = logging.getLogger(__name__)
+
+# Grace period passed into the non-blocking ``Orchestrator.stop(grace_timeout)``
+# on the rollback path (ADR-19 §2). Defaulted to core's ``STOP_TIMEOUT``; the
+# returned event is ``.wait()``-ed with no caller-side timeout because core's
+# backstop guarantees it is set within ~this many seconds.
+GRACE_TIMEOUT_SECONDS = STOP_TIMEOUT
 
 
 class TeamFactory:
@@ -148,13 +154,41 @@ class TeamFactory:
             )
 
         except Exception:
-            # Rollback: stop all already-spawned actors via proxy API
-            for addr in reversed(spawned_addrs):
-                try:
-                    actor_system.proxy_ask(addr, Akgent).stop()
-                except Exception:
-                    logger.warning("Failed to stop actor during rollback: %s", addr)
+            TeamFactory._rollback_spawned(actor_system, spawned_addrs)
             raise
+
+    @staticmethod
+    def _rollback_spawned(
+        actor_system: ActorSystem,
+        spawned_addrs: list[ActorAddress],
+    ) -> None:
+        """Tear down already-spawned actors after a partial-build failure.
+
+        Stops ``reversed(spawned_addrs)`` so the orchestrator (spawned first) is
+        stopped last — by then its team roster is empty, so its stop finalizes
+        near-instantly. The orchestrator entry uses the non-blocking
+        ``Orchestrator.stop(grace).wait()`` (akgentic-core ADR-012) so rollback
+        does not return while a live orchestrator (subscribers attached, event
+        stream open) lingers; agent entries keep the unchanged blocking
+        ``Akgent.stop()`` (ADR-19 §2). Best-effort: per-actor failures are
+        logged and do not abort the rollback.
+
+        Args:
+            actor_system: The actor system whose proxies drive the stops.
+            spawned_addrs: Actors spawned so far, in spawn order
+                (``spawned_addrs[0]`` is the orchestrator).
+        """
+        orchestrator_addr = spawned_addrs[0] if spawned_addrs else None
+        for addr in reversed(spawned_addrs):
+            try:
+                if addr == orchestrator_addr:
+                    actor_system.proxy_ask(addr, Orchestrator).stop(
+                        GRACE_TIMEOUT_SECONDS
+                    ).wait()
+                else:
+                    actor_system.proxy_ask(addr, Akgent).stop()
+            except Exception:
+                logger.warning("Failed to stop actor during rollback: %s", addr)
 
     @staticmethod
     def _register_subscribers(
