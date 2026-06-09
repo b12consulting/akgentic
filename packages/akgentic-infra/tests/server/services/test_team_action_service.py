@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
-from akgentic.team.models import TeamStatus
+from akgentic.core.messages.orchestrator import SentMessage
+from akgentic.team.models import PersistedEvent, TeamStatus
 
 from akgentic.infra.server.services.team_service import TeamService
+from tests.fixtures.events import build_sent_message
 
 
 def test_send_message_success(team_service: TeamService) -> None:
@@ -140,6 +143,53 @@ def test_process_human_input_invalid_message(team_service: TeamService) -> None:
     process = team_service.create_team("test-team", user_id="anonymous")
     with pytest.raises(ValueError, match="not found"):
         team_service.process_human_input(process.team_id, "yes", "nonexistent")
+
+
+def _seed_sent_message(team_service: TeamService, team_id: uuid.UUID) -> SentMessage:
+    """Persist a SentMessage (inner id != outer id) into a team's event store."""
+    sent = build_sent_message(content="please confirm")
+    # The contract under test only resolves when inner != outer; assert it.
+    assert sent.id != sent.message.id
+    team_service._services.event_store.save_event(
+        PersistedEvent(
+            team_id=team_id,
+            sequence=1,
+            event=sent,
+            timestamp=datetime.now(UTC),
+        )
+    )
+    return sent
+
+
+def test_process_human_input_resolves_by_inner_id(team_service: TeamService) -> None:
+    """process_human_input resolves a SentMessage by its inner message.id.
+
+    The cached handle's ``process_human_input`` is stubbed so the test asserts
+    the inner-id call routes the inner Message to the handle, decoupled from
+    UserProxy actor wiring.
+    """
+    process = team_service.create_team("test-team", user_id="anonymous")
+    sent = _seed_sent_message(team_service, process.team_id)
+
+    routed: list[tuple[str, object]] = []
+    handle = team_service.get_handle(process.team_id)
+    assert handle is not None
+    handle.process_human_input = (  # type: ignore[method-assign]
+        lambda content, message: routed.append((content, message))
+    )
+
+    team_service.process_human_input(process.team_id, "yes", str(sent.message.id))
+
+    assert routed == [("yes", sent.message)]
+
+
+def test_process_human_input_outer_id_not_found(team_service: TeamService) -> None:
+    """process_human_input raises 'not found' when given the outer envelope id."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    sent = _seed_sent_message(team_service, process.team_id)
+
+    with pytest.raises(ValueError, match="not found"):
+        team_service.process_human_input(process.team_id, "yes", str(sent.id))
 
 
 def test_create_team_caches_handle(team_service: TeamService) -> None:

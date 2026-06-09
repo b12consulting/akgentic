@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from akgentic.catalog.models.entry import EntryKind
 from akgentic.core.messages.orchestrator import (
+    SentMessage,
     StateChangedMessage,
 )
 from akgentic.infra.server.routes.frontend_adapter.angular_v1._helpers import (
@@ -246,12 +247,39 @@ def process_human_input(
     team_id = _parse_uuid(id)
     if "id" not in body.message:
         raise HTTPException(status_code=422, detail="message must contain 'id' field")
-    message_id = str(body.message["id"])
+    posted_id = str(body.message["id"])
     try:
+        # The v1 message history (``_events_to_v1_messages``) exposes the
+        # **outer** ``SentMessage.id`` (the event-envelope id), so the modal
+        # posts that id back here. Since Story 30-1 the gateway resolves human
+        # input by the **inner** ``SentMessage.message.id``, so translate the
+        # outer id to the inner id server-side before delegating. An id that is
+        # already the inner id (or genuinely unknown) is passed through
+        # unchanged and resolved/rejected by ``TeamService._find_message``.
+        message_id = _resolve_inner_message_id(service, team_id, posted_id)
         service.process_human_input(team_id, body.content, message_id)
     except ValueError as exc:
         _raise_action_error(exc)
     return V1StatusResponse(status="ok")
+
+
+def _resolve_inner_message_id(
+    service: TeamService, team_id: uuid.UUID, posted_id: str
+) -> str:
+    """Translate a posted v1 message id to the inner ``SentMessage.message.id``.
+
+    The v1 frontend holds the **outer** envelope id (``V1MessageEntry.id`` is
+    built from ``str(ev.event.id)``). The gateway's ``_find_message`` resolves
+    human input by the **inner** ``SentMessage.message.id`` (Story 30-1), so a
+    posted outer id is mapped to its inner id here. If ``posted_id`` matches no
+    ``SentMessage`` outer id (already inner, or unknown), it is returned
+    unchanged so the downstream lookup resolves or 404s as before.
+    """
+    events = service.get_events(team_id)
+    for ev in events:
+        if isinstance(ev.event, SentMessage) and str(ev.event.id) == posted_id:
+            return str(ev.event.message.id)
+    return posted_id
 
 
 # --- Messages route ---

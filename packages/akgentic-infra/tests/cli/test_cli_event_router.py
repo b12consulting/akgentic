@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
@@ -181,6 +182,70 @@ class TestNotifyHumanInput:
         callback.assert_called_once()
         args = callback.call_args[0]
         assert args[1] == "BotX"
+
+    def test_forwards_inner_message_id_for_message_nested_event(self) -> None:
+        """Story 30-2: the inner request's ``message.id`` is forwarded, not the envelope id.
+
+        The reply is resolved server-side by the inner ``SentMessage.message.id``
+        (Story 30-1), so the CLI must forward the id of the request the user is
+        answering — never the outer ``EventMessage`` envelope id — or the reply
+        404s against ``_find_message``. The human-input prompt nests the inner
+        ``Message`` (it carries ``.content`` and its own ``.id``).
+        """
+        renderer, buf = _captured_renderer()
+        captured: list[str] = []
+        router = EventRouter(
+            renderer, on_human_input=lambda mid, _name: captured.append(mid)
+        )
+
+        inner = build_sent_message(content="please confirm").message
+        event = build_event_message(event=inner)
+        # The EventMessage envelope id must differ from the inner id we expect.
+        assert str(event.id) != str(inner.id)
+
+        router.route(event)
+
+        assert captured == [str(inner.id)]
+
+    def test_forwards_nested_event_id_when_present(self) -> None:
+        """A nested request carrying its own ``id`` forwards that id, not the envelope id."""
+        renderer, buf = _captured_renderer()
+        captured: list[str] = []
+        router = EventRouter(
+            renderer, on_human_input=lambda mid, _name: captured.append(mid)
+        )
+
+        nested_id = uuid.uuid4()
+
+        @dataclass
+        class FakeHumanInput:
+            prompt: str
+            id: uuid.UUID
+
+        event = build_event_message(event=FakeHumanInput(prompt="q?", id=nested_id))
+        assert str(event.id) != str(nested_id)
+
+        router.route(event)
+
+        assert captured == [str(nested_id)]
+
+    def test_falls_back_to_envelope_id_when_no_nested_id(self) -> None:
+        """When the nested request exposes no id, the envelope id is the fallback."""
+        renderer, buf = _captured_renderer()
+        captured: list[str] = []
+        router = EventRouter(
+            renderer, on_human_input=lambda mid, _name: captured.append(mid)
+        )
+
+        @dataclass
+        class FakeHumanInput:
+            prompt: str
+
+        event = build_event_message(event=FakeHumanInput(prompt="q?"))
+
+        router.route(event)
+
+        assert captured == [str(event.id)]
 
 
 class TestToolCallArgFormats:

@@ -103,14 +103,37 @@ class EventRouter:
             tool_output = str(raw_output)
         self._renderer.render_tool_call(tool_name, tool_input, tool_output)
 
-    def _notify_human_input(self, event: Message) -> None:
-        """Extract message_id and agent_name from the event and invoke callback."""
-        raw_id = str(event.id)
+    def _notify_human_input(self, event: EventMessage) -> None:
+        """Invoke the human-input callback with the **inner** message id.
+
+        The human-input prompt arrives as an ``EventMessage`` whose ``.event``
+        is the request the user must answer. The reply is resolved server-side
+        by the **inner** ``SentMessage.message.id`` (Story 30-1), NOT by the
+        outer ``EventMessage`` envelope id — forwarding ``str(event.id)`` here
+        would 404 against the flipped ``_find_message``. So the inner id is
+        extracted from the nested request event; the envelope id is only a
+        last-resort fallback when the nested event exposes no id.
+        """
+        raw_id = self._inner_human_input_id(event)
         if not raw_id:
             return
         sender_name = event.sender.name if event.sender else "Agent"
         if self._on_human_input is not None:
             self._on_human_input(raw_id, sender_name)
+
+    @staticmethod
+    def _inner_human_input_id(event: EventMessage) -> str:
+        """Resolve the inner ``Message.id`` of a human-input ``EventMessage``.
+
+        Prefers the id of the nested request the user is answering — that is the
+        inner ``Message.id`` the server resolves the reply by. Falls back to the
+        outer ``EventMessage`` envelope id only when the nested request exposes
+        no ``id`` (a duck-typed stand-in without one).
+        """
+        nested_id = getattr(event.event, "id", None)
+        if nested_id is not None:
+            return str(nested_id)
+        return str(event.id)
 
     def to_widget(
         self,

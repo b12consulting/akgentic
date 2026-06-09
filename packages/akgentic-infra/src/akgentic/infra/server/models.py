@@ -47,7 +47,13 @@ class HumanInputRequest(BaseModel):
     """Request body for POST /teams/{team_id}/human-input."""
 
     content: str = Field(description="Human response content")
-    message_id: str = Field(description="ID of the original message being answered")
+    message_id: str = Field(
+        description=(
+            "Inner Message.id (SentMessage.message.id) of the original message "
+            "being answered — the id a reply's parent_id references, not the "
+            "outer SentMessage envelope id."
+        )
+    )
 
 
 class EventResponse(BaseModel):
