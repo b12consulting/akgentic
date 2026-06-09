@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 pytest.importorskip("fastapi")
 
@@ -18,8 +19,34 @@ from akgentic.catalog.catalog import Catalog  # noqa: E402
 from akgentic.catalog.models.entry import Entry  # noqa: E402
 from akgentic.catalog.models.namespace_meta import NamespaceMeta  # noqa: E402
 
+from .conftest import register_akgentic_test_module  # noqa: E402
+
 _TEAM_TYPE = "akgentic.team.models.TeamCard"
 _AGENT_TYPE = "akgentic.core.agent_card.AgentCard"
+
+
+class _RefLeaf(BaseModel):
+    """Permissive leaf used for cross-ns ref payloads (Story 27.1)."""
+
+    provider: str = "openai"
+
+
+class _RefHolder(BaseModel):
+    """Holder payload carrying a cross-ns ref (Story 27.1)."""
+
+    model_cfg: _RefLeaf | None = None
+
+
+@pytest.fixture
+def ref_model_paths(monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
+    """Register permissive cross-ns ref models and return their dotted paths."""
+    module_name = register_akgentic_test_module(
+        monkeypatch,
+        "tests_fixture_api_27_1_delete_namespace",
+        Leaf=_RefLeaf,
+        Holder=_RefHolder,
+    )
+    return f"{module_name}.Leaf", f"{module_name}.Holder"
 
 
 # --- helpers ----------------------------------------------------------------
@@ -301,6 +328,80 @@ class TestDelete:
         client, _ = api_client
         response = client.delete("/catalog/agent/foo")
         assert response.status_code == 422
+
+
+class TestDeleteNamespace:
+    """DELETE /catalog/namespace/{namespace} — Story 27.1 (ADR-028 §Decision 5)."""
+
+    def test_delete_namespace_returns_204_and_gone(
+        self, api_client: tuple[TestClient, Catalog]
+    ) -> None:
+        client, catalog = api_client
+        _seed_team(catalog, "ns-nuke")
+        _seed_agent(catalog, "ns-nuke", id="a-1")
+        response = client.delete("/catalog/namespace/ns-nuke")
+        assert response.status_code == 204
+        follow = client.get("/catalog/agent/a-1", params={"namespace": "ns-nuke"})
+        assert follow.status_code == 404
+
+    def test_delete_namespace_absent_404(self, api_client: tuple[TestClient, Catalog]) -> None:
+        client, _ = api_client
+        response = client.delete("/catalog/namespace/ns-absent")
+        assert response.status_code == 404
+
+    def test_delete_namespace_external_ref_blocked_409(
+        self,
+        api_client: tuple[TestClient, Catalog],
+        ref_model_paths: tuple[str, str],
+    ) -> None:
+        client, catalog = api_client
+        leaf, holder = ref_model_paths
+        # Shareable namespace 'global' with a prompt referenced cross-ns.
+        _seed_team(catalog, "global")
+        catalog.create(
+            Entry(
+                id="_meta",
+                kind="meta",
+                namespace="global",
+                user_id="anonymous",
+                model_type="akgentic.catalog.models.namespace_meta.NamespaceMeta",
+                payload={
+                    "name": "global",
+                    "description": "",
+                    "properties": {},
+                    "shareable": True,
+                    "public": False,
+                },
+            )
+        )
+        catalog.create(
+            Entry(
+                id="shared-prompt",
+                kind="prompt",
+                namespace="global",
+                user_id="anonymous",
+                model_type=leaf,
+                payload={"provider": "shared"},
+            )
+        )
+        _seed_team(catalog, "tenant-A")
+        catalog.create(
+            Entry(
+                id="agent-ref",
+                kind="agent",
+                namespace="tenant-A",
+                user_id="anonymous",
+                model_type=holder,
+                payload={
+                    "model_cfg": {
+                        "__ref__": "shared-prompt",
+                        "__namespace__": "global",
+                    }
+                },
+            )
+        )
+        response = client.delete("/catalog/namespace/global")
+        assert response.status_code == 409
 
 
 # --- Listing and search -----------------------------------------------------

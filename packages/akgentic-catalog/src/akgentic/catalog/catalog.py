@@ -317,6 +317,11 @@ class Catalog:
         if entry.kind == "team" and entry.namespace == UNSET_NAMESPACE:
             entry = self._mint_team_namespace(entry)
 
+        # ADR-028 §Decision 7 — stamp the caller as owner BEFORE the ownership
+        # check so both ``_check_ownership`` and the persisted entry see the
+        # caller's ``user_id``. No-op on the community path (contextvar None).
+        entry = self._stamp_owner(entry)
+
         self._check_duplicate(entry.namespace, entry.id)
         self._check_meta_singleton(entry)
 
@@ -366,6 +371,10 @@ class Catalog:
         if existing is None:
             raise EntryNotFoundError(f"Entry ({entry.namespace}, {entry.id}) not found")
         del existing  # Existence was the only invariant we needed.
+        # ADR-028 §Decision 7 — stamp the caller as owner BEFORE
+        # ``prepare_for_write`` / ``_check_ownership`` so the persisted entry
+        # and the ownership check both see the caller. No-op on community path.
+        entry = self._stamp_owner(entry)
         prepared = prepare_for_write(
             entry,
             self._repository,
@@ -413,6 +422,81 @@ class Catalog:
         self._repository.delete(namespace, id)
         self._invalidate_meta_caches(target)
 
+    def delete_namespace(self, namespace: str) -> None:
+        """Delete every entry in ``namespace`` (including ``_meta``) atomically.
+
+        Implements ADR-028 §Decision 5. The whole namespace is removed in a
+        single call, guarded only by a structural inbound-reference check —
+        the catalog performs NO caller / role / owner-vs-caller authorization
+        (per ADR-013 §"Out of scope" and ADR-028 §Decision 5, the catalog
+        stores ``user_id`` opaquely and defers *who-may-delete* policy to the
+        upstream infra route gate, a separate epic).
+
+        Inbound-reference guard:
+
+        * **Non-shareable namespace** — the shareable-flag gate (ADR-008 §D2)
+          blocked any cross-namespace ref *into* this namespace at create time,
+          so the namespace-local entry set is self-contained. Intra-namespace
+          references between the entries being removed never block the delete;
+          all entries are removed.
+        * **Shareable namespace** — before removing anything, the method runs
+          ``find_references_global`` per entry and collects referrers whose
+          ``namespace`` differs from ``namespace``. If any *external* referrer
+          exists, it raises :class:`CatalogValidationError` naming each one and
+          removes nothing.
+
+        Atomicity: the external-referrer pre-check runs over ALL entries and
+        raises *before* any ``repository.delete``. Either the whole namespace
+        is removed or nothing is — no partial deletion.
+
+        Cache invalidation: the ``_meta`` entry is removed through
+        :meth:`_invalidate_meta_caches`, evicting both the shareable and public
+        flag caches for ``namespace`` so a subsequent
+        :meth:`_is_namespace_shareable` / :meth:`_is_namespace_public` lookup
+        re-derives ``False`` (no meta entry present).
+
+        Args:
+            namespace: The namespace to delete in its entirety.
+
+        Raises:
+            EntryNotFoundError: If ``namespace`` has zero entries (maps to HTTP
+                404 — an unambiguous "nothing there" signal, mirroring the
+                single-entry :meth:`delete` missing-target contract).
+            CatalogValidationError: If any entry in another namespace
+                references an entry in ``namespace`` (shareable namespaces
+                only). The namespace is left byte-identical when this fires.
+        """
+        entries = self._repository.list_by_namespace(namespace)
+        if not entries:
+            raise EntryNotFoundError(f"Namespace '{namespace}' not found")
+        if self._is_namespace_shareable(namespace):
+            errors = self._collect_external_referrers(namespace, entries)
+            if errors:
+                raise CatalogValidationError(errors)
+        for entry in entries:
+            self._repository.delete(entry.namespace, entry.id)
+            self._invalidate_meta_caches(entry)
+
+    def _collect_external_referrers(self, namespace: str, entries: _list[Entry]) -> _list[str]:
+        """Collect referrer messages for entries OUTSIDE ``namespace`` referencing it.
+
+        For each entry in ``entries`` (all within ``namespace``), runs
+        ``find_references_global`` and keeps only referrers whose
+        ``namespace`` differs from ``namespace`` — intra-namespace referrers
+        are being deleted together and MUST NOT block. The message shape
+        mirrors the single-entry :meth:`delete` widening guard.
+        """
+        errors: _list[str] = []
+        for entry in entries:
+            global_referrers = self._repository.find_references_global(namespace, entry.id)
+            errors.extend(
+                f"Entry '{r.id}' (kind={r.kind}) in namespace '{r.namespace}' "
+                f"references '{entry.id}'"
+                for r in global_referrers
+                if r.namespace != namespace
+            )
+        return errors
+
     # --- Clone ----------------------------------------------------------------
 
     def clone(
@@ -446,9 +530,11 @@ class Catalog:
             src_namespace: Source namespace containing the entry to clone.
             src_id: Id of the source entry within ``src_namespace``.
             dst_namespace: Destination namespace receiving the cloned entries.
-            dst_user_id: ``user_id`` to stamp on every cloned entry. Defaults
-                to ``"anonymous"`` for community-tier deployments; department
-                / enterprise tiers pass the authenticated caller's identifier.
+            dst_user_id: Community-tier fallback ``user_id`` to stamp on every
+                cloned entry. Defaults to ``"anonymous"``. When a caller
+                identity is set (``as_caller``), the authenticated caller
+                SUPERSEDES this argument for ownership (ADR-028 §Decision 7);
+                ``dst_user_id`` is used only on the community path (no caller).
 
         Returns:
             The top-level cloned entry, as freshly re-read from the repository.
@@ -481,6 +567,10 @@ class Catalog:
                     f"not the owner and the source namespace is not public"
                 ]
             )
+        # ADR-028 §Decision 7 — the authenticated caller supersedes
+        # ``dst_user_id`` for cloned-entry ownership. Community path
+        # (contextvar None) keeps ``dst_user_id`` exactly as before.
+        effective_user_id = caller if caller is not None else dst_user_id
         cloned: dict[tuple[str, str], str] = {}
         pending_writes: _list[Entry] = []
         top_new_id = self._clone_one(
@@ -489,7 +579,7 @@ class Catalog:
             cloned=cloned,
             pending_writes=pending_writes,
             dst_namespace=dst_namespace,
-            dst_user_id=dst_user_id,
+            dst_user_id=effective_user_id,
         )
         for entry in pending_writes:
             self._repository.put(entry)
@@ -880,6 +970,12 @@ class Catalog:
             )
             for e in parsed
         ]
+        # ADR-028 §Decision 7 — stamp every prepared bundle entry to the
+        # authenticated caller BEFORE the uniform-user_id invariant runs, so
+        # the bundle's owner uniformity holds by construction and the upserted
+        # ``_meta`` (which inherits user_id from the team / first prepared
+        # entry) also becomes caller-owned. No-op on the community path.
+        prepared = [self._stamp_owner(e) for e in prepared]
         self._validate_bundle_invariants(prepared, has_header_meta=header.present)
         self._check_bundle_refs(prepared)
         namespace = prepared[0].namespace
@@ -1359,6 +1455,27 @@ class Catalog:
         if entry.kind == "meta":
             self._shareable_flag_cache.pop(entry.namespace, None)
             self._public_flag_cache.pop(entry.namespace, None)
+
+    def _stamp_owner(self, entry: Entry) -> Entry:
+        """Return ``entry`` with ``user_id`` stamped to the authenticated caller when set.
+
+        Implements ADR-028 §Decision 7's write-path stamping rule: on write,
+        the entry owner IS the authenticated caller (``_caller_user_id``)
+        whenever a caller identity is set — the incoming body / YAML
+        ``user_id`` (and ``clone``'s ``dst_user_id``) is ignored for ownership.
+
+        Community parity: when the contextvar is ``None`` (community tier, no
+        ``as_caller`` scope) this is a no-op returning ``entry`` unchanged, so
+        the body / YAML / ``dst_user_id`` value is preserved byte-for-byte.
+
+        The helper is pure — it performs no repository I/O. The caller is
+        guaranteed non-empty by ``as_caller`` (which rejects ``""``), so the
+        resulting ``Entry.user_id`` always satisfies the non-empty contract.
+        """
+        caller = _caller_user_id.get()
+        if caller is None:
+            return entry
+        return entry.model_copy(update={"user_id": caller})
 
     def _check_ownership(self, entry: Entry) -> None:
         """Ensure ``entry.user_id`` matches the namespace anchor (team, then meta fallback)."""

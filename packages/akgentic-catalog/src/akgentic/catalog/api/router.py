@@ -609,6 +609,23 @@ async def delete_entry(
     return Response(status_code=204)
 
 
+async def delete_namespace(namespace: str) -> Response:
+    """Delete an entire namespace (all entries + ``_meta``); 204 on success.
+
+    Implements ADR-028 §Decision 5. Delegates to
+    ``Catalog.delete_namespace`` with no added try/except so the per-entry
+    delete error contract is preserved: ``EntryNotFoundError`` (empty/absent
+    namespace) propagates → HTTP 404, and ``CatalogValidationError`` (an
+    external inbound reference blocks the delete) propagates → HTTP 409, both
+    via the app-wide handlers in ``api/_errors.py``. The route carries NO
+    authorization dependency — owner-or-admin gating is enforced upstream by
+    the infra route gate (a separate epic).
+    """
+    logger.debug("DELETE /catalog/namespace/%s", namespace)
+    _get_catalog().delete_namespace(namespace)
+    return Response(status_code=204)
+
+
 # --- Route registration -----------------------------------------------------
 
 
@@ -643,6 +660,7 @@ def _register_static_routes(target: APIRouter) -> None:
         response_model=Entry,
         openapi_extra=_multi_format_body_openapi("NamespaceMeta"),
     )(put_namespace_meta)
+    target.delete("/namespace/{namespace}", status_code=204)(delete_namespace)
 
 
 def _register_generic_kind_routes(target: APIRouter) -> None:
