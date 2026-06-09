@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-catalog"
-version = "2.1.0"
+version = "2.2.0"
 description = "Collaborative agent patterns for the Akgentic framework"
 readme = "README.md"
 requires-python = ">=3.12"
