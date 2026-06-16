@@ -1,0 +1,160 @@
+<!--
+  Single scroll region for the whole trace. The head system block (Epic 16)
+  scrolls TOGETHER with the conversation, exactly as it did before Epic 16 when
+  the system block was the first row inside the scrollable table — only now it
+  stays pinned at the head. `.trace-scroll` owns the scroll so neither the head
+  block nor a long conversation can overflow the clipped tab container and push
+  the chat input out of reach.
+-->
+<div class="trace-scroll" #traceScroll (scroll)="onScroll()">
+  <!--
+    Head system block — sourced from `headRows$`: the event-sourced
+    `systemPrompt$` rows (SystemPromptSelector, Story 16-1) when present
+    (latest-wins), else the never-run backstory fallback synthesized from
+    `backstory$` (akgentic-agent ADR-007 §4). Independent of `context.length`. `*ngIf ... as
+    rows` + `rows.length` guard renders nothing when there are no rows (AC8).
+    `async` keeps it OnPush-safe and self-unsubscribing.
+  -->
+  <div
+    class="head-system-container"
+    *ngIf="headRows$ | async as rows"
+  >
+    <ng-container *ngIf="rows.length">
+      <div class="card-container" *ngFor="let row of rows">
+        <div class="card-header">{{ row.type | capitalize }} : {{ row.name }}</div>
+        <div class="fieldset-body">
+          <p-fieldset legend="Content" [toggleable]="false">
+            <app-copy-button (click)="utilService.copyToClipboard(row.content)" />
+            <div class="text-container" [innerHTML]="row.content"></div>
+          </p-fieldset>
+        </div>
+      </div>
+    </ng-container>
+  </div>
+
+  <!-- Conversation. Not independently scrollable: `.trace-scroll` is the single
+       scroll region (hover-pauses auto-scroll via the table's mouse events). -->
+  <div class="collapsible-container" *ngIf="context.length">
+    <div class="collapsible">
+      <p-table [value]="context" [rowTrackBy]="trackByIndex">
+      <ng-template #body let-message>
+        <div class="card-container">
+          <div class="card-header">
+            {{ message.type | capitalize }} : {{ message.name }}
+            <span *ngIf="message.model_name" class="model-info">
+              ({{ message.provider_name }}/{{ message.model_name }})
+            </span>
+          </div>
+          <div class="fieldset-body">
+            <ng-container
+              *ngIf="
+                ['system', 'ai', 'tool', 'human', 'tool_result'].includes(
+                  message.type
+                )
+              "
+            >
+              <p-fieldset legend="Content" [toggleable]="false">
+                <app-copy-button
+                  (click)="utilService.copyToClipboard(message.content)"
+                />
+                <div class="text-container" [innerHTML]="message.content"></div>
+              </p-fieldset>
+            </ng-container>
+            <ng-container *ngIf="['tool_call'].includes(message.type)">
+              <p-fieldset legend="Tool" [toggleable]="false">
+                {{ message.name }}
+              </p-fieldset>
+              <p-fieldset legend="Args" [toggleable]="false">
+                <app-copy-button
+                  (click)="
+                    utilService.copyToClipboard(
+                      utilService.formatJSON(message.args)
+                    )
+                  "
+                />
+                <pre class="text-container">{{
+                  utilService.formatJSON(message.args)
+                }}</pre>
+              </p-fieldset>
+              <p-fieldset
+                legend="Result"
+                [toggleable]="false"
+                *ngIf="message.result !== null && message.result !== undefined"
+              >
+                <app-copy-button
+                  (click)="utilService.copyToClipboard(message.result)"
+                />
+                <pre class="text-container">{{
+                  utilService.formatJSON(message.result)
+                }}</pre>
+              </p-fieldset>
+            </ng-container>
+          </div>
+        </div>
+      </ng-template>
+    </p-table>
+  </div>
+  </div>
+</div>
+
+<div class="input-container">
+  <!-- "Messages" / "Auto scrolling" status pill, anchored on top of the input.
+       Click → follow (auto-scroll to the bottom). Hidden when the newest message
+       is on screen. -->
+  <button
+    *ngIf="indicatorLabel"
+    type="button"
+    class="jump-to-latest"
+    (click)="onFollowLatest()"
+  >
+    <i class="pi" [ngClass]="indicatorIcon"></i>
+    <span>{{ indicatorLabel }}</span>
+  </button>
+  <p-floatlabel variant="in">
+    <div class="input-row">
+      <div class="input-row-textarea">
+        <textarea
+          pTextarea
+          rows="4"
+          cols="50"
+          [(ngModel)]="userInput"
+          (keydown.enter)="userInputEnterKeySubmit ? sendMessage() : null"
+          (keydown.meta.enter)="sendMessage()"
+          (keydown.control.enter)="sendMessage()"
+          [mentionConfig]="mentionConfig"
+          [mentionListTemplate]="mentionItemTemplate"
+        ></textarea>
+        <label for="on_label">Chat input</label>
+      </div>
+      <!--
+        ADR-013: `/` command mention item template — renders the command name
+        prominently, an optional args hint (`<role> [name]`), and the
+        description as secondary text.
+      -->
+      <ng-template #mentionItemTemplate let-item="item">
+        <span class="mention-item-name">{{ item.name }}</span>
+        <span *ngIf="item.args?.length" class="mention-item-args">
+          {{ commandArgsHint(item.args) }}
+        </span>
+        <span *ngIf="item.description" class="mention-item-desc">{{ item.description }}</span>
+      </ng-template>
+      <div class="input-row-buttons">
+        <button
+          pButton
+          type="button"
+          size="small"
+          label="Submit"
+          (click)="sendMessage()"
+          [disabled]="!userInput || isLoading || !(contextService.currentTeamRunning$ | async)"
+        >
+          <ng-container *ngIf="isLoading; else refreshIcon">
+            <i class="pi pi-spinner pi-spin"></i>
+          </ng-container>
+          <ng-template #refreshIcon>
+            <i class="pi pi-send"></i>
+          </ng-template>
+        </button>
+      </div>
+    </div>
+  </p-floatlabel>
+</div>

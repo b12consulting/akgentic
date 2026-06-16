@@ -14,9 +14,9 @@ import {
   withInterceptorsFromDi,
 } from '@angular/common/http';
 import customPreset from './app.theme';
-import { CredentialsInterceptor } from './credentials.interceptor';
-import { markedOptionsFactory } from './lib/util';
-import { ConfigService } from './services/config.service';
+import { CredentialsInterceptor } from './core/auth/credentials.interceptor';
+import { markedOptionsFactory } from './shared/util/util';
+import { ConfigService } from './core/config/config.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [

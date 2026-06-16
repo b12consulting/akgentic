@@ -1,4 +1,4 @@
-import { AuthProvider } from '../app/models/auth.types';
+import { AuthProvider } from '../app/core/auth/auth.types';
 
 export const environment = {
   production: true,
