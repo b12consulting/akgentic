@@ -18,7 +18,6 @@ import {
 import { IngestionService } from '../../event/ingestion.service';
 
 import { AkgentChatComponent } from './akgent-chat/akgent-chat.component';
-import { AkgentStateComponent } from './akgent-state/akgent-state.component';
 
 @Component({
   selector: 'app-agent-tabs',
@@ -29,7 +28,6 @@ import { AkgentStateComponent } from './akgent-state/akgent-state.component';
     TabsModule,
     DropdownModule,
     AkgentChatComponent,
-    AkgentStateComponent,
   ],
   templateUrl: './agent-tabs.component.html',
   styleUrl: './agent-tabs.component.scss',
@@ -137,9 +135,13 @@ export class AgentTabsComponent implements OnInit {
           this.selectedAgent = null;
           return;
         }
-        // Remove agents with role 'human_proxy'
+        // Remove human-proxy agents, and tool actors (their actorName starts
+        // with '#', e.g. #VectorStore / #KnowledgeGraphTool) — the Member
+        // dropdown lists real agents only.
         const filteredAgents = agents.filter(
-          (a: any) => (a.role || '') !== HUMAN_PROXY_ROLE
+          (a: any) =>
+            (a.role || '') !== HUMAN_PROXY_ROLE &&
+            !String(a.actorName ?? '').startsWith('#')
         );
 
         // Helper to build dropdown item

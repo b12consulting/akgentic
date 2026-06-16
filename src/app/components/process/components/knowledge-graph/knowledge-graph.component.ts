@@ -224,7 +224,7 @@ export class KnowledgeGraphComponent implements OnInit, OnDestroy {
 
     const chartOptions: EChartsCoreOption = {
       title: {
-        text: data.nodes.length === 0 ? 'No Knowledge Graph' : null,
+        text: null, // empty state rendered as an HTML placeholder overlay
         top: '50%',
         left: 'center',
       },
@@ -297,7 +297,7 @@ export class KnowledgeGraphComponent implements OnInit, OnDestroy {
     // Complete series update with all necessary configuration
     this.echartsInstance.setOption({
       title: {
-        text: data.nodes.length === 0 ? 'No Knowledge Graph' : null,
+        text: null, // empty state rendered as an HTML placeholder overlay
       },
       legend: {
         data: categories.length > 0 ? categories.map((c) => c.name) : [],

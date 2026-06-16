@@ -19,6 +19,7 @@ import {
   KG_ACTOR_NAME,
   ToolPresenceService,
 } from './selectors/tool-presence.selector';
+import { WorkspaceRegistryService } from './selectors/workspace-registry.selector';
 import { TeamContext } from '../../core/context/team.interface';
 import { ViewService } from '../../core/ui/view.service';
 import { ProcessComponent } from './process.component';
@@ -73,6 +74,42 @@ function makeKgStop(id: string): StopMessage {
     team_id: 'team-1',
     timestamp: new Date().toISOString(),
     sender: baseSender(KG_ACTOR_NAME),
+    display_type: 'other',
+    content: null,
+    __model__: 'akgentic.core.messages.orchestrator.StopMessage',
+  };
+}
+
+// A normal agent declaring a WorkspaceTool with no workspace_id (→ default).
+function makeWorkspaceStart(id: string, agentName: string): StartMessage {
+  return {
+    id,
+    parent_id: null,
+    team_id: 'team-1',
+    timestamp: new Date().toISOString(),
+    sender: baseSender(agentName),
+    display_type: 'other',
+    content: null,
+    __model__: 'akgentic.core.messages.orchestrator.StartMessage',
+    config: {
+      tools: [
+        {
+          __model__: 'akgentic.tool.workspace.tool.WorkspaceTool',
+          workspace_id: null,
+        },
+      ],
+    } as any,
+    parent: null,
+  };
+}
+
+function makeWorkspaceStop(id: string, agentName: string): StopMessage {
+  return {
+    id,
+    parent_id: null,
+    team_id: 'team-1',
+    timestamp: new Date().toISOString(),
+    sender: baseSender(agentName),
     display_type: 'other',
     content: null,
     __model__: 'akgentic.core.messages.orchestrator.StopMessage',
@@ -144,6 +181,7 @@ describe('ProcessComponent (Story 6.2 — log-driven presence)', () => {
         MessageLogService,
         ToolPresenceService,
         KGStateReducer,
+        WorkspaceRegistryService,
         { provide: ContextService, useValue: contextService },
         { provide: IngestionService, useValue: messageService },
         { provide: AkgentService, useValue: akgentService },
@@ -234,10 +272,11 @@ describe('ProcessComponent (Story 6.2 — log-driven presence)', () => {
   });
 
   it('scenario 5 — no regression: Team / Member / Messages entries remain present under both KG presence states (order preserved)', async () => {
-    // `hasWorkspace` defaults to `true` in production (Story 6-2 AC1), so
-    // Workspace is always present; the legacy KG-presence regression check
-    // now runs against `[team, member, workspace, messages]` without KG and
-    // `[team, member, knowledge-graph, workspace, messages]` with KG.
+    // Workspace presence is reactive (ADR-020): declare a WorkspaceTool so the
+    // Workspaces tab is present, then verify the order holds without KG —
+    // `[team, member, workspace, messages]` — and with KG —
+    // `[team, member, knowledge-graph, workspace, messages]`.
+    log.append(makeWorkspaceStart('ws-start-1', 'Worker'));
     let options = await firstValue(component.visualizationOptions$);
     let labels = options.map((o) => o.value);
     expect(labels).toEqual(['team', 'member', 'workspace', 'messages']);
@@ -254,9 +293,10 @@ describe('ProcessComponent (Story 6.2 — log-driven presence)', () => {
     ]);
   });
 
-  it('scenario 6 — hasWorkspace=true: Workspace appears between KG and Messages (Story 6-2 AC1, AC2)', async () => {
-    // Default is `hasWorkspace = true` (Story 6-2 AC1). Without KG, the
-    // tab order degrades gracefully to [team, member, workspace, messages].
+  it('scenario 6 — Workspaces appears between KG and Messages once a WorkspaceTool exists', async () => {
+    // With a WorkspaceTool but no KG, the order is [team, member, workspace,
+    // messages].
+    log.append(makeWorkspaceStart('ws-start-1', 'Worker'));
     let options = await firstValue(component.visualizationOptions$);
     expect(options.map((o) => o.value)).toEqual([
       'team',
@@ -265,7 +305,7 @@ describe('ProcessComponent (Story 6.2 — log-driven presence)', () => {
       'messages',
     ]);
 
-    // With KG present, Workspace sits between KG and Messages (AC2 order).
+    // With KG present, Workspace sits between KG and Messages (order).
     log.append(makeKgStart('kg-start-1'));
     options = await firstValue(component.visualizationOptions$);
     expect(options.map((o) => o.value)).toEqual([
@@ -275,6 +315,34 @@ describe('ProcessComponent (Story 6.2 — log-driven presence)', () => {
       'workspace',
       'messages',
     ]);
+  });
+
+  it('scenario 7 — empty log: Workspaces option absent, <app-workspace-tabs> not in DOM', async () => {
+    const options = await firstValue(component.visualizationOptions$);
+    expect(options.some((o) => o.value === 'workspace')).toBe(false);
+    expect(
+      fixture.nativeElement.querySelector('app-workspace-tabs'),
+    ).toBeNull();
+  });
+
+  it('scenario 8 — WorkspaceTool appears; sticky: Stop keeps the Workspaces tab', async () => {
+    log.append(makeWorkspaceStart('ws-start-1', 'Worker'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    let options = await firstValue(component.visualizationOptions$);
+    expect(options.some((o) => o.value === 'workspace')).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('app-workspace-tabs'),
+    ).not.toBeNull();
+
+    // Firing the member (Stop) is sticky — the workspace persists, tab stays.
+    log.append(makeWorkspaceStop('ws-stop-1', 'Worker'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    options = await firstValue(component.visualizationOptions$);
+    expect(options.some((o) => o.value === 'workspace')).toBe(true);
   });
 });
 
@@ -346,6 +414,7 @@ describe('ProcessComponent (Story 10-2 — single-fetch navigation)', () => {
         MessageLogService,
         ToolPresenceService,
         KGStateReducer,
+        WorkspaceRegistryService,
         { provide: ContextService, useValue: contextService },
         { provide: IngestionService, useValue: messageService },
         { provide: AkgentService, useValue: akgentService },

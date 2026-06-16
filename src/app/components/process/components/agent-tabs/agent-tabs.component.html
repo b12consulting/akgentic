@@ -4,12 +4,6 @@
       <p-tab value="0" *ngIf="chatTabVisible$ | async">
         Chat with "{{ selectedAgent?.label }}"
       </p-tab>
-      <p-tab
-        [value]="(chatTabVisible$ | async) ? '1' : '0'"
-        *ngIf="state$ | async"
-      >
-        State of "{{ selectedAgent?.label }}"
-      </p-tab>
       <div
         style="
           margin-left: auto;
@@ -42,15 +36,6 @@
           [agentId]="akgentId"
           [agentName]="akgentName"
         ></app-akgent-chat>
-      </p-tabpanel>
-      <p-tabpanel
-        [value]="(chatTabVisible$ | async) ? '1' : '0'"
-        *ngIf="state$ | async"
-      >
-        <app-akgent-state
-          [state$]="state$"
-          [agentId]="akgentId"
-        ></app-akgent-state>
       </p-tabpanel>
     </p-tabpanels>
   </p-tabs>

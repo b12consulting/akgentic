@@ -1,4 +1,14 @@
-import { Component, OnInit, inject, ViewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  inject,
+  input,
+  signal,
+  ViewChild,
+} from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { TreeModule } from 'primeng/tree';
 import { TreeNode } from 'primeng/api';
@@ -11,7 +21,8 @@ import { ToolbarModule } from 'primeng/toolbar';
 import { DividerModule } from 'primeng/divider';
 import { TagModule } from 'primeng/tag';
 import { MarkdownModule } from 'ngx-markdown';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, from, of, switchMap } from 'rxjs';
+import { catchError, map, tap } from 'rxjs/operators';
 import {
   WorkspaceService,
   FileNode,
@@ -19,6 +30,17 @@ import {
 } from '../../workspace/workspace.service';
 import { ContextService } from '../../../../core/context/context.service';
 import { UploadModalComponent } from './upload-modal/upload-modal.component';
+
+/**
+ * Outcome of one declarative root-tree load. `switchMap` maps each
+ * `workspaceId` emission to a stream of these so the subscriber only ever
+ * applies the LATEST load's result — a superseded slow response is cancelled
+ * before it can clobber a newer tab's tree (ADR-021 §Decision 2, race closure).
+ */
+interface RootLoadResult {
+  nodes: TreeNode[] | null;
+  error: string | null;
+}
 
 @Component({
   selector: 'app-workspace-explorer',
@@ -39,68 +61,139 @@ import { UploadModalComponent } from './upload-modal/upload-modal.component';
   ],
   templateUrl: './workspace-explorer.component.html',
   styleUrls: ['./workspace-explorer.component.scss'],
+  // OnPush + signals: a signal write notifies the OnPush chain automatically,
+  // so the explorer's subtree is no longer skipped when ApplicationRef.tick
+  // walks past an OnPush ancestor that the child never marked dirty (ADR-021
+  // §Decision 1 — this is what removes the multi-second spinner stall).
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkspaceExplorerComponent implements OnInit {
   @ViewChild(UploadModalComponent) uploadModal!: UploadModalComponent;
 
+  /**
+   * Optional workspace addressed by this explorer (Epic 23 / ADR-019). A signal
+   * input with an `undefined` default behaves byte-for-byte like the previous
+   * optional `@Input`: unset ⇒ every WorkspaceService call omits `workspaceId`
+   * so the backend falls back to `team_id`; set ⇒ it is threaded through every
+   * call. A change re-triggers the root tree load via `toObservable → switchMap`
+   * (ADR-021 §Decision 4 — contract preserved).
+   */
+  workspaceId = input<string | undefined>();
+
   workspaceService = inject(WorkspaceService);
   contextService = inject(ContextService);
+  private destroyRef = inject(DestroyRef);
 
   processId: string = '';
   isProcessRunning: boolean = false;
 
-  treeNodes: TreeNode[] = [];
-  selectedFile: FileNode | null = null;
-  selectedFolder: FileNode | null = null;
-  fileContent: string | null = null;
-  loading = false;
-  loadingContent = false;
-  isBinaryFile = false;
-  isMarkdownFile = false;
-  errorMessage: string | null = null;
+  // Template-bound state as signals — signal writes notify the OnPush chain.
+  treeNodes = signal<TreeNode[]>([]);
+  selectedFile = signal<FileNode | null>(null);
+  selectedFolder = signal<FileNode | null>(null);
+  fileContent = signal<string | null>(null);
+  loading = signal(false);
+  loadingContent = signal(false);
+  isBinaryFile = signal(false);
+  isMarkdownFile = signal(false);
+  errorMessage = signal<string | null>(null);
+
+  // Plain fields: not template-bound through *ngIf/[value] in a way that the
+  // OnPush stall affects (sidebar/upload-modal toggles are driven by user
+  // events that already mark the view), so they stay as ordinary fields.
   sidebarVisible = false; // Start collapsed
   uploadModalVisible = false;
   uploadTargetPath: string = '';
 
-  async ngOnInit() {
+  constructor() {
+    // Resolve processId synchronously from the BehaviorSubject so it is
+    // available at the root stream's first emission (ngOnInit's await would
+    // otherwise race the toObservable(workspaceId) first tick).
     this.processId = this.contextService.currentProcessId$.value;
+
+    // Declarative root-tree load: every workspaceId emission (incl. the initial
+    // `undefined`) maps to a fresh fetch; switchMap cancels the in-flight
+    // previous load so a superseded slow response cannot overwrite a newer
+    // tab's treeNodes (ADR-021 §Decision 2). Stable APIs only — no resource().
+    toObservable(this.workspaceId)
+      .pipe(
+        switchMap((ws) => this.loadRootTree$(ws)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((result) => this.applyRootLoad(result));
+  }
+
+  async ngOnInit() {
     await this.checkProcessStatus();
-    this.loadWorkspace();
+  }
+
+  /**
+   * Map one `workspaceId` value to a root-load stream that drives the loading
+   * spinner on subscribe, resolves to the synthetic Root Folder wrapper on
+   * success, and maps a rejection to an error message. Returns an empty
+   * (no-op) load when `processId` is not yet resolved.
+   */
+  private loadRootTree$(ws?: string) {
+    if (!this.processId) {
+      return of<RootLoadResult>({ nodes: null, error: null });
+    }
+
+    this.loading.set(true);
+    this.errorMessage.set(null);
+
+    return from(this.fetchTree('', ws)).pipe(
+      map((tree): RootLoadResult => ({ nodes: this.wrapRootTree(tree), error: null })),
+      catchError((error: any) => {
+        console.error('Error loading workspace', error);
+        return of<RootLoadResult>({
+          nodes: null,
+          error: error?.message || 'Failed to load workspace',
+        });
+      }),
+      tap(() => this.loading.set(false)),
+    );
+  }
+
+  /** Apply the latest (switchMap-guarded) root-load result to the signals. */
+  private applyRootLoad(result: RootLoadResult): void {
+    if (result.error !== null) {
+      this.errorMessage.set(result.error);
+      return;
+    }
+    if (result.nodes !== null) {
+      this.treeNodes.set(result.nodes);
+    }
+  }
+
+  /** Wrap converted backend entries in the synthetic Root Folder node. */
+  private wrapRootTree(tree: FileNode[]): TreeNode[] {
+    const rootNode: TreeNode = {
+      label: 'Root Folder',
+      data: { name: 'Root Folder', path: '', type: 'directory' } as FileNode,
+      icon: 'pi pi-home',
+      children: this.convertToTreeNodes(tree),
+      expanded: true,
+      selectable: true,
+    };
+    return [rootNode];
+  }
+
+  /**
+   * Fetch a directory listing, threading `workspaceId` only when set so the
+   * unset path keeps today's 2-arg call shape (and byte-identical URL). The
+   * id is passed explicitly (rather than read off the signal) so the root load
+   * uses the value that drove the current switchMap emission.
+   */
+  private fetchTree(path: string, ws: string | undefined = this.workspaceId()): Promise<FileNode[]> {
+    return ws
+      ? this.workspaceService.getWorkspaceTree(this.processId, path, ws)
+      : this.workspaceService.getWorkspaceTree(this.processId, path);
   }
 
   async checkProcessStatus() {
     this.isProcessRunning = await firstValueFrom(
       this.contextService.currentTeamRunning$,
     );
-  }
-
-  async loadWorkspace() {
-    if (!this.processId) return;
-
-    this.loading = true;
-    this.errorMessage = null;
-
-    try {
-      const tree = await this.workspaceService.getWorkspaceTree(this.processId);
-      const fileNodes = this.convertToTreeNodes(tree);
-
-      // Add root node at the top
-      const rootNode: TreeNode = {
-        label: 'Root Folder',
-        data: { name: 'Root Folder', path: '', type: 'directory' } as FileNode,
-        icon: 'pi pi-home',
-        children: fileNodes,
-        expanded: true,
-        selectable: true,
-      };
-
-      this.treeNodes = [rootNode];
-    } catch (error: any) {
-      console.error('Error loading workspace', error);
-      this.errorMessage = error?.message || 'Failed to load workspace';
-    } finally {
-      this.loading = false;
-    }
   }
 
   convertToTreeNodes(nodes: FileNode[]): TreeNode[] {
@@ -171,17 +264,14 @@ export class WorkspaceExplorerComponent implements OnInit {
     if (node.children !== undefined) return;
 
     try {
-      const children = await this.workspaceService.getWorkspaceTree(
-        this.processId,
-        fileNode.path
-      );
+      const children = await this.fetchTree(fileNode.path);
       node.children = this.convertToTreeNodes(children);
-      // Re-assign the top-level array reference so Angular's default CD
+      // Re-assign the top-level array reference so the bound treeNodes signal
       // picks up the mutation on a nested TreeNode's `children` property.
-      this.treeNodes = [...this.treeNodes];
+      this.treeNodes.set([...this.treeNodes()]);
     } catch (error: any) {
       console.error('Error loading subdirectory', error);
-      this.errorMessage = error?.message || 'Failed to load subdirectory';
+      this.errorMessage.set(error?.message || 'Failed to load subdirectory');
       // Leave node.children as undefined so a subsequent user-initiated
       // expand can retry the fetch.
     }
@@ -191,55 +281,58 @@ export class WorkspaceExplorerComponent implements OnInit {
     const node: FileNode = event.node.data;
 
     if (node.type === 'file') {
-      this.selectedFile = node;
-      this.selectedFolder = null;
+      this.selectedFile.set(node);
+      this.selectedFolder.set(null);
       await this.loadFileContent(node.path);
     } else if (node.type === 'directory') {
-      this.selectedFile = null;
-      this.selectedFolder = node;
-      this.fileContent = null;
-      this.isBinaryFile = false;
-      this.isMarkdownFile = false;
+      this.selectedFile.set(null);
+      this.selectedFolder.set(node);
+      this.fileContent.set(null);
+      this.isBinaryFile.set(false);
+      this.isMarkdownFile.set(false);
     }
   }
 
   async loadFileContent(path: string) {
-    this.loadingContent = true;
-    this.fileContent = null;
-    this.isBinaryFile = false;
-    this.isMarkdownFile = false;
-    this.errorMessage = null;
+    this.loadingContent.set(true);
+    this.fileContent.set(null);
+    this.isBinaryFile.set(false);
+    this.isMarkdownFile.set(false);
+    this.errorMessage.set(null);
 
     try {
       const result: FileContent = await this.workspaceService.getFileContent(
         this.processId,
-        path
+        path,
+        this.workspaceId()
       );
 
       if (result.type === 'binary') {
-        this.isBinaryFile = true;
-        this.fileContent = result.message || 'Binary file cannot be displayed';
+        this.isBinaryFile.set(true);
+        this.fileContent.set(result.message || 'Binary file cannot be displayed');
       } else {
-        this.fileContent = result.content;
+        this.fileContent.set(result.content);
         // Check if file is markdown
-        if (this.selectedFile?.extension?.toLowerCase() === '.md') {
-          this.isMarkdownFile = true;
+        if (this.selectedFile()?.extension?.toLowerCase() === '.md') {
+          this.isMarkdownFile.set(true);
         }
       }
     } catch (error: any) {
       console.error('Error loading file content', error);
-      this.errorMessage = error?.message || 'Failed to load file content';
+      this.errorMessage.set(error?.message || 'Failed to load file content');
     } finally {
-      this.loadingContent = false;
+      this.loadingContent.set(false);
     }
   }
 
   downloadFile() {
-    if (!this.selectedFile) return;
+    const selected = this.selectedFile();
+    if (!selected) return;
 
     const url = this.workspaceService.getDownloadUrl(
       this.processId,
-      this.selectedFile.path
+      selected.path,
+      this.workspaceId()
     );
     window.open(url, '_blank');
   }
@@ -255,7 +348,11 @@ export class WorkspaceExplorerComponent implements OnInit {
   }
 
   refresh() {
-    this.loadWorkspace();
+    // Re-run the root load for the current workspaceId via the declarative
+    // stream (the only owner of the loading/treeNodes lifecycle now).
+    this.loadRootTree$(this.workspaceId())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => this.applyRootLoad(result));
   }
 
   toggleSidebar() {
@@ -280,13 +377,15 @@ export class WorkspaceExplorerComponent implements OnInit {
   }
 
   openUploadModalToCurrentSelection() {
+    const folder = this.selectedFolder();
+    const file = this.selectedFile();
     // If a folder is selected, upload there
-    if (this.selectedFolder) {
-      this.openUploadModal(this.selectedFolder.path);
+    if (folder) {
+      this.openUploadModal(folder.path);
     }
     // If a file is selected, upload to its parent folder
-    else if (this.selectedFile) {
-      const parentPath = this.getParentPath(this.selectedFile.path);
+    else if (file) {
+      const parentPath = this.getParentPath(file.path);
       this.openUploadModal(parentPath);
     }
     // Otherwise upload to root
@@ -314,7 +413,8 @@ export class WorkspaceExplorerComponent implements OnInit {
       await this.workspaceService.uploadFiles(
         this.processId,
         files,
-        this.uploadTargetPath
+        this.uploadTargetPath,
+        this.workspaceId()
       );
 
       // Refresh ONLY the directory the user uploaded to — preserves the
@@ -336,24 +436,23 @@ export class WorkspaceExplorerComponent implements OnInit {
    * the next manual expand will lazy-fetch the fresh listing anyway.
    */
   private async refreshDirectory(path: string): Promise<void> {
-    const fresh = await this.workspaceService.getWorkspaceTree(
-      this.processId,
-      path
-    );
+    const fresh = await this.fetchTree(path);
     const freshNodes = this.convertToTreeNodes(fresh);
 
     if (path === '') {
-      if (this.treeNodes.length > 0) {
-        this.treeNodes[0].children = freshNodes;
-        this.treeNodes = [...this.treeNodes];
+      const current = this.treeNodes();
+      if (current.length > 0) {
+        current[0].children = freshNodes;
+        this.treeNodes.set([...current]);
       }
       return;
     }
 
-    const target = this.findTreeNodeByPath(this.treeNodes, path);
+    const current = this.treeNodes();
+    const target = this.findTreeNodeByPath(current, path);
     if (target) {
       target.children = freshNodes;
-      this.treeNodes = [...this.treeNodes];
+      this.treeNodes.set([...current]);
     }
   }
 

@@ -62,7 +62,11 @@
 .button-group {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  // Right-align the controls as a group. With "Send as" present its
+  // `.send-as-group { margin-left: auto }` already pushes the cluster right;
+  // flex-end makes the no-"Send as" case (Send to + multiselect + Submit)
+  // right-align the same way instead of spreading across the row.
+  justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 0.5rem;
 }

@@ -33,10 +33,10 @@
         <div [class.moved-offscreen]="isHidden('member')">
           <app-agent-tabs></app-agent-tabs>
         </div>
-        <app-workspace-explorer
-          *ngIf="hasWorkspace"
+        <app-workspace-tabs
+          *ngIf="hasWorkspace$ | async"
           [class.moved-offscreen]="isHidden('workspace')"
-        ></app-workspace-explorer>
+        ></app-workspace-tabs>
         <app-knowledge-graph
           *ngIf="hasKnowledgeGraph$ | async"
           [class.moved-offscreen]="isHidden('knowledge-graph')"

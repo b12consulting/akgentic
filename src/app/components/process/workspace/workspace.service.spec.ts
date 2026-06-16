@@ -151,6 +151,50 @@ describe('WorkspaceService', () => {
         /Malformed workspace tree response/
       );
     });
+
+    it('appends &workspace_id (encoded) after ?path when workspaceId is set', async () => {
+      const response: WorkspaceTreeResponse = {
+        team_id: 't1',
+        path: 'docs',
+        entries: [],
+      };
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(response));
+
+      await service.getWorkspaceTree('p1', 'docs', 'ws/with space');
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toBe(
+        `${environment.api}/workspace/p1/tree?path=docs&workspace_id=ws%2Fwith%20space`
+      );
+    });
+
+    it('leaves the URL byte-for-byte unchanged when workspaceId is omitted', async () => {
+      const response: WorkspaceTreeResponse = {
+        team_id: 't1',
+        path: '',
+        entries: [],
+      };
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(response));
+
+      await service.getWorkspaceTree('p1');
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toBe(`${environment.api}/workspace/p1/tree?path=`);
+    });
+
+    it('treats an empty-string workspaceId as absent (appends nothing)', async () => {
+      const response: WorkspaceTreeResponse = {
+        team_id: 't1',
+        path: '',
+        entries: [],
+      };
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(response));
+
+      await service.getWorkspaceTree('p1', '', '');
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toBe(`${environment.api}/workspace/p1/tree?path=`);
+    });
   });
 
   describe('getFileContent', () => {
@@ -227,6 +271,23 @@ describe('WorkspaceService', () => {
         `${environment.api}/workspace/p1/file?path=sub%2Fa.md`
       );
     });
+
+    it('appends &workspace_id (encoded) after ?path when workspaceId is set', async () => {
+      const fetchSpy = spyOn(window, 'fetch').and.returnValue(
+        Promise.resolve(
+          mockFetchResponse({
+            ok: true,
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+          })
+        )
+      );
+
+      await service.getFileContent('p1', 'sub/a.md', 'ws id');
+
+      expect(fetchSpy.calls.first().args[0]).toBe(
+        `${environment.api}/workspace/p1/file?path=sub%2Fa.md&workspace_id=ws%20id`
+      );
+    });
   });
 
   describe('getDownloadUrl', () => {
@@ -235,6 +296,18 @@ describe('WorkspaceService', () => {
       expect(url).toBe(
         `${environment.api}/workspace/p1/file?path=src%2Fa.md`
       );
+    });
+
+    it('appends &workspace_id (encoded) after ?path when workspaceId is set', () => {
+      const url = service.getDownloadUrl('p1', 'src/a.md', 'ws/1');
+      expect(url).toBe(
+        `${environment.api}/workspace/p1/file?path=src%2Fa.md&workspace_id=ws%2F1`
+      );
+    });
+
+    it('returns the unchanged URL when workspaceId is omitted', () => {
+      const url = service.getDownloadUrl('p1', 'src/a.md');
+      expect(url).toBe(`${environment.api}/workspace/p1/file?path=src%2Fa.md`);
     });
   });
 
@@ -322,6 +395,32 @@ describe('WorkspaceService', () => {
       await service.uploadFiles('p1', [boundary]);
 
       expect(fetchServiceSpy.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('appends ?workspace_id (encoded) to EVERY POST URL when workspaceId is set', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(undefined));
+      const f1 = new File(['a'], 'a.txt');
+      const f2 = new File(['b'], 'b.txt');
+
+      await service.uploadFiles('p1', [f1, f2], 'docs', 'ws/1');
+
+      expect(fetchServiceSpy.fetch).toHaveBeenCalledTimes(2);
+      for (const call of fetchServiceSpy.fetch.calls.all()) {
+        expect(call.args[0].url).toBe(
+          `${environment.api}/workspace/p1/file?workspace_id=ws%2F1`
+        );
+      }
+    });
+
+    it('leaves the bare /file POST URL unchanged when workspaceId is omitted', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(undefined));
+      const f1 = new File(['a'], 'a.txt');
+
+      await service.uploadFiles('p1', [f1], 'docs');
+
+      expect(fetchServiceSpy.fetch.calls.first().args[0].url).toBe(
+        `${environment.api}/workspace/p1/file`
+      );
     });
   });
 });
