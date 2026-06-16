@@ -295,7 +295,7 @@ def _attach_owner_or_admin_gate(router: APIRouter) -> None:
         for route in router.routes:
             if not isinstance(route, APIRoute):
                 continue
-            if route.path == path and method in route.methods:
+            if route.path == path and route.methods is not None and method in route.methods:
                 route.dependencies.append(dep)
                 route.dependant.dependencies.insert(
                     0,
@@ -332,7 +332,7 @@ def _attach_import_owner_or_admin_gate(router: APIRouter) -> None:
     for route in router.routes:
         if not isinstance(route, APIRoute):
             continue
-        if route.path == path and method in route.methods:
+        if route.path == path and route.methods is not None and method in route.methods:
             route.dependencies.append(dep)
             route.dependant.dependencies.insert(
                 0,
