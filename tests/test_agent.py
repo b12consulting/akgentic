@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic_ai import BinaryContent
 from pydantic_ai.exceptions import UsageLimitExceeded
-from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 
 from akgentic.llm import (
     ModelConfig,
@@ -16,7 +16,12 @@ from akgentic.llm import (
     UsageLimits,
     UserPrompt,
 )
-from akgentic.llm.event import LlmMessageEvent, ToolCallEvent
+from akgentic.llm.event import (
+    LlmMessageEvent,
+    LlmSystemPromptEvent,
+    SystemPromptPartSnapshot,
+    ToolCallEvent,
+)
 
 
 class MockObserver:
@@ -559,6 +564,140 @@ class FakeEventMessage:
     event: object
 
 
+class TestReactAgentFoldsPendingOperatorActions:
+    """ReactAgent.run folds buffered pre-first-run operator actions (FR4, FR5)."""
+
+    @staticmethod
+    def _capturing_run_factory(captured: dict):
+        """Return a MockRun class that records the kwargs passed to iter()."""
+
+        class MockRun:
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+                self.result = MagicMock(output="ok")
+                self._new_messages: list = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+            def new_messages(self):
+                return self._new_messages
+
+        return MockRun
+
+    @pytest.mark.asyncio
+    async def test_str_prompt_gets_preamble_prepended(self, minimal_config):
+        """FR4: a buffered entry is prepended to a str prompt with a blank-line join."""
+        agent = ReactAgent(config=minimal_config)
+        agent.context.record_operator_action("[Operator action] ran /reset")
+        captured: dict = {}
+
+        with patch.object(
+            agent._pydantic_agent, "iter", side_effect=self._capturing_run_factory(captured)
+        ):
+            await agent.run("hello")
+
+        assert captured["user_prompt"] == "[Operator action] ran /reset\n\nhello"
+
+    @pytest.mark.asyncio
+    async def test_multiple_entries_joined_in_order(self, minimal_config):
+        """FR4: multiple buffered entries join with blank lines, then the prompt."""
+        agent = ReactAgent(config=minimal_config)
+        agent.context.record_operator_action("first")
+        agent.context.record_operator_action("second")
+        captured: dict = {}
+
+        with patch.object(
+            agent._pydantic_agent, "iter", side_effect=self._capturing_run_factory(captured)
+        ):
+            await agent.run("body")
+
+        assert captured["user_prompt"] == "first\n\nsecond\n\nbody"
+
+    @pytest.mark.asyncio
+    async def test_list_prompt_gets_preamble_as_leading_element(self, minimal_config):
+        """FR4: a multimodal list prompt gets the preamble inserted as its first element."""
+        agent = ReactAgent(config=minimal_config)
+        agent.context.record_operator_action("op-A")
+        agent.context.record_operator_action("op-B")
+        bc = BinaryContent(data=b"img", media_type="image/png")
+        multimodal: list = ["describe", bc]
+        captured: dict = {}
+
+        with patch.object(
+            agent._pydantic_agent, "iter", side_effect=self._capturing_run_factory(captured)
+        ):
+            await agent.run(multimodal)
+
+        assert captured["user_prompt"] == ["op-A\n\nop-B", "describe", bc]
+
+    @pytest.mark.asyncio
+    async def test_run_clears_buffer(self, minimal_config):
+        """FR4: after a run the operator-action buffer is empty."""
+        agent = ReactAgent(config=minimal_config)
+        agent.context.record_operator_action("once")
+        captured: dict = {}
+
+        with patch.object(
+            agent._pydantic_agent, "iter", side_effect=self._capturing_run_factory(captured)
+        ):
+            await agent.run("q")
+
+        assert agent.context.drain_pending_operator_actions() == []
+
+    @pytest.mark.asyncio
+    async def test_empty_buffer_leaves_str_prompt_unchanged(self, minimal_config):
+        """FR4: with nothing buffered, a str prompt passes through unchanged."""
+        agent = ReactAgent(config=minimal_config)
+        captured: dict = {}
+
+        with patch.object(
+            agent._pydantic_agent, "iter", side_effect=self._capturing_run_factory(captured)
+        ):
+            await agent.run("plain")
+
+        assert captured["user_prompt"] == "plain"
+
+    @pytest.mark.asyncio
+    async def test_empty_buffer_leaves_list_prompt_identical(self, minimal_config):
+        """FR4: with nothing buffered, a list prompt passes through as the same object."""
+        agent = ReactAgent(config=minimal_config)
+        multimodal: list = ["text", BinaryContent(data=b"x", media_type="image/png")]
+        captured: dict = {}
+
+        with patch.object(
+            agent._pydantic_agent, "iter", side_effect=self._capturing_run_factory(captured)
+        ):
+            await agent.run(multimodal)
+
+        assert captured["user_prompt"] is multimodal
+
+    @pytest.mark.asyncio
+    async def test_message_history_stays_empty_so_system_prompt_injects(self, minimal_config):
+        """FR5: folding leaves message_history empty so pydantic-ai injects the system prompt."""
+        agent = ReactAgent(config=minimal_config)
+        agent.context.record_operator_action("[Operator action] ran /help")
+        captured: dict = {}
+
+        with patch.object(
+            agent._pydantic_agent, "iter", side_effect=self._capturing_run_factory(captured)
+        ):
+            await agent.run("question")
+
+        # message_history is the drain-independent run buffer — empty before the
+        # first run, so pydantic-ai's `if not messages` injection path runs.
+        assert captured["message_history"] == []
+
+
 class TestReactAgentRestoreContext:
     """Test ReactAgent.restore_context() method."""
 
@@ -646,3 +785,278 @@ class TestReactAgentRestoreContext:
         assert len(agent.context.messages) == 5
         for i, m in enumerate(agent.context.messages):
             assert m.parts[0].content == f"msg-{i}"  # type: ignore[attr-defined]
+
+
+# --- System prompt rendering events: run-lifecycle wiring (Story 6-2) ---
+
+
+def _system_request_with_run_id(
+    *system_parts: tuple[str | None, str],
+    run_id: str = "run-1",
+) -> ModelRequest:
+    """Build a first ModelRequest with system parts + a user part and a run_id.
+
+    Mirrors the shape pydantic-ai stamps on a run's first ModelRequest: one
+    SystemPromptPart per (dynamic_ref, content) pair, a trailing UserPromptPart,
+    and the run's run_id set on the message.
+    """
+    parts: list[object] = [
+        SystemPromptPart(content=content, dynamic_ref=dynamic_ref)
+        for dynamic_ref, content in system_parts
+    ]
+    parts.append(UserPromptPart(content="Hello"))
+    return ModelRequest(parts=parts, run_id=run_id)  # type: ignore[arg-type]
+
+
+def _make_mock_run(new_messages: list[ModelRequest]):
+    """Return a MockRun instance whose new_messages() yields `new_messages`."""
+
+    class MockRun:
+        def __init__(self) -> None:
+            self.result = MagicMock(output="ok")
+            self._new_messages = new_messages
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not hasattr(self, "_iterated"):
+                self._iterated = True
+                return None
+            raise StopAsyncIteration
+
+        def new_messages(self):
+            return self._new_messages
+
+    return MockRun()
+
+
+def _system_events(observer: MockObserver) -> list[LlmSystemPromptEvent]:
+    """Filter an observer's captured events to LlmSystemPromptEvent instances."""
+    return [e for e in observer.events if isinstance(e, LlmSystemPromptEvent)]
+
+
+class TestReactAgentRunRecordsSystemPrompt:
+    """Per-run system prompt recording wired into ReactAgent.run() (AC 1, 2, 3)."""
+
+    @pytest.mark.asyncio
+    async def test_run_records_one_event_with_run_id(self, minimal_config):
+        """AC 1/2: one LlmSystemPromptEvent emitted, run_id matches the run's messages."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        run = _make_mock_run([_system_request_with_run_id(("backstory", "B."), run_id="abc")])
+        with patch.object(agent._pydantic_agent, "iter", return_value=run):
+            await agent.run("query")
+
+        events = _system_events(observer)
+        assert len(events) == 1
+        assert events[0].run_id == "abc"
+
+    @pytest.mark.asyncio
+    async def test_dedup_across_two_unchanged_runs(self, minimal_config):
+        """AC 3: two runs with identical rendering emit exactly one event total."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        run1 = _make_mock_run(
+            [_system_request_with_run_id(("backstory", "B."), run_id="r1")]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run1):
+            await agent.run("query 1")
+
+        run2 = _make_mock_run(
+            [_system_request_with_run_id(("backstory", "B."), run_id="r2")]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run2):
+            await agent.run("query 2")
+
+        assert len(_system_events(observer)) == 1
+
+    @pytest.mark.asyncio
+    async def test_changed_rendering_emits_second_event(self, minimal_config):
+        """AC 2: a changed current_date block emits a second, distinct event."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        run1 = _make_mock_run(
+            [_system_request_with_run_id(("current_date", "Day 1."), run_id="r1")]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run1):
+            await agent.run("query 1")
+
+        # Simulate pydantic-ai's in-place re-evaluation by mutating the first
+        # request's system part content before the next run.
+        first_request = agent.context.messages[0]
+        first_request.parts[0].content = "Day 2."  # type: ignore[union-attr]
+
+        run2 = _make_mock_run(
+            [ModelRequest(parts=[UserPromptPart(content="more")], run_id="r2")]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run2):
+            await agent.run("query 2")
+
+        events = _system_events(observer)
+        assert len(events) == 2
+        assert events[0].content_hash != events[1].content_hash
+
+    @pytest.mark.asyncio
+    async def test_no_new_messages_records_nothing(self, minimal_config):
+        """AC 1 edge: a run with no new messages records no event (no run_id)."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        run = _make_mock_run([])
+        with patch.object(agent._pydantic_agent, "iter", return_value=run):
+            await agent.run("query")
+
+        assert _system_events(observer) == []
+
+    @pytest.mark.asyncio
+    async def test_messages_without_run_id_record_nothing(self, minimal_config):
+        """AC 1 edge: new messages lacking a run_id skip the recording call."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        run = _make_mock_run(
+            [_system_request_with_run_id(("backstory", "B."), run_id=None)]  # type: ignore[arg-type]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run):
+            await agent.run("query")
+
+        assert _system_events(observer) == []
+
+
+class TestReactAgentRestoreSeedsSystemPromptHash:
+    """restore_context() seeds the dedup hash from persisted events (AC 4, 5, 6, 7)."""
+
+    def test_seed_from_persisted_event(self, minimal_config):
+        """AC 4: the seeded hash equals the persisted event's content_hash."""
+        agent = ReactAgent(config=minimal_config)
+
+        event = LlmSystemPromptEvent(
+            run_id="r1",
+            parts=(SystemPromptPartSnapshot(dynamic_ref="b", content="B."),),
+            content_hash="abc123",
+        )
+        agent.restore_context([FakeEventMessage(event=event)])
+
+        assert agent.context._last_system_prompt_hash == "abc123"
+
+    def test_seed_suppresses_unchanged_reemission(self, minimal_config):
+        """AC 4: a run matching the seeded rendering emits nothing."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        # Compute the real hash for ("backstory", "B.") via a throwaway manager run.
+        probe = ReactAgent(config=minimal_config)
+        probe.context.add_message(_system_request_with_run_id(("backstory", "B."), run_id="r0"))
+        probe.context.record_system_prompt("r0")
+        known_hash = probe.context._last_system_prompt_hash
+
+        event = LlmSystemPromptEvent(
+            run_id="r1",
+            parts=(SystemPromptPartSnapshot(dynamic_ref="backstory", content="B."),),
+            content_hash=known_hash,
+        )
+        agent.restore_context([FakeEventMessage(event=event)])
+
+        run = _make_mock_run(
+            [_system_request_with_run_id(("backstory", "B."), run_id="r2")]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run):
+            agent.run_sync("query")
+
+        assert _system_events(observer) == []
+
+    def test_post_restore_change_emits(self, minimal_config):
+        """AC 5: a run whose rendering differs from the seed emits one event."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        event = LlmSystemPromptEvent(
+            run_id="r1",
+            parts=(SystemPromptPartSnapshot(dynamic_ref="backstory", content="Old."),),
+            content_hash="seeded-hash-that-differs",
+        )
+        agent.restore_context([FakeEventMessage(event=event)])
+
+        run = _make_mock_run(
+            [_system_request_with_run_id(("backstory", "New."), run_id="r2")]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run):
+            agent.run_sync("query")
+
+        assert len(_system_events(observer)) == 1
+
+    def test_latest_event_wins_on_restore(self, minimal_config):
+        """AC 4: with two persisted events, the later one's hash is seeded."""
+        agent = ReactAgent(config=minimal_config)
+
+        first = LlmSystemPromptEvent(run_id="r1", parts=(), content_hash="first-hash")
+        second = LlmSystemPromptEvent(run_id="r2", parts=(), content_hash="second-hash")
+        agent.restore_context(
+            [FakeEventMessage(event=first), FakeEventMessage(event=second)]
+        )
+
+        assert agent.context._last_system_prompt_hash == "second-hash"
+
+    def test_no_persisted_event_leaves_hash_none(self, minimal_config):
+        """AC 6: only LlmMessageEvents present ⇒ dedup hash stays None."""
+        agent = ReactAgent(config=minimal_config)
+
+        msg = ModelRequest(parts=[UserPromptPart(content="Hi")])
+        agent.restore_context([FakeEventMessage(event=LlmMessageEvent(message=msg))])
+
+        assert agent.context._last_system_prompt_hash is None
+
+    def test_pre_event_history_first_run_emits(self, minimal_config):
+        """AC 6: after a seed-less restore, the first run emits the None → hash event.
+
+        An older team persisted its run-1 messages (whose first ModelRequest
+        carries the system parts) but never persisted an LlmSystemPromptEvent, so
+        restore leaves the dedup hash at None and the next record emits.
+        """
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+
+        # Pre-event history: a persisted first ModelRequest with system parts,
+        # but no LlmSystemPromptEvent to seed from.
+        msg = _system_request_with_run_id(("backstory", "B."), run_id="r1")
+        agent.restore_context([FakeEventMessage(event=LlmMessageEvent(message=msg))])
+        assert agent.context._last_system_prompt_hash is None
+
+        run = _make_mock_run(
+            [ModelRequest(parts=[UserPromptPart(content="more")], run_id="r2")]
+        )
+        with patch.object(agent._pydantic_agent, "iter", return_value=run):
+            agent.run_sync("query")
+
+        assert len(_system_events(observer)) == 1
+
+    def test_messages_still_restored_with_seed(self, minimal_config):
+        """AC 7: message restore is unchanged when a seed event is also present."""
+        agent = ReactAgent(config=minimal_config)
+
+        msg1 = ModelRequest(parts=[UserPromptPart(content="Hello")])
+        msg2 = ModelRequest(parts=[UserPromptPart(content="World")])
+        seed_event = LlmSystemPromptEvent(run_id="r1", parts=(), content_hash="abc")
+
+        agent.restore_context(
+            [
+                FakeEventMessage(event=LlmMessageEvent(message=msg1)),
+                FakeEventMessage(event=seed_event),
+                FakeEventMessage(event=LlmMessageEvent(message=msg2)),
+            ]
+        )
+
+        assert len(agent.context.messages) == 2
+        assert agent.context.messages[0] is msg1
+        assert agent.context.messages[1] is msg2
+        assert agent.context._last_system_prompt_hash == "abc"
