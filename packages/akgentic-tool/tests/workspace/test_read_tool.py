@@ -663,6 +663,21 @@ class TestRetriableErrorReadTool:
             with pytest.raises(RetriableError, match="Path escapes workspace root"):
                 list_fn("some/path")
 
+    def test_list_missing_directory_raises_retriable_error(self, tmp_path: Path) -> None:
+        """workspace_list raises RetriableError for a non-existent directory."""
+        tool = make_tool(tmp_path)
+        list_fn = next(t for t in tool.get_tools() if t.__name__ == "workspace_list")
+        with pytest.raises(RetriableError, match="Directory not found: nonexistent"):
+            list_fn("nonexistent")
+
+    def test_list_path_is_file_raises_retriable_error(self, tmp_path: Path) -> None:
+        """workspace_list raises RetriableError when the path points at a file."""
+        tool = make_tool(tmp_path)
+        (tool.workspace._root / "file.txt").write_text("data", encoding="utf-8")
+        list_fn = next(t for t in tool.get_tools() if t.__name__ == "workspace_list")
+        with pytest.raises(RetriableError, match="Directory not found: file.txt"):
+            list_fn("file.txt")
+
     def test_glob_permission_error_raises_retriable_error(self, tmp_path: Path) -> None:
         """workspace_glob raises RetriableError for path escaping workspace."""
         tool = make_tool(tmp_path)
@@ -1322,7 +1337,7 @@ class TestExpandMediaRefs:
         ]
 
     def test_expand_media_refs_not_in_get_tools(self, tmp_path: Path) -> None:
-        """AC-8 / Task 6.9: ExpandMediaRefs must NOT appear in get_tools() — COMMAND channel only."""
+        """ExpandMediaRefs must NOT appear in get_tools() — COMMAND channel only."""
         tool = make_tool(tmp_path)
         tools = tool.get_tools()
         tool_names = [fn.__name__ for fn in tools]

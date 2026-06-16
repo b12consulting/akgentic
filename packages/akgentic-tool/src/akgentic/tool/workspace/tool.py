@@ -740,7 +740,9 @@ class WorkspaceTool(ToolCard):
                 files as ``name (N bytes)``. Returns "Empty directory." if no entries.
 
             Raises:
-                RetriableError: If path escapes the workspace root.
+                RetriableError: If the directory does not exist, the path points at
+                    a file rather than a directory, or the path escapes the
+                    workspace root.
             """
             try:
                 if path:
@@ -765,6 +767,8 @@ class WorkspaceTool(ToolCard):
                     # ASCII tree — depth=0 means unlimited, depth>1 means N levels
                     tree_lines = _build_tree(resolved, max_depth=depth)
                     return ".\n" + "\n".join(tree_lines) if tree_lines else "Empty directory."
+            except (FileNotFoundError, NotADirectoryError):
+                raise RetriableError(f"Directory not found: {path}")
             except PermissionError:
                 raise RetriableError(_PERM_ERR_MSG)
 

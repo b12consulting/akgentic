@@ -14,3 +14,17 @@ class RetriableError(Exception):
     """
 
     pass
+
+
+class CommandNotRecognized(Exception):  # noqa: N818 — story-mandated name; identification signal
+    """Raised when the first dispatch token is not a known command (ADR-028 §Decision 4).
+
+    This is an *identification-failure* signal, not a tool execution error: it
+    tells the agent message handler "this was never a command — treat it as plain
+    text and fall back to normal LLM processing." It is deliberately NOT a
+    :class:`RetriableError` subclass; a retriable error means "retry with corrected
+    input," which is a semantically distinct outcome. The two hierarchies are
+    kept disjoint on purpose.
+    """
+
+    pass

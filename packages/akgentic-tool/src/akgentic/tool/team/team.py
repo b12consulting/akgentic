@@ -454,7 +454,7 @@ class TeamTool(ToolCard):
         orchestrator_proxy = self._orchestrator_proxy
         observer = self._observer
 
-        def team_roster_prompt() -> str:
+        def team_members() -> str:
             """Get current team composition as context.
 
             Returns formatted list of team members with their roles, marking the
@@ -478,12 +478,14 @@ class TeamTool(ToolCard):
                 if not team_members_names:
                     return ""
 
-                return "**Team members:**\n" + "\n".join(team_members_names)
+                return "**Here is the team member list by name (and role):**\n" + "\n".join(
+                    team_members_names
+                )
             except Exception:
                 logger.error("Failed to get team roster", exc_info=True)
                 return "Cannot get team roster..."
 
-        return team_roster_prompt
+        return team_members
 
     def _role_profiles_prompt_factory(self, params: GetRoleProfiles) -> Callable:
         """Create role profiles system prompt callable.
@@ -496,7 +498,7 @@ class TeamTool(ToolCard):
         """
         orchestrator_proxy = self._orchestrator_proxy
 
-        def role_profiles_prompt() -> str:
+        def team_roles() -> str:
             """Get available team roles and their descriptions.
 
             Returns formatted list of roles with descriptions and skills from the
@@ -518,9 +520,11 @@ class TeamTool(ToolCard):
                 if not profiles:
                     return ""
 
-                return "**Available team roles:**\n" + "\n".join(profiles)
+                return "**Here is the available team role list (for hiring):**\n" + "\n".join(
+                    profiles
+                )
             except Exception:
                 logger.error("Failed to get role profiles", exc_info=True)
                 return "Cannot get role profiles..."
 
-        return role_profiles_prompt
+        return team_roles
