@@ -1,19 +1,27 @@
 """Context management with checkpointing and compactification."""
 
 import copy
+import hashlib
 import uuid
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from pydantic_ai.messages import ModelMessage, ModelRequest, SystemPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    SystemPromptPart,
+    UserPromptPart,
+)
 
 from akgentic.llm.event import (
     ContextObserver,
     LlmCheckpointCreatedEvent,
     LlmCheckpointRestoredEvent,
     LlmMessageEvent,
+    LlmSystemPromptEvent,
     LlmUsageEvent,
+    SystemPromptPartSnapshot,
     ToolCallEvent,
     ToolReturnEvent,
 )
@@ -110,6 +118,8 @@ class ContextManager:
         self._checkpoints: dict[str, ContextSnapshot] = {}
         self._checkpoint_order: list[str] = []
         self._observers: list[ContextObserver] = []
+        self._last_system_prompt_hash: str | None = None
+        self._pending_operator_actions: list[str] = []
 
     @property
     def messages(self) -> list[ModelMessage]:
@@ -147,6 +157,50 @@ class ContextManager:
         self._notify(LlmMessageEvent(message=message))
         self._emit_tool_events(message)
         self._emit_usage_event(message)
+
+    def record_operator_action(self, entry: str) -> None:
+        """Record a human operator-action entry, respecting pydantic-ai's first-run rule.
+
+        pydantic-ai injects its registered ``@system_prompt`` functions only when
+        the ``message_history`` it is handed arrives empty (``if not messages``).
+        It never *adds* a missing system prompt to a non-empty history. That
+        couples how an operator action may be recorded to whether the run buffer
+        has been materialized yet:
+
+        - **After the first run** a system-bearing ``ModelRequest`` already exists
+          in ``_messages``, so appending a bare user-role ``ModelRequest`` is safe:
+          it emits an ``LlmMessageEvent`` and becomes visible in the next run's
+          history without affecting injection.
+        - **Before the first run** ``_messages`` is empty. Appending a system-less
+          ``ModelRequest`` here would make the next run's ``message_history``
+          non-empty and **suppress** system-prompt injection, leaving the agent's
+          first turn blind to its backstory/date/roster/mailbox. So the entry is
+          buffered instead, and ``ReactAgent.run`` folds it into the next run's
+          ``user_prompt`` (keeping ``message_history`` empty).
+
+        Args:
+            entry: The fully formatted operator-action text to record.
+        """
+        if self._messages:
+            self.add_message(ModelRequest(parts=[UserPromptPart(content=entry)]))
+        else:
+            self._pending_operator_actions.append(entry)
+
+    def drain_pending_operator_actions(self) -> list[str]:
+        """Return buffered pre-first-run operator actions and clear the buffer.
+
+        Returns the buffered entries in record order, then resets the buffer to
+        empty. ``ReactAgent.run`` calls this to fold the entries into the next
+        run's ``user_prompt`` so they reach the model without suppressing
+        system-prompt injection (see ``record_operator_action``).
+
+        Returns:
+            The buffered operator-action entries, in record order. Empty when
+            nothing has been buffered.
+        """
+        pending = self._pending_operator_actions
+        self._pending_operator_actions = []
+        return pending
 
     def _emit_tool_events(self, message: ModelMessage) -> None:
         """Emit ToolCallEvent or ToolReturnEvent for tool-related message parts.
@@ -211,6 +265,94 @@ class ContextManager:
                 requests=usage.requests,
             )
         )
+
+    def record_system_prompt(self, run_id: str) -> None:
+        """Capture the effective system prompt for a run; emit if it changed.
+
+        Scans the first ``ModelRequest`` in context for ``SystemPromptPart``s
+        (pydantic-ai re-evaluates dynamic parts in place before each model call),
+        hashes the ordered ``(dynamic_ref, content)`` sequence, and emits an
+        ``LlmSystemPromptEvent`` only when the hash differs from the last
+        recorded one. Implements ADR-004 §2.
+
+        No event is emitted when there is no first ``ModelRequest``, when it has
+        no ``SystemPromptPart``s, or when the rendering is unchanged since the
+        last recorded hash. See ADR-004 for the dedup rationale.
+
+        Args:
+            run_id: The ReactAgent run ID this rendering belongs to.
+        """
+        snapshots = self._snapshot_system_parts()
+        if not snapshots:
+            return
+        content_hash = self._hash_parts(snapshots)
+        if content_hash == self._last_system_prompt_hash:
+            return
+        self._notify(LlmSystemPromptEvent(run_id, tuple(snapshots), content_hash))
+        self._last_system_prompt_hash = content_hash
+
+    def seed_system_prompt_hash(self, content_hash: str | None) -> None:
+        """Seed the dedup hash without notifying observers.
+
+        Mirrors the ``restore`` contract: load persisted dedup state so an
+        unchanged rendering does not re-emit after restoration, without firing
+        observer events. Implements ADR-004 §3.
+
+        Args:
+            content_hash: The ``content_hash`` of the latest persisted
+                ``LlmSystemPromptEvent``, or ``None`` to reset dedup state.
+        """
+        self._last_system_prompt_hash = content_hash
+
+    def _snapshot_system_parts(self) -> list[SystemPromptPartSnapshot]:
+        """Snapshot the first ModelRequest's system parts, in model order.
+
+        Returns:
+            One snapshot per ``SystemPromptPart`` on the first ``ModelRequest``,
+            in part order. Empty if there is no first ``ModelRequest`` or it has
+            no system parts.
+        """
+        first_request = next(
+            (m for m in self._messages if isinstance(m, ModelRequest)), None
+        )
+        if first_request is None:
+            return []
+        return [
+            SystemPromptPartSnapshot(dynamic_ref=part.dynamic_ref, content=part.content)
+            for part in first_request.parts
+            if part.part_kind == "system-prompt"
+        ]
+
+    @staticmethod
+    def _hash_parts(snapshots: list[SystemPromptPartSnapshot]) -> str:
+        """Compute a stable, order-sensitive sha256 hex digest over snapshots.
+
+        Each ``(dynamic_ref, content)`` pair is encoded with a length prefix so
+        distinct sequences cannot collide on the same byte string. ``None`` and
+        the empty string for ``dynamic_ref`` are disambiguated by a leading
+        marker byte.
+
+        Args:
+            snapshots: System part snapshots, in model order.
+
+        Returns:
+            sha256 hex digest of the encoded sequence.
+        """
+        hasher = hashlib.sha256()
+        for snap in snapshots:
+            if snap.dynamic_ref is None:
+                hasher.update(b"0")
+            else:
+                ref_bytes = snap.dynamic_ref.encode("utf-8")
+                hasher.update(b"1")
+                hasher.update(str(len(ref_bytes)).encode("ascii"))
+                hasher.update(b":")
+                hasher.update(ref_bytes)
+            content_bytes = snap.content.encode("utf-8")
+            hasher.update(str(len(content_bytes)).encode("ascii"))
+            hasher.update(b":")
+            hasher.update(content_bytes)
+        return hasher.hexdigest()
 
     def _apply_window(self) -> None:
         """Apply sliding window to messages.
