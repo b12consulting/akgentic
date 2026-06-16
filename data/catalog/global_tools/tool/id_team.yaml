@@ -1,0 +1,20 @@
+id: id_team
+kind: tool
+namespace: global_tools
+user_id: admin
+model_type: akgentic.tool.team.TeamTool
+description: Team management tool — hire/fire members, role profiles, team roster (all defaults)
+payload:
+  name: Team
+  hire_team_members:
+    instructions: null
+    expose: [tool_call, command]
+  fire_team_members:
+    instructions: null
+    expose: [tool_call, command]
+  get_role_profiles:
+    instructions: null
+    expose: [system_prompt, command]
+  get_team_roster:
+    instructions: null
+    expose: [system_prompt, command]

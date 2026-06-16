@@ -1,0 +1,11 @@
+id: id_vector_store
+kind: tool
+namespace: global_tools
+user_id: admin
+model_type: akgentic.tool.vector_store.VectorStoreTool
+description: Vector store tool — embedding-backed semantic store (all defaults)
+payload:
+  name: Vector Store
+  vector_store_name: "#VectorStore"
+  embedding_model: text-embedding-3-small
+  embedding_provider: openai

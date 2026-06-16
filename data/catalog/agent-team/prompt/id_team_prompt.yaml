@@ -5,4 +5,4 @@ user_id: anonymous
 model_type: akgentic.llm.PromptTemplate
 description: Default system prompt for team members
 payload:
-  template: "You are a helpful {role}. \n{instructions}\n\nCall me Geoff (@Human)\n"
+  template: "You are a helpful {role}. \n{instructions}"

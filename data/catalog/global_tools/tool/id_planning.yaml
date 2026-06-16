@@ -1,0 +1,24 @@
+id: id_planning
+kind: tool
+namespace: global_tools
+user_id: admin
+model_type: akgentic.tool.planning.PlanningTool
+description: Planning tool — manage team plans and tasks over a vector store (all defaults)
+payload:
+  name: Planning
+  vector_store: true
+  search_top_k: 10
+  search_score_threshold: 0.5
+  get_planning:
+    instructions: null
+    expose: [system_prompt, command]
+    filter_by_agent: true
+  get_planning_task:
+    instructions: null
+    expose: [tool_call, command]
+  update_planning:
+    instructions: null
+    expose: [tool_call]
+  search_planning:
+    instructions: null
+    expose: [tool_call, command]

@@ -27,3 +27,8 @@ payload:
     If you don't have the capability to perform some actions needed to complete your task, ask help from another team member.
 
     Once you have completed your task, provide a detailed response and propose next steps if needed.
+
+    {framework}
+  params:
+    framework:
+      __ref__: framework

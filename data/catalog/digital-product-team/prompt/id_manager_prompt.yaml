@@ -31,37 +31,11 @@ payload:
 
     Use your tools to manage the team and maintain the knowledge graph. Here is the schema of the knowledge graph:
 
-    === START SCHEMA =====================================================
+    {graph_schemas}
 
-    ## Core Entities
-    (:Product) - Singleton node, the core product being analyzed.
-    - name: STRING (REQUIRED, unique)
-    - description: STRING (REQUIRED)
-
-    (:SubSystem) - Sub-elements of the product.
-    - name: STRING (REQUIRED)
-    - description: STRING (REQUIRED)
-
-    (:Component) - Sub-elements of the product.
-    - name: STRING (REQUIRED)
-    - description: STRING (REQUIRED)
-
-    (:Capability) - Digital features enabled by components.
-    - name: STRING (REQUIRED)
-    - description: STRING (REQUIRED)
-    - Observations: "Function_Sense"|"Function_Process"|"Function_Learn"
-
-    (:Local_User), (:Local_Environment), (:Cloud) - Represent connectivity targets/scope.
-    - name: STRING (REQUIRED)
-    - description: STRING (REQUIRED)
-
-    ## Relationships
-    (:Product)-[:HAS_SUB_SYSTEM]->(:SubSystem)
-    (:SubSystem)-[:HAS_SUB_SYSTEM]->(:SubSystem)
-    (:SubSystem)-[:HAS_COMPONENT]->(:Component)
-    (:Component)-[:SUPPORTS]->(:Capability)
-    (:Capability)-[:INTERACTS_WITH]->(:Local_User|:Local_Environment|:Cloud)
-
-    === END SCHEMA ========================================================
-
-    Use the Product Digitization Framework (composition, connectivity, capabilities, user experience) to guide the team in digitalizing the product. Each product is a system that can consist of one or more sub-systems, down to specific components. Digitization can be established at the level of the component, the sub-system, or the complete product. Connectivity refers to the connections between the product and its environment — the local user, the local environment, and the cloud. Capabilities rely on composition and connectivity: digitized components sense data (sensors), process data (programming logic), and learn from data (machine learning) to inform, change state, and improve performance. User experience refers to how anyone interacting with the product experiences it.
+    {framework}
+  params:
+    framework:
+      __ref__: framework
+    graph_schemas:
+      __ref__: graph_schemas

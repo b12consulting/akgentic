@@ -1,0 +1,18 @@
+id: id_usage_limits
+kind: model
+namespace: global
+user_id: admin
+model_type: akgentic.llm.UsageLimits
+description: |
+  Token/request budgets to control costs for each react agent run (all defaults).
+  Limits are enforced cumulatively across all requests within a single agent run; exceeding any
+  of them raises UsageLimitError and stops the run. Every limit is optional — set it to null to
+  mean "unlimited" — except request_limit, which defaults to 50 as a safety stop against runaway
+  ReAct loops. Set the *_tokens_limit fields to cap spend per run; set tool_calls_limit to bound
+  how many tools an agent may invoke.
+payload:
+  request_limit: 50          # max LLM API requests per run; null = unlimited (default 50 guards runaway loops)
+  tool_calls_limit: null     # max tool invocations per run; null = unlimited
+  input_tokens_limit: null   # cap on cumulative input/prompt tokens across all requests; null = unlimited
+  output_tokens_limit: null  # cap on cumulative output/completion tokens across all requests; null = unlimited
+  total_tokens_limit: null   # cap on cumulative total tokens (input + output) across all requests; null = unlimited

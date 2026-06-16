@@ -1,0 +1,40 @@
+id: graph_schemas
+kind: model
+namespace: digital-product-team
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: GraphDB schemas
+payload:
+  value: |
+    === START SCHEMA =====================================================
+
+    ## Core Entities
+    (:Product) - Singleton node, the core product being analyzed.
+    - name: STRING (REQUIRED, unique)
+    - description: STRING (REQUIRED)
+
+    (:SubSystem) - Sub-elements of the product.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+
+    (:Component) - Sub-elements of the product.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+
+    (:Capability) - Digital features enabled by components.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+    - Observations: "Function_Sense"|"Function_Process"|"Function_Learn"
+
+    (:Local_User), (:Local_Environment), (:Cloud) - Represent connectivity targets/scope.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+
+    ## Relationships
+    (:Product)-[:HAS_SUB_SYSTEM]->(:SubSystem)
+    (:SubSystem)-[:HAS_SUB_SYSTEM]->(:SubSystem)
+    (:SubSystem)-[:HAS_COMPONENT]->(:Component)
+    (:Component)-[:SUPPORTS]->(:Capability)
+    (:Capability)-[:INTERACTS_WITH]->(:Local_User|:Local_Environment|:Cloud)
+
+    === END SCHEMA ========================================================

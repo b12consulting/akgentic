@@ -9,7 +9,6 @@ payload:
   description: Product Manager-led team applying the Product Digitization Framework
     — Composer, Connector, Capability Engineer and Context Manager, backed by a knowledge
     graph
-  properties:
-    user_name: Geoff
+  properties: {}
   shareable: false
-  public: false
+  public: true

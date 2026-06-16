@@ -6,9 +6,7 @@ model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
 description: ''
 payload:
   name: Agent Team V1
-  description: Manager coordinating Assistant, Expert and Support Human agents team
-    !
-  properties:
-    user_name: Geoff
+  description: Manager coordinating Assistant, Expert and Support Human agents team!
+  properties: {}
   shareable: false
-  public: false
+  public: true

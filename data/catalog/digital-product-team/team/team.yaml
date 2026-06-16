@@ -31,7 +31,7 @@ payload:
       __ref__: human_proxy
   members:
   - card:
-      __ref__: manager
+      __ref__: product_manager
     members:
     - card:
         __ref__: product_composer

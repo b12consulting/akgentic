@@ -1,0 +1,19 @@
+id: id_mcp
+kind: tool
+namespace: global_tools
+user_id: admin
+model_type: akgentic.tool.mcp.MCPTool
+description: MCP tool — connect to an external Model Context Protocol server (stdio connection, all defaults)
+payload:
+  name: MCP
+  connection:
+    transport: stdio
+    stdio_command: null
+    stdio_args: []
+    stdio_env: null
+    stdio_cwd: null
+    stdio_token_env_var: null
+    bearer_token: null
+    timeout: 10.0
+    read_timeout: 300.0
+    tool_prefix: null

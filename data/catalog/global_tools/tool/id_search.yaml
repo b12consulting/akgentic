@@ -1,0 +1,26 @@
+id: id_search
+kind: tool
+namespace: global_tools
+user_id: admin
+model_type: akgentic.tool.search.SearchTool
+description: Web search + crawl + fetch over Tavily (all defaults)
+payload:
+  name: Search
+  web_search:
+    instructions: null
+    expose: [tool_call, system_promt]
+    max_results: 5
+    search_depth: null
+  web_crawl:
+    instructions: null
+    expose: [tool_call]
+    timeout: 150.0
+    max_depth: null
+    max_breadth: null
+    limit: null
+    extract_depth: null
+  web_fetch:
+    instructions: null
+    expose: [tool_call]
+    timeout: 30.0
+    extract_depth: null
