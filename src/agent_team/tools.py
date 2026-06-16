@@ -48,10 +48,4 @@ github_tool = MCPTool(
     ),
 )
 
-tools = [
-    search_tool,
-    workspace_tool,
-    vector_store_tool,
-    planning_tool,
-    knowledge_graph_tool,
-]
+tools = [search_tool, workspace_tool, vector_store_tool, planning_tool, knowledge_graph_tool]

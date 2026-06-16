@@ -202,7 +202,6 @@ def main() -> None:
     time.sleep(0.3)
 
     print()
-    print(manager_proxy.cmd_get_team_roster())
 
     # 9. Interactive chat loop
     def print_help() -> None:
@@ -224,6 +223,19 @@ def main() -> None:
     )
 
     print("-" * 100)
+
+    # Friendly slash aliases → real CommandRegistry command names dispatched by the agent
+    # (ADR-028). /help and /usage are handled locally by this CLI; every other "/" command
+    # is sent to the manager as a normal message for its CommandRegistry to dispatch.
+    command_aliases = {
+        "team": "team_members",
+        "roles": "team_roles",
+        "planning": "planning_summary",
+        "task": "get_planning_task",
+        "hire": "hire_member",
+        "fire": "fire_member",
+    }
+
     while True:
         user_input = input("")
         print()
@@ -236,41 +248,22 @@ def main() -> None:
             continue
 
         if user_input.startswith("/"):
-            # Handle as command (e.g., /team to show team roster)
+            # /help and /usage are local; every other "/" command is sent to the manager
+            # as a normal message and dispatched by its CommandRegistry (ADR-028). The
+            # result comes back on the event stream and is rendered by the printer.
             parts = user_input.split(" ", 1)
-            command = parts[0][1:]
-            if command == "team":
-                print(manager_proxy.cmd_get_team_roster())
-                print()
-            elif command == "roles":
-                print(manager_proxy.cmd_get_role_profiles())
-                print()
-            elif command == "planning":
-                print(manager_proxy.cmd_get_planning())
-                print()
-            elif command == "task" and len(parts) > 1:
-                task_id = int(parts[1].strip())
-                result = manager_proxy.cmd_get_planning_task(task_id)
-                print(result)
-                print()
-            elif command == "hire" and len(parts) > 1:
-                role = parts[1].strip()
-                result = manager_proxy.cmd_hire_member(role)
-                if isinstance(result, tuple):
-                    name, addr = result
-                    print(f"Hired {name} ({role}) at {addr}\n")
-                elif isinstance(result, str):
-                    print(f"Hire failed: {result}\n")
-            elif command == "fire" and len(parts) > 1:
-                name = parts[1].strip()
-                result = manager_proxy.cmd_fire_member(name)
-                print(result)
-                print()
-            elif command == "usage":
+            command = parts[0][1:].lower()
+            arg = parts[1].strip() if len(parts) > 1 else ""
+            if command == "help":
+                print_help()
+                continue
+            if command == "usage":
                 print(printer.get_usage_report())
                 print()
-            else:
-                print_help()
+                continue
+            real = command_aliases.get(command, command)
+            text = f"/{real} {arg}".rstrip()
+            human_proxy.send(manager_addr, AgentMessage(content=text))
             continue
 
         if user_input.startswith("@"):
