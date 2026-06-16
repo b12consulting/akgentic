@@ -3,8 +3,8 @@ import { TestBed } from '@angular/core/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 
 import { routes } from './app.routes';
-import { AuthGuard } from './auth.guard';
-import { namespacePanelCanDeactivate } from './admin/catalog/namespace-panel/namespace-panel.guard';
+import { AuthGuard } from './core/auth/auth.guard';
+import { namespacePanelCanDeactivate } from './components/catalog/namespace-panel/namespace-panel.guard';
 
 /**
  * Story 11.6 — route-registration tests for the deep-link route.

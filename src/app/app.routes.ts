@@ -1,9 +1,9 @@
 import { Routes } from '@angular/router';
-import { AuthGuard } from './auth.guard';
-import { HomeComponent } from './home/home.component';
-import { LoginComponent } from './login/login.component';
-import { ProcessComponent } from './process/process.component';
-import { namespacePanelCanDeactivate } from './admin/catalog/namespace-panel/namespace-panel.guard';
+import { AuthGuard } from './core/auth/auth.guard';
+import { HomeComponent } from './components/home/home.component';
+import { LoginComponent } from './components/login/login.component';
+import { ProcessComponent } from './components/process/process.component';
+import { namespacePanelCanDeactivate } from './components/catalog/namespace-panel/namespace-panel.guard';
 
 export const routes: Routes = [
   {
@@ -26,7 +26,7 @@ export const routes: Routes = [
     path: 'admin/catalog/namespace/:namespace',
     loadComponent: () =>
       import(
-        './admin/catalog/namespace-panel/namespace-panel-route.component'
+        './components/catalog/namespace-panel/namespace-panel-route.component'
       ).then((m) => m.NamespacePanelRouteComponent),
     title: 'Catalog namespace',
     canActivate: [AuthGuard],

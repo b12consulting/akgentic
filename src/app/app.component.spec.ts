@@ -9,13 +9,13 @@ import { TagModule } from 'primeng/tag';
 import { BehaviorSubject, of } from 'rxjs';
 
 import { AppComponent } from './app.component';
-import { isRunning, TeamContext } from './models/team.interface';
-import { ApiService } from './services/api.service';
-import { AuthService } from './services/auth.service';
-import { ConfigService } from './services/config.service';
-import { ContextService } from './services/context.service';
-import { FaviconService } from './services/favicon.service';
-import { ViewService } from './view.service';
+import { isRunning, TeamContext } from './core/context/team.interface';
+import { ApiService } from './core/http/api.service';
+import { AuthService } from './core/auth/auth.service';
+import { ConfigService } from './core/config/config.service';
+import { ContextService } from './core/context/context.service';
+import { FaviconService } from './core/config/favicon.service';
+import { ViewService } from './core/ui/view.service';
 
 function makeTeam(overrides: Partial<TeamContext> = {}): TeamContext {
   return {
