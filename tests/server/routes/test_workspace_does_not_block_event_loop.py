@@ -146,3 +146,53 @@ def test_upload_does_not_block_event_loop(
     body = slow_resp.json()  # type: ignore[attr-defined]
     assert body["path"] == "slow.txt"
     assert body["size"] == len(payload)
+
+
+def test_upload_with_workspace_id_does_not_block_event_loop(
+    client: TestClient,
+    team_for_upload: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A selector-bearing upload (Story 33.1) keeps the same offload guarantee.
+
+    Passing ``?workspace_id=alt-ws`` only changes which directory the
+    ``Filesystem`` is rooted at; the two ``asyncio.to_thread`` offloads in
+    ``upload_workspace_file`` are unchanged. While a deliberately slow
+    ``Filesystem.write`` is in flight, a concurrent ``/readiness`` probe must
+    still return in under 100 ms, and the upload must still return 201.
+    """
+    _patch_slow_filesystem_write(monkeypatch)
+
+    payload = b"slow alt data"
+    team_id = team_for_upload
+
+    def fire_slow_upload() -> object:
+        return client.post(
+            f"/workspace/{team_id}/file",
+            params={"workspace_id": "alt-ws"},
+            data={"path": "slow.txt"},
+            files={"file": ("slow.txt", payload, "text/plain")},
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        slow_future = executor.submit(fire_slow_upload)
+        time.sleep(0.05)
+
+        start = time.perf_counter()
+        probe_resp = client.get("/readiness")
+        elapsed_s = time.perf_counter() - start
+
+        assert probe_resp.status_code == 200
+        assert elapsed_s < 0.1, (
+            f"GET /readiness took {elapsed_s:.3f}s while a workspace_id-bearing upload "
+            "was in flight; expected < 0.1s (loop is stalled by sync work in the handler)"
+        )
+
+        slow_resp = slow_future.result(timeout=10.0)
+
+    assert slow_resp.status_code == 201, (  # type: ignore[attr-defined]
+        f"selector upload returned {slow_resp.status_code}"  # type: ignore[attr-defined]
+    )
+    body = slow_resp.json()  # type: ignore[attr-defined]
+    assert body["path"] == "slow.txt"
+    assert body["size"] == len(payload)

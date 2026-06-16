@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-infra"
-version = "1.4.0"
+version = "1.5.0"
 description = "Infrastructure backend: protocol abstractions and community-tier implementations for akgentic"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,7 +16,16 @@ dependencies = [
     "akgentic-agent",
     "akgentic-llm",
     "akgentic-tool",
-    "fastapi>=0.100.0",
+    # Pin away from the Starlette 1.3 / FastAPI 0.137 line: Starlette 1.3 changed
+    # include_router to wrap mounted routers in a lazy `_IncludedRouter` instead of
+    # flattening child APIRoutes into `app.routes`. That breaks the owner-or-admin
+    # gate attachment (which mutates each route's `dependant`) and route-introspection
+    # tests. CI has no lockfile (installs `-e .[dev]` from a wheelhouse), so these
+    # bounds are the only thing keeping resolution on the verified-good combo
+    # (fastapi 0.136.x + starlette 1.0.x). Revisit once the gate is reworked for the
+    # lazy-inclusion model.
+    "fastapi>=0.100.0,<0.137",
+    "starlette>=0.46.0,<1.1",
     "pydantic-settings>=2.0.0",
     "logfire>=0.1.0",
     "typer[all]>=0.9.0",

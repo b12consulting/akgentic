@@ -45,6 +45,16 @@ def test_workspace_tree_not_found(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+def test_workspace_tree_traversal_attack(
+    client: TestClient, team_with_workspace: uuid.UUID
+) -> None:
+    """GET /workspace/{team_id}/tree rejects in-root path traversal with 403."""
+    resp = client.get(
+        f"/workspace/{team_with_workspace}/tree", params={"path": "../../etc"}
+    )
+    assert resp.status_code == 403
+
+
 # --- File read tests ---
 
 
@@ -142,3 +152,147 @@ def test_workspace_file_upload_traversal_attack(
         files={"file": ("evil.txt", b"malicious", "text/plain")},
     )
     assert resp.status_code == 403
+
+
+# --- workspace_id selector tests (Story 33.1) ---
+
+# Values that _validate_workspace_id must reject with HTTP 400: empty, the dot
+# segments, anything containing a path separator, absolute paths, and an
+# over-length (129-char) value.
+_REJECTED_WORKSPACE_IDS = [
+    "../x",
+    "a/b",
+    "a\\b",
+    "/abs",
+    "..",
+    ".",
+    "",
+    "a" * 129,
+]
+
+
+def test_workspace_tree_honours_selector(
+    client: TestClient,
+    team_with_workspace: uuid.UUID,
+    seeded_settings: ServerSettings,
+) -> None:
+    """GET .../tree with ?workspace_id=alt-ws lists <root>/alt-ws, isolated from the team dir."""
+    alt_root = seeded_settings.workspaces_root / "alt-ws"
+    alt_root.mkdir(parents=True, exist_ok=True)
+    (alt_root / "alt-only.txt").write_text("alt content")
+
+    resp = client.get(
+        f"/workspace/{team_with_workspace}/tree", params={"workspace_id": "alt-ws"}
+    )
+    assert resp.status_code == 200
+    names = [e["name"] for e in resp.json()["entries"]]
+    assert "alt-only.txt" in names
+    # Isolation: the team directory's seeded files are NOT visible under alt-ws.
+    assert "output.txt" not in names
+    assert "subdir" not in names
+
+
+def test_workspace_file_read_honours_selector(
+    client: TestClient,
+    team_with_workspace: uuid.UUID,
+    seeded_settings: ServerSettings,
+) -> None:
+    """GET .../file with ?workspace_id=alt-ws reads from <root>/alt-ws."""
+    alt_root = seeded_settings.workspaces_root / "alt-ws"
+    alt_root.mkdir(parents=True, exist_ok=True)
+    (alt_root / "alt.txt").write_text("from alt")
+
+    resp = client.get(
+        f"/workspace/{team_with_workspace}/file",
+        params={"path": "alt.txt", "workspace_id": "alt-ws"},
+    )
+    assert resp.status_code == 200
+    assert resp.content == b"from alt"
+
+    # Isolation: the same filename does NOT resolve in the team directory.
+    team_resp = client.get(
+        f"/workspace/{team_with_workspace}/file", params={"path": "alt.txt"}
+    )
+    assert team_resp.status_code == 404
+
+
+def test_workspace_file_upload_honours_selector(
+    client: TestClient,
+    team_with_workspace: uuid.UUID,
+    seeded_settings: ServerSettings,
+) -> None:
+    """POST .../file with ?workspace_id=alt-ws writes to <root>/alt-ws, isolated from team dir."""
+    resp = client.post(
+        f"/workspace/{team_with_workspace}/file",
+        params={"workspace_id": "alt-ws"},
+        data={"path": "uploaded-alt.txt"},
+        files={"file": ("uploaded-alt.txt", b"alt upload", "text/plain")},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["path"] == "uploaded-alt.txt"
+
+    # The write landed under <root>/alt-ws ...
+    alt_file = seeded_settings.workspaces_root / "alt-ws" / "uploaded-alt.txt"
+    assert alt_file.exists()
+    assert alt_file.read_bytes() == b"alt upload"
+
+    # ... and NOT under the team directory (isolation both ways).
+    team_file = seeded_settings.workspaces_root / str(team_with_workspace) / "uploaded-alt.txt"
+    assert not team_file.exists()
+    read_back = client.get(
+        f"/workspace/{team_with_workspace}/file", params={"path": "uploaded-alt.txt"}
+    )
+    assert read_back.status_code == 404
+
+
+@pytest.mark.parametrize("bad_value", _REJECTED_WORKSPACE_IDS)
+def test_workspace_tree_rejects_bad_selector(
+    client: TestClient,
+    team_with_workspace: uuid.UUID,
+    seeded_settings: ServerSettings,
+    bad_value: str,
+) -> None:
+    """GET .../tree returns 400 for any malformed workspace_id and creates no stray dir."""
+    before = set(seeded_settings.workspaces_root.iterdir())
+    resp = client.get(
+        f"/workspace/{team_with_workspace}/tree", params={"workspace_id": bad_value}
+    )
+    assert resp.status_code == 400
+    # No directory was created or read outside the existing workspace roots.
+    assert set(seeded_settings.workspaces_root.iterdir()) == before
+
+
+@pytest.mark.parametrize("bad_value", _REJECTED_WORKSPACE_IDS)
+def test_workspace_file_read_rejects_bad_selector(
+    client: TestClient,
+    team_with_workspace: uuid.UUID,
+    seeded_settings: ServerSettings,
+    bad_value: str,
+) -> None:
+    """GET .../file returns 400 for any malformed workspace_id and creates no stray dir."""
+    before = set(seeded_settings.workspaces_root.iterdir())
+    resp = client.get(
+        f"/workspace/{team_with_workspace}/file",
+        params={"path": "output.txt", "workspace_id": bad_value},
+    )
+    assert resp.status_code == 400
+    assert set(seeded_settings.workspaces_root.iterdir()) == before
+
+
+@pytest.mark.parametrize("bad_value", _REJECTED_WORKSPACE_IDS)
+def test_workspace_file_upload_rejects_bad_selector(
+    client: TestClient,
+    team_with_workspace: uuid.UUID,
+    seeded_settings: ServerSettings,
+    bad_value: str,
+) -> None:
+    """POST .../file returns 400 for any malformed workspace_id and creates no stray dir."""
+    before = set(seeded_settings.workspaces_root.iterdir())
+    resp = client.post(
+        f"/workspace/{team_with_workspace}/file",
+        params={"workspace_id": bad_value},
+        data={"path": "evil.txt"},
+        files={"file": ("evil.txt", b"data", "text/plain")},
+    )
+    assert resp.status_code == 400
+    assert set(seeded_settings.workspaces_root.iterdir()) == before
