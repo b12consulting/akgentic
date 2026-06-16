@@ -15,12 +15,16 @@ from .core import (  # noqa: F401
     TOOL_CALL,
     BaseToolParam,
     Channels,
+    CommandRegistry,
     ToolCard,
     ToolFactory,
 )
-from .errors import RetriableError  # noqa: F401
+from .errors import CommandNotRecognized, RetriableError  # noqa: F401
 from .event import (  # noqa: F401
     ActorToolObserver,
+    CommandArg,
+    CommandDescriptor,
+    CommandsAnnouncedEvent,
     TeamManagementToolObserver,
     ToolObserver,
     ToolStateEvent,
@@ -43,6 +47,7 @@ __all__ = [
     "BaseToolParam",
     "ToolCard",
     "ToolFactory",
+    "CommandRegistry",
     # Expose channel constants
     "COMMAND",
     "SYSTEM_PROMPT",
@@ -50,6 +55,7 @@ __all__ = [
     "Channels",
     # Errors
     "RetriableError",
+    "CommandNotRecognized",
     # Events and observers
     "ToolObserver",
     "ActorToolObserver",
@@ -57,6 +63,10 @@ __all__ = [
     "ToolStateEvent",
     "ToolStatePayload",
     "KnowledgeGraphStateEvent",
+    # Command discovery models
+    "CommandArg",
+    "CommandDescriptor",
+    "CommandsAnnouncedEvent",
     # Submodules
     "mcp",
     "planning",
