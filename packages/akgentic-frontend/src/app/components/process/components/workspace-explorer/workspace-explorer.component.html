@@ -20,9 +20,9 @@
               size="small"
               (onClick)="openUploadModalToCurrentSelection()"
               [pTooltip]="
-                selectedFolder
-                  ? 'Upload to ' + selectedFolder.name
-                  : selectedFile
+                selectedFolder()
+                  ? 'Upload to ' + selectedFolder()!.name
+                  : selectedFile()
                   ? 'Upload to parent folder'
                   : 'Upload to root folder'
               "
@@ -41,18 +41,18 @@
 
         <div class="navigator-content">
           <p-progressSpinner
-            *ngIf="loading"
+            *ngIf="loading()"
             styleClass="spinner"
             [style]="{ width: '50px', height: '50px' }"
           />
 
-          <div *ngIf="errorMessage && !loading" class="error-message">
+          <div *ngIf="errorMessage() && !loading()" class="error-message">
             <i class="pi pi-exclamation-triangle"></i>
-            <p>{{ errorMessage }}</p>
+            <p>{{ errorMessage() }}</p>
           </div>
 
           <div
-            *ngIf="!loading && !errorMessage && treeNodes.length === 0"
+            *ngIf="!loading() && !errorMessage() && treeNodes().length === 0"
             class="empty-workspace"
           >
             <i class="pi pi-folder-open empty-workspace-icon"></i>
@@ -63,8 +63,8 @@
           </div>
 
           <p-tree
-            *ngIf="!loading && !errorMessage && treeNodes.length > 0"
-            [value]="treeNodes"
+            *ngIf="!loading() && !errorMessage() && treeNodes().length > 0"
+            [value]="treeNodes()"
             selectionMode="single"
             (onNodeSelect)="onNodeSelect($event)"
             (onNodeExpand)="onNodeExpand($event)"
@@ -81,44 +81,44 @@
       <p-toolbar styleClass="preview-toolbar">
         <ng-template pTemplate="start">
           <div class="file-info">
-            <i *ngIf="selectedFile" class="pi pi-file file-icon"></i>
-            <i *ngIf="selectedFolder" class="pi pi-folder file-icon"></i>
-            <h3 *ngIf="selectedFile" class="toolbar-title">
-              {{ selectedFile.name }}
+            <i *ngIf="selectedFile()" class="pi pi-file file-icon"></i>
+            <i *ngIf="selectedFolder()" class="pi pi-folder file-icon"></i>
+            <h3 *ngIf="selectedFile()" class="toolbar-title">
+              {{ selectedFile()!.name }}
             </h3>
-            <h3 *ngIf="selectedFolder" class="toolbar-title">
-              {{ selectedFolder.name }}
+            <h3 *ngIf="selectedFolder()" class="toolbar-title">
+              {{ selectedFolder()!.name }}
             </h3>
             <h3
-              *ngIf="!selectedFile && !selectedFolder"
+              *ngIf="!selectedFile() && !selectedFolder()"
               class="toolbar-title placeholder"
             >
               Select a file or folder
             </h3>
             <p-tag
-              *ngIf="selectedFile && selectedFile.size"
-              [value]="formatFileSize(selectedFile.size)"
+              *ngIf="selectedFile() && selectedFile()!.size"
+              [value]="formatFileSize(selectedFile()!.size)"
               severity="secondary"
             />
-            <p-tag *ngIf="selectedFolder" value="Folder" severity="info" />
+            <p-tag *ngIf="selectedFolder()" value="Folder" severity="info" />
           </div>
         </ng-template>
         <ng-template pTemplate="end">
           <p-button
-            *ngIf="selectedFolder"
+            *ngIf="selectedFolder()"
             label="Upload here"
             icon="pi pi-upload"
             [text]="true"
             [rounded]="true"
             severity="primary"
             [disabled]="!isProcessRunning"
-            (onClick)="openUploadModal(selectedFolder.path)"
+            (onClick)="openUploadModal(selectedFolder()!.path)"
             [pTooltip]="
               !isProcessRunning ? 'Process must be running to upload files' : ''
             "
           />
           <p-button
-            *ngIf="selectedFile"
+            *ngIf="selectedFile()"
             label="Download"
             icon="pi pi-download"
             [text]="true"
@@ -133,18 +133,18 @@
 
       <div class="panel-content">
         <p-progressSpinner
-          *ngIf="loadingContent"
+          *ngIf="loadingContent()"
           styleClass="spinner"
           [style]="{ width: '50px', height: '50px' }"
         />
 
-        <div *ngIf="errorMessage && !loadingContent" class="error-message">
+        <div *ngIf="errorMessage() && !loadingContent()" class="error-message">
           <i class="pi pi-exclamation-triangle"></i>
-          <p>{{ errorMessage }}</p>
+          <p>{{ errorMessage() }}</p>
         </div>
 
         <div
-          *ngIf="!selectedFile && !selectedFolder && !loadingContent"
+          *ngIf="!selectedFile() && !selectedFolder() && !loadingContent()"
           class="empty-section file-placeholder"
         >
           <div class="empty-section-box">
@@ -171,19 +171,19 @@
         </div>
 
         <div
-          *ngIf="selectedFolder && !loadingContent"
+          *ngIf="selectedFolder() && !loadingContent()"
           class="empty-section folder-view"
         >
           <div class="empty-section-box">
             <i class="pi pi-folder folder-icon"></i>
-            <div class="folder-title">{{ selectedFolder.name }}</div>
+            <div class="folder-title">{{ selectedFolder()!.name }}</div>
             <div class="folder-desc">Upload files to this folder</div>
             <p-button
               label="Upload Files"
               icon="pi pi-upload"
               severity="primary"
               [disabled]="!isProcessRunning"
-              (onClick)="openUploadModal(selectedFolder.path)"
+              (onClick)="openUploadModal(selectedFolder()!.path)"
               styleClass="upload-button"
               [pTooltip]="
                 !isProcessRunning
@@ -195,12 +195,12 @@
         </div>
 
         <p-card
-          *ngIf="selectedFile && isBinaryFile && !loadingContent"
+          *ngIf="selectedFile() && isBinaryFile() && !loadingContent()"
           styleClass="binary-card"
         >
           <div class="binary-message">
             <i class="pi pi-info-circle"></i>
-            <p>{{ fileContent }}</p>
+            <p>{{ fileContent() }}</p>
             <p-button
               label="Download to view"
               icon="pi pi-download"
@@ -212,28 +212,28 @@
 
         <div
           *ngIf="
-            selectedFile &&
-            !isBinaryFile &&
-            !isMarkdownFile &&
-            fileContent !== null &&
-            !loadingContent
+            selectedFile() &&
+            !isBinaryFile() &&
+            !isMarkdownFile() &&
+            fileContent() !== null &&
+            !loadingContent()
           "
           class="file-content"
         >
-          <pre><code>{{ fileContent }}</code></pre>
+          <pre><code>{{ fileContent() }}</code></pre>
         </div>
 
         <div
           *ngIf="
-            selectedFile &&
-            !isBinaryFile &&
-            isMarkdownFile &&
-            fileContent !== null &&
-            !loadingContent
+            selectedFile() &&
+            !isBinaryFile() &&
+            isMarkdownFile() &&
+            fileContent() !== null &&
+            !loadingContent()
           "
           class="markdown-content"
         >
-          <markdown [data]="fileContent"></markdown>
+          <markdown [data]="fileContent()"></markdown>
         </div>
       </div>
     </div>

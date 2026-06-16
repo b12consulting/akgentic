@@ -12,6 +12,18 @@
         [options]="graphOptions"
         (chartInit)="onChartInit($event)"
       ></div>
+      <!-- Empty-state placeholder (overlay), styled like the Workspace
+           placeholder. Shown when the graph has no entities. -->
+      <div
+        class="kg-graph-empty"
+        *ngIf="!(graphData$ | async)?.nodes?.length"
+      >
+        <i class="pi pi-sitemap kg-graph-empty-icon"></i>
+        <div class="kg-graph-empty-title">No Knowledge Graph</div>
+        <div class="kg-graph-empty-desc">
+          No entities yet — the graph will populate as agents add knowledge.
+        </div>
+      </div>
     </div>
   </div>
 </ng-template>
@@ -126,7 +138,9 @@
     [draggable]="false"
     [dismissableMask]="true"
     (onHide)="isModalView = false"
-    class="kg-pdialog"
+    appendTo="body"
+    styleClass="kg-pdialog"
+    maskStyleClass="kg-pdialog-mask"
   >
     <ng-template pTemplate="header">
       <div class="dialog-header-container">

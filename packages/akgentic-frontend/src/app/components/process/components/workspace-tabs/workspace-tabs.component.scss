@@ -1,0 +1,92 @@
+/*
+ * Fill the full height of the visualization slot so the workspace panel
+ * extends to the bottom — in both the single-default case (header strip +
+ * bare explorer) and the tabbed case (PrimeNG <p-tabs>, which otherwise sizes
+ * to content).
+ */
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/*
+ * Strip + explorer pane (Story 23-4). A GRID, not a flex column: the slim
+ * header strip takes its content height (auto, row 1) and the explorer fills
+ * the remaining height (1fr, row 2). Rows are assigned EXPLICITLY so the
+ * explorer always lands in the 1fr track even when the strip is absent (a
+ * workspace with no declared members renders no strip).
+ */
+.workspace-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+/* Single-default branch: the pane is the flex-filling child of the host. */
+:host > .workspace-pane {
+  flex: 1 1 auto;
+}
+
+.workspace-pane > .workspace-header-strip {
+  grid-row: 1;
+}
+
+/* The explorer always occupies the 1fr row; its own height:100% resolves
+ * against that definite track. */
+.workspace-pane > app-workspace-explorer {
+  grid-row: 2;
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Slim header strip: a thin member-chip row above the explorer in BOTH
+ * branches, with minimal vertical space. It is NOT a tab bar — it never
+ * reintroduces tab chrome in the single-default branch (ADR-019 FR13). */
+.workspace-header-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  /* Same height with and without members: a chip is taller than the plain
+   * no-members text, so clamp both to a min-height that fits a chip (vertically
+   * centred). box-sizing: border-box so the padding + border are included. */
+  box-sizing: border-box;
+  min-height: 3.2rem;
+  /* Same separator as the explorer toolbar / file-header rows. The fallback
+   * is required: --surface-border is not defined in this component's scope, so
+   * without it the var() is invalid and the whole border declaration drops. */
+  border-bottom: 1px solid var(--surface-border, #dee2e6);
+}
+
+.workspace-header-strip .ws-access-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0.65;
+  margin-right: 0.125rem;
+}
+
+/* Tabbed case: fill the PrimeNG tab chain to the host height and strip the
+ * default tabpanel padding (token --p-tabs-tabpanel-padding) so the strip sits
+ * directly under the tablist. */
+:host ::ng-deep .p-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+:host ::ng-deep .p-tabpanels {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+}
+
+:host ::ng-deep .p-tabpanel {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+}

@@ -48,12 +48,31 @@ export class WorkspaceService {
 
   private get apiUrl(): string { return this.config.api; }
 
+  /**
+   * Append `workspace_id=<encoded>` to a URL when (and only when) a non-empty
+   * id is supplied (Epic 23 / ADR-019). Centralises the append rule so call
+   * sites never duplicate the concatenation. `undefined`/`null`/`''` append
+   * NOTHING — the URL is returned byte-for-byte unchanged so the backend falls
+   * back to `team_id`. The separator is `&` when the URL already carries a
+   * query string (`?path=...`) and `?` for a bare endpoint (the upload POST).
+   */
+  private withWorkspaceId(url: string, workspaceId?: string | null): string {
+    if (!workspaceId) return url;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}workspace_id=${encodeURIComponent(workspaceId)}`;
+  }
+
   async getWorkspaceTree(
     processId: string,
-    path: string = ''
+    path: string = '',
+    workspaceId?: string
   ): Promise<FileNode[]> {
+    const url = this.withWorkspaceId(
+      `${this.apiUrl}/workspace/${processId}/tree?path=${encodeURIComponent(path)}`,
+      workspaceId
+    );
     const response = (await this.fetchService.fetch({
-      url: `${this.apiUrl}/workspace/${processId}/tree?path=${encodeURIComponent(path)}`,
+      url,
     })) as WorkspaceTreeResponse | undefined;
 
     if (!response || !Array.isArray(response.entries)) {
@@ -80,13 +99,17 @@ export class WorkspaceService {
 
   async getFileContent(
     processId: string,
-    filePath: string
+    filePath: string,
+    workspaceId?: string
   ): Promise<FileContent> {
     // Bypass FetchService.fetch because its tail unconditionally calls
     // response.json() — incompatible with application/octet-stream bytes.
     // Inline the credentials logic from fetch.service.ts so auth cookies
     // still propagate. See ADR-006 §Decision 2.2.
-    const url = `${this.apiUrl}/workspace/${processId}/file?path=${encodeURIComponent(filePath)}`;
+    const url = this.withWorkspaceId(
+      `${this.apiUrl}/workspace/${processId}/file?path=${encodeURIComponent(filePath)}`,
+      workspaceId
+    );
     const options: RequestInit = this.config.hideLogin
       ? {}
       : { credentials: 'include' };
@@ -110,14 +133,22 @@ export class WorkspaceService {
     }
   }
 
-  getDownloadUrl(processId: string, filePath: string): string {
-    return `${this.apiUrl}/workspace/${processId}/file?path=${encodeURIComponent(filePath)}`;
+  getDownloadUrl(
+    processId: string,
+    filePath: string,
+    workspaceId?: string
+  ): string {
+    return this.withWorkspaceId(
+      `${this.apiUrl}/workspace/${processId}/file?path=${encodeURIComponent(filePath)}`,
+      workspaceId
+    );
   }
 
   async uploadFiles(
     processId: string,
     files: File[],
-    targetPath?: string
+    targetPath?: string,
+    workspaceId?: string
   ): Promise<void> {
     // Pre-flight size check — reject the whole batch if any file is too large,
     // BEFORE issuing any HTTP request (AC7). Strict `>`: 10_485_760 is allowed.
@@ -138,8 +169,14 @@ export class WorkspaceService {
       fd.append('path', uploadPath);
       fd.append('file', file);
 
+      // The POST URL is a bare `/file` (path lives in the FormData body), so
+      // `workspace_id` is the FIRST query param here — the helper appends with
+      // `?`, not `&`. Absent id ⇒ unchanged `.../file` (AC4).
       await this.fetchService.fetch({
-        url: `${this.apiUrl}/workspace/${processId}/file`,
+        url: this.withWorkspaceId(
+          `${this.apiUrl}/workspace/${processId}/file`,
+          workspaceId
+        ),
         options: {
           method: 'POST',
           body: fd,

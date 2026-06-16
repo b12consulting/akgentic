@@ -16,15 +16,31 @@ export interface ActorAddress {
   user_message: boolean;
 }
 
+/**
+ * Lightweight projection of a backend `ToolCard` as it arrives on the wire
+ * inside `StartMessage.config.tools` (Epic 23 / ADR-019). The config is
+ * serialised in full (`msg.model_dump(mode="json")`, no projection), so each
+ * tool carries at least its recursive `__model__` discriminator (e.g.
+ * `"akgentic.tool.workspace.tool.WorkspaceTool"`) and, for a `WorkspaceTool`,
+ * an optional `workspace_id`. We only type the fields the registry fold reads;
+ * every other tool field is intentionally ignored.
+ */
+export interface ToolCardLite {
+  __model__: string;
+  workspace_id?: string | null;
+}
+
 export interface BaseConfig {
   name: string;
   role: string;
   user_id: string;
   user_email: string;
   squad_id: string;
-  team_id: string;
-  parent?: ActorAddress;
   orchestrator: ActorAddress;
+  /** Tools bound to this agent, serialised in full on the start config
+   *  (Epic 23 / ADR-019). Optional: older payloads / agents without tools
+   *  omit it. The WorkspaceRegistry fold reads `WorkspaceTool` entries here. */
+  tools?: ToolCardLite[];
 }
 
 export interface BaseState {
@@ -242,6 +258,18 @@ export function isUserMessage(msg: BaseMessage): msg is UserMessage {
 
 export function isResultMessage(msg: BaseMessage): msg is ResultMessage {
   return msg.__model__.includes('ResultMessage');
+}
+
+/**
+ * ToolCard discriminator check (Epic 23 / ADR-019): true when `t` is a
+ * `WorkspaceTool`. Matches on the recursive `__model__` *ending in*
+ * `WorkspaceTool` (so `"akgentic.tool.workspace.tool.WorkspaceTool"` matches),
+ * deliberately stricter than the `.includes()` used by the message guards: a
+ * `__model__` that merely contains `WorkspaceTool` mid-string (or a different
+ * tool such as `...KnowledgeGraphTool`, or the empty string) is rejected.
+ */
+export function isWorkspaceTool(t: ToolCardLite): t is ToolCardLite {
+  return t.__model__.endsWith('WorkspaceTool');
 }
 
 /**
