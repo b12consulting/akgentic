@@ -9,7 +9,6 @@ Source: Migrated from akgentic-framework/libs/akgentic/akgentic/core/akgent_impl
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
 import traceback as tb_module
@@ -224,14 +223,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         """
         super().__init__(**kwargs)
 
-        ## Event loop for async operations (needed for Pykka actor threads)
-        # CRITICAL: Create event loop BEFORE initializing agent/model to ensure
-        # all async primitives (locks, events) in HTTP clients are bound to the correct loop
-        self._event_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._event_loop)
-
         self._current_message: Message | None = None
         self._children: list[ActorAddress] = []
+        # Teardown guard (ADR-012). Base agents never flip this; the Orchestrator
+        # overrides stop() to set it while draining the team non-blocking.
+        self._stopping: bool = False
 
         ## Initialize from explicit parameters
         self.agent_id: uuid.UUID = agent_id or uuid.uuid4()
@@ -509,39 +505,50 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         """
         self.stop()
 
+    def stop_children(self, blocking: bool = True) -> None:
+        """Stop every child actor (ADR-012 §1).
+
+        Blocking mode waits for each child's subtree to tear down (the legacy
+        behaviour) via a blocking ``proxy_ask(child).stop()`` and removes the
+        child from ``_children`` as it goes. Non-blocking mode fire-and-forgets a
+        ``proxy_tell(child).stop()`` per child and relies on the caller to
+        observe completion another way (the orchestrator keys off the
+        ``StopMessage`` telemetry stream); ``_children`` hygiene then happens via
+        the ``ChildStopped`` cleanup path.
+
+        Args:
+            blocking: If True (default), block on each child's stop and remove it
+                from ``_children``. If False, tell each live child to stop without
+                waiting.
+        """
+        for child in self._children.copy():
+            if not child.is_alive():
+                self._children.remove(child)
+                continue
+            if blocking:
+                self.proxy_ask(child, Akgent).stop()
+                self._children.remove(child)
+            else:
+                self.proxy_tell(child, Akgent).stop()
+
     def stop(self) -> None:
         """Stop this agent and all children recursively.
 
-        Iterates children list and stops each child before stopping self.
+        Stops each child (blocking) before stopping self, preserving the
+        "team is stopped before the next instruction" guarantee for
+        non-orchestrator agents. The Orchestrator overrides this with a
+        non-blocking variant (ADR-012 §2).
         """
         logger.info(f"### [{self.config.name}] Stopping recursively ...")
-        for child in self._children.copy():
-            self._stop_child(child)
+        self.stop_children(blocking=True)
         super().stop()
-
-    def _stop_child(self, child: ActorAddress) -> None:
-        """Stop a single child actor.
-
-        Args:
-            child: Child actor address to stop.
-        """
-        if child.is_alive():
-            self.proxy_ask(child, Akgent).stop()
-
-        try:
-            self._children.remove(child)
-        except Exception:
-            logger.error(f"ERROR: stop_child: Actor with reference {child} doesn't exist")
 
     def on_stop(self) -> None:
         """Cleanup hook called when actor stops.
 
-        Notifies orchestrator of stop event.
+        Notifies the orchestrator of the stop event. The actor no longer owns an
+        event loop (ADR-009 §Decision.5) — loop teardown moved into ReactAgent.close().
         """
-        if self._event_loop.is_running():
-            self._event_loop.stop()
-        self._event_loop.close()
-
         self._notify_orchestrator(StopMessage())
         logger.info(f"[{self.config.name}] Stopped.")
 
