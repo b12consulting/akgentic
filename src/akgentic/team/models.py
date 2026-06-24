@@ -456,7 +456,18 @@ class AgentStateSnapshot(SerializableBaseModel):
     """
 
     team_id: uuid.UUID = Field(description="Team instance this snapshot belongs to")
-    agent_id: str = Field(description="Identifier of the agent whose state is captured")
+    agent_id: str = Field(
+        description=(
+            "Agent UUID in string form (str(uuid)). Legacy snapshots written "
+            "before this field's semantics changed may hold the agent display "
+            "name instead; such snapshots load with name=None and self-heal on "
+            "the agent's next state change."
+        )
+    )
+    name: str | None = Field(
+        default=None,
+        description="Agent display name; None for snapshots written before this field existed",
+    )
     state: BaseState = Field(
         description="Polymorphic agent state preserving concrete BaseState type"
     )

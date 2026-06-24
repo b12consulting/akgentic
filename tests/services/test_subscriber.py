@@ -62,14 +62,17 @@ class TestPersistenceSubscriber:
     # -- 3.4: Agent state snapshot on StateChangedMessage ------------------
 
     def test_state_snapshot_on_state_changed_message(self) -> None:
-        """AC 1-3: StateChangedMessage writes snapshot only.
+        """AC #2: StateChangedMessage writes snapshot with UUID agent_id + name only.
 
-        No ``PersistedEvent``, no sequence bump.
+        No ``PersistedEvent``, no sequence bump. The persisted ``agent_id`` is the
+        sender UUID in string form (``str(sender.agent_id)``), and ``name`` is the
+        sender display name.
         """
         sub, store, team_id = self._make_subscriber()
 
         sender = MagicMock(spec=ActorAddress)
         sender.name = "worker-agent"
+        sender.agent_id = uuid.uuid4()
         state = SampleAgentState(task_count=5)
         msg = StateChangedMessage(sender=sender, state=state)
 
@@ -81,13 +84,14 @@ class TestPersistenceSubscriber:
         # Sequence not advanced (AC 3: gap-free numbering over behavioral events)
         assert sub._sequence == 0  # noqa: SLF001
 
-        # Agent state snapshot saved (AC 2: snapshot still written)
-        key = (team_id, "worker-agent")
+        # Agent state snapshot saved, keyed by UUID-string agent_id (AC #2)
+        key = (team_id, str(sender.agent_id))
         assert key in store.agent_states
         snapshot = store.agent_states[key]
         assert isinstance(snapshot, AgentStateSnapshot)
         assert snapshot.team_id == team_id
-        assert snapshot.agent_id == "worker-agent"
+        assert snapshot.agent_id == str(sender.agent_id)
+        assert snapshot.name == sender.name
         assert snapshot.updated_at is not None
         assert isinstance(snapshot.state, SampleAgentState)
         assert snapshot.state.task_count == 5
@@ -98,6 +102,7 @@ class TestPersistenceSubscriber:
 
         sender = MagicMock(spec=ActorAddress)
         sender.name = "agent-a"
+        sender.agent_id = uuid.uuid4()
 
         sub.on_message(UserMessage(content="first"))  # seq 1
         sub.on_message(StateChangedMessage(sender=sender, state=SampleAgentState(task_count=1)))

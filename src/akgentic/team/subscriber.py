@@ -70,7 +70,8 @@ class PersistenceSubscriber(EventSubscriber):
         if isinstance(msg, StateChangedMessage) and msg.sender is not None:
             snapshot = AgentStateSnapshot(
                 team_id=self._team_id,
-                agent_id=msg.sender.name,
+                agent_id=str(msg.sender.agent_id),
+                name=msg.sender.name,
                 state=msg.state.serializable_copy(),
                 updated_at=now,
             )
