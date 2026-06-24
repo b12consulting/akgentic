@@ -50,7 +50,6 @@ class TestConfigureLogging:
         configure_logging("DEBUG")
         for name in (
             "uvicorn",
-            "uvicorn.access",
             "uvicorn.error",
             "httpx",
             "httpcore",
