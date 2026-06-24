@@ -162,7 +162,7 @@ class TestWebhookReplyFlow:
 
 
 class TestWebhookContinuationFlow:
-    """AC #4: no team_id but registered team → route_reply."""
+    """AC #4: no team_id but registered team → route_reply (forwarding message_id)."""
 
     async def test_continuation_flow_calls_route_reply(self, tmp_path: Path) -> None:
         existing_team_id = uuid.uuid4()
@@ -171,6 +171,7 @@ class TestWebhookContinuationFlow:
             ChannelMessage(
                 content="continuation msg",
                 channel_user_id="user-2",
+                message_id="msg-cont",
             )
         )
         ingestion = StubIngestion()
@@ -186,6 +187,9 @@ class TestWebhookContinuationFlow:
         call = ingestion.route_reply_calls[0]
         assert call[0] == existing_team_id
         assert call[1] == "continuation msg"
+        # Story 30.3: the continuation flow forwards the parsed message_id as the
+        # third positional arg, in lockstep with the reply flow (TestWebhookReplyFlow).
+        assert call[2] == "msg-cont"
 
 
 class TestWebhookInitiationFlow:

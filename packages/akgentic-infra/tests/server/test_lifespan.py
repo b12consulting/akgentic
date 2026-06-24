@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from akgentic.infra.server.app import _lifespan
 
 
@@ -29,11 +28,19 @@ def _make_app_state(
     services = SimpleNamespace(worker_handle=worker_handle)
 
     app = MagicMock()
-    app.state = SimpleNamespace(
+    state = SimpleNamespace(
         settings=settings,
         connection_manager=connection_manager,
         services=services,
     )
+    app.state = state
+    # ``_lifespan`` now reads/writes through ``StateKey`` handles (ADR-030).
+    # ``StateKey._state`` takes ``source.state`` only for a real ``FastAPI``;
+    # for any other source it resolves ``source.app.state``. This stub is a
+    # ``MagicMock`` (not a ``FastAPI``), so point ``app.app`` back at ``app`` to
+    # make ``app.app.state`` the same namespace the assertions read on
+    # ``app.state`` — behaviour-identical to the pre-migration attribute access.
+    app.app = app
     return app
 
 

@@ -7,14 +7,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import NoReturn, cast
+from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from akgentic.core.messages.orchestrator import SentMessage
+from akgentic.infra.adapters.community.local_team_handle import LocalTeamHandle
 from akgentic.infra.server.models import HumanInputRequest, SendMessageRequest, TeamResponse
 from akgentic.infra.worker.deps import WorkerServices
+from akgentic.infra.worker.state_keys import SERVICES
 from akgentic.team.models import Process, TeamCard, TeamRuntime
 from akgentic.team.ports import EventStore
 
@@ -45,7 +47,7 @@ class WorkerCreateTeamRequest(BaseModel):
 
 def get_services(request: Request) -> WorkerServices:
     """FastAPI dependency: extract WorkerServices from app.state."""
-    return cast(WorkerServices, request.app.state.services)
+    return SERVICES.require(request)
 
 
 def _process_to_response(process: Process) -> TeamResponse:
@@ -92,6 +94,13 @@ def create_team(
         team_id=body.team_id,
         catalog_namespace=body.catalog_namespace,
     )
+
+    # Make the team reachable by this router's message / human-input routes,
+    # which all resolve the live handle via runtime_cache.get (ADR-001 Decision 1;
+    # mirrors resume_team's store). Without this, every post-create call 404s.
+    handle = LocalTeamHandle(runtime)
+    services.runtime_cache.store(runtime.id, handle)
+
     process = services.worker_handle.get_team(runtime.id)
     if process is None:  # pragma: no cover
         msg = f"Team {runtime.id} was created but not found in event store"
@@ -146,9 +155,7 @@ def send_message_from_to(
     services: WorkerServices = Depends(get_services),
 ) -> None:
     """Send a message from a specific agent to another agent."""
-    logger.info(
-        "POST /teams/%s/message/from/%s/to/%s", team_id, sender_name, recipient_name
-    )
+    logger.info("POST /teams/%s/message/from/%s/to/%s", team_id, sender_name, recipient_name)
     handle = services.runtime_cache.get(team_id)
     if handle is None:
         raise HTTPException(status_code=404, detail="Team not found in worker cache")
@@ -158,9 +165,7 @@ def send_message_from_to(
         _raise_action_error(exc)
 
 
-def _find_message(
-    event_store: EventStore, team_id: uuid.UUID, message_id: str
-) -> SentMessage:
+def _find_message(event_store: EventStore, team_id: uuid.UUID, message_id: str) -> SentMessage:
     """Find a SentMessage by its inner ``message.id`` in persisted events.
 
     Resolution is by the **inner** ``SentMessage.message.id`` — the id a
@@ -210,6 +215,7 @@ def stop_team(
     logger.info("POST /teams/%s/stop", team_id)
     try:
         services.worker_handle.stop_team(team_id)
+        services.runtime_cache.remove(team_id)
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -223,6 +229,7 @@ def delete_team(
     logger.info("DELETE /teams/%s", team_id)
     try:
         services.worker_handle.delete_team(team_id)
+        services.runtime_cache.remove(team_id)
     except ValueError as exc:
         _raise_action_error(exc)
 

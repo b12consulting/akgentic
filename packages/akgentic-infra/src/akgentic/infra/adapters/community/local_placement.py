@@ -7,6 +7,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from akgentic.infra.adapters.community.local_team_handle import LocalTeamHandle
+from akgentic.infra.protocols.placement import PlacementError
 from akgentic.team.manager import TeamManager
 from akgentic.team.ports import ServiceRegistry
 
@@ -70,12 +71,24 @@ class LocalPlacement:
             catalog_namespace,
             team_id,
         )
-        runtime = self._team_manager.create_team(
-            team_card,
-            user_id,
-            user_email=user_email,
-            team_id=team_id,
-            catalog_namespace=catalog_namespace,
-        )
+        try:
+            runtime = self._team_manager.create_team(
+                team_card,
+                user_id,
+                user_email=user_email,
+                team_id=team_id,
+                catalog_namespace=catalog_namespace,
+            )
+        except PlacementError:
+            # Already typed — re-raise so the create-path surfaces the carried
+            # HTTP mapping unchanged.
+            raise
+        except Exception as exc:
+            # Community is single-process: the create-path failure is
+            # TeamManager.create_team raising, not capacity exhaustion. Surface
+            # it as a PlacementError (a ServerError) so the single handler maps
+            # it instead of leaking a bare exception (ADR-031 §Decision 4).
+            msg = f"Local team creation failed: {exc}"
+            raise PlacementError(msg) from exc
         logger.debug("Team created locally: team_id=%s", runtime.id)
         return LocalTeamHandle(runtime)

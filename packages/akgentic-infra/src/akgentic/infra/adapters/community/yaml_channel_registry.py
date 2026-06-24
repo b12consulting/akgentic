@@ -18,15 +18,17 @@ class YamlChannelRegistry:
         channel_name:
           channel_user_id: "team_uuid_string"
 
-    Satisfies the ``ChannelRegistry`` protocol.
+    Satisfies the ``ChannelRegistry`` protocol. When ``registry_path`` is
+    ``None`` the registry is disabled: ``find_team`` returns ``None`` and
+    ``register`` / ``deregister`` are no-ops (no file I/O).
     """
 
-    def __init__(self, registry_path: Path) -> None:
+    def __init__(self, registry_path: Path | None = None) -> None:
         self._path = registry_path
 
     def _load(self) -> dict[str, dict[str, str]]:
-        """Load registry data from YAML, returning empty dict if file missing."""
-        if not self._path.exists():
+        """Load registry data from YAML, returning empty dict if disabled or missing."""
+        if self._path is None or not self._path.exists():
             return {}
         text = self._path.read_text(encoding="utf-8")
         data = yaml.safe_load(text)
@@ -35,12 +37,15 @@ class YamlChannelRegistry:
         return dict(data)
 
     def _save(self, data: dict[str, dict[str, str]]) -> None:
-        """Write registry data to YAML."""
+        """Write registry data to YAML (callers guard the disabled, path-less case)."""
+        assert self._path is not None  # register / deregister return early when disabled
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(yaml.safe_dump(data, default_flow_style=False), encoding="utf-8")
 
     async def register(self, channel: str, channel_user_id: str, team_id: uuid.UUID) -> None:
-        """Add a channel-user → team mapping."""
+        """Add a channel-user → team mapping (no-op when the registry is disabled)."""
+        if self._path is None:
+            return
         data = self._load()
         if channel not in data:
             data[channel] = {}
@@ -67,7 +72,9 @@ class YamlChannelRegistry:
         return uuid.UUID(team_str)
 
     async def deregister(self, channel: str, channel_user_id: str) -> None:
-        """Remove a channel-user mapping if it exists."""
+        """Remove a channel-user mapping if it exists (no-op when the registry is disabled)."""
+        if self._path is None:
+            return
         data = self._load()
         channel_data = data.get(channel)
         if channel_data is None:

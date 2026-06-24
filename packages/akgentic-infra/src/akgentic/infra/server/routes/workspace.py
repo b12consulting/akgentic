@@ -25,8 +25,8 @@ import asyncio
 import logging
 import re
 import uuid
-from pathlib import PurePosixPath
-from typing import Annotated, cast
+from pathlib import Path, PurePosixPath
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
 from fastapi.params import File, Form
@@ -36,8 +36,8 @@ from akgentic.infra.server.models import (
     WorkspaceFileUploadResponse,
     WorkspaceTreeResponse,
 )
-from akgentic.infra.server.services.team_service import TeamService
-from akgentic.infra.server.settings import CommunitySettings
+from akgentic.infra.server.settings import ServerSettings
+from akgentic.infra.server.state_keys import SETTINGS, TEAM_SERVICE
 from akgentic.tool.workspace import Filesystem
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ def _validate_workspace_id(workspace_id: str) -> str:
 
 def _get_workspace(
     team_id: uuid.UUID,
-    settings: CommunitySettings,
+    settings: ServerSettings,
     workspace_id: str | None = None,
 ) -> Filesystem:
     """Instantiate a Filesystem scoped to a workspace directory.
@@ -77,17 +77,23 @@ def _get_workspace(
     directory (``team_id``). Mirrors ``WorkspaceTool.workspace_id or str(team_id)``
     on the agent side (ADR-029). Validation runs before the ``Filesystem`` is
     constructed, so a rejected ``workspace_id`` never resolves a traversal root.
+
+    ``workspaces_root`` is declared on ``CommunitySettings``; a base
+    ``ServerSettings`` deployment falls back to the same default the field
+    declares, mirroring ``create_app``'s own defensive read (byte-identical
+    behaviour to the historical ``cast(CommunitySettings, ...)``).
     """
     # Distinguish an *omitted* param (None → team-id fallback, AC #1) from an
     # *empty* one (""→ 400, AC #6): only None falls back; any present value,
     # including "", goes through the guard.
     name = str(team_id) if workspace_id is None else _validate_workspace_id(workspace_id)
-    return Filesystem(base_path=str(settings.workspaces_root), workspace_name=name)
+    workspaces_root = getattr(settings, "workspaces_root", Path("workspaces"))
+    return Filesystem(base_path=str(workspaces_root), workspace_name=name)
 
 
 def _validate_team(team_id: uuid.UUID, request: Request) -> None:
     """Raise 404 if the team does not exist."""
-    service = cast(TeamService, request.app.state.team_service)
+    service = TEAM_SERVICE.require(request)
     if service.get_team(team_id) is None:
         raise HTTPException(status_code=404, detail="Team not found")
 
@@ -102,7 +108,7 @@ def list_workspace_tree(
     """List files in a team's workspace directory."""
     logger.debug("GET /workspace/%s/tree path=%s", team_id, path)
     _validate_team(team_id, request)
-    settings = cast(CommunitySettings, request.app.state.settings)
+    settings = SETTINGS.require(request)
     ws = _get_workspace(team_id, settings, workspace_id)
     try:
         entries = ws.list(path)
@@ -125,7 +131,7 @@ def read_workspace_file(
     """Read a file from a team's workspace."""
     logger.debug("GET /workspace/%s/file path=%s", team_id, path)
     _validate_team(team_id, request)
-    settings = cast(CommunitySettings, request.app.state.settings)
+    settings = SETTINGS.require(request)
     ws = _get_workspace(team_id, settings, workspace_id)
     try:
         data = ws.read(path)
@@ -153,7 +159,7 @@ async def upload_workspace_file(
 ) -> WorkspaceFileUploadResponse:
     """Upload a file to a team's workspace."""
     await asyncio.to_thread(_validate_team, team_id, request)
-    settings = cast(CommunitySettings, request.app.state.settings)
+    settings = SETTINGS.require(request)
     ws = _get_workspace(team_id, settings, workspace_id)
     data = await file.read()
     if len(data) > _MAX_FILE_SIZE:

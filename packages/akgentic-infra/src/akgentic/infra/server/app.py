@@ -27,6 +27,7 @@ from akgentic.catalog.api._settings import CatalogRouterSettings
 from akgentic.catalog.api.router import build_router as build_catalog_router
 from akgentic.catalog.api.router import set_catalog as set_unified_catalog
 from akgentic.infra.server.deps import TierServices
+from akgentic.infra.server.errors import add_server_exception_handlers
 from akgentic.infra.server.logging_config import configure_logging
 from akgentic.infra.server.routes._admin_mutation_log import AdminCatalogMutationLogMiddleware
 from akgentic.infra.server.routes._auth_dep import require_authenticated_principal
@@ -44,6 +45,17 @@ from akgentic.infra.server.routes.ws import ConnectionManager, shutdown_reader_p
 from akgentic.infra.server.routes.ws import router as ws_router
 from akgentic.infra.server.services.team_service import TeamService
 from akgentic.infra.server.settings import ServerSettings
+from akgentic.infra.server.state_keys import (
+    CHANNEL_PARSERS,
+    CHANNEL_REGISTRY,
+    CONNECTION_MANAGER,
+    DRAINING,
+    FRONTEND_ADAPTER,
+    INGESTION,
+    SERVICES,
+    SETTINGS,
+    TEAM_SERVICE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,26 +112,26 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     Shutdown: sets draining flag, waits pre-drain delay, disconnects all
     WebSocket clients, then stops all teams via ``worker_handle.stop_all()``.
     """
-    app.state.draining = False
+    DRAINING.set(app, value=False)
     logger.info("Lifespan startup: draining=False")
     yield
     # --- Shutdown sequence (ADR-013 Decision 2) ---
-    app.state.draining = True
+    DRAINING.set(app, value=True)
     logger.info("Lifespan shutdown: draining=True")
 
-    delay = app.state.settings.shutdown_pre_drain_delay
+    delay = SETTINGS.require(app).shutdown_pre_drain_delay
     if delay > 0:
         logger.info("Pre-drain delay: sleeping %ds", delay)
         await asyncio.sleep(delay)
 
     logger.info("Disconnecting all WebSocket clients")
-    await app.state.connection_manager.disconnect_all()
+    await CONNECTION_MANAGER.require(app).disconnect_all()
 
-    timeout = app.state.settings.shutdown_drain_timeout
+    timeout = SETTINGS.require(app).shutdown_drain_timeout
     logger.info("Stopping all teams (timeout=%ds)", timeout)
     try:
         await asyncio.wait_for(
-            asyncio.to_thread(app.state.services.worker_handle.stop_all),
+            asyncio.to_thread(SERVICES.require(app).worker_handle.stop_all),
             timeout=timeout,
         )
         logger.info("stop_all() completed successfully")
@@ -164,6 +176,7 @@ def _build_app(
     # Starlette's protocol vs. a concrete class mismatch.
     app.add_middleware(AdminCatalogMutationLogMiddleware)  # type: ignore[arg-type]
     add_exception_handlers(app)
+    add_server_exception_handlers(app)
     return app
 
 
@@ -192,13 +205,20 @@ def _store_state(
     settings: ServerSettings,
 ) -> None:
     """Store services and configuration on app.state for dependency injection."""
-    app.state.services = services
-    app.state.team_service = team_service
-    app.state.settings = settings
-    app.state.connection_manager = ConnectionManager()
-    app.state.channel_parser_registry = getattr(services, "channel_parser_registry", None)
-    app.state.channel_registry = services.channel_registry
-    app.state.ingestion = services.ingestion
+    SERVICES.set(app, services)
+    TEAM_SERVICE.set(app, team_service)
+    SETTINGS.set(app, settings)
+    CONNECTION_MANAGER.set(app, ConnectionManager())
+    # ``channel_parser_registry`` is optional on the services container (only the
+    # community tier declares it). CHANNEL_PARSERS is a required key, so the slot
+    # is only set when the services container actually exposes a registry; a tier
+    # without one leaves the slot unset and any webhook request fails loud
+    # (``require()`` → LookupError → 500) instead of reading back a silent None.
+    channel_parsers = getattr(services, "channel_parser_registry", None)
+    if channel_parsers is not None:
+        CHANNEL_PARSERS.set(app, channel_parsers)
+    CHANNEL_REGISTRY.set(app, services.channel_registry)
+    INGESTION.set(app, services.ingestion)
 
 
 def _mount_routes(app: FastAPI, settings: ServerSettings) -> None:
@@ -254,7 +274,7 @@ def _mount_routes(app: FastAPI, settings: ServerSettings) -> None:
     if settings.frontend_adapter:
         adapter = load_frontend_adapter(settings.frontend_adapter)
         adapter.register_routes(app)
-        app.state.frontend_adapter = adapter
+        FRONTEND_ADAPTER.set(app, adapter)
         logger.debug("Building app: Frontend adapter loaded: %s", settings.frontend_adapter)
 
 

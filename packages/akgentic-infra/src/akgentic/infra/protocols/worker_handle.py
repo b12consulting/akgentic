@@ -17,8 +17,8 @@ class WorkerHandle(Protocol):
     Abstracts stop/delete/resume/get operations so that ``TeamService``
     can manage team lifecycle without knowing the underlying tier implementation.
 
-    Implementations: LocalWorkerHandle (community),
-    RemoteWorkerHandle (department / enterprise).
+    Implementations: ``LocalWorkerHandle`` (community), ``HttpWorkerHandle``
+    (department), ``DaprWorkerHandle`` (enterprise).
 
     Error contract:
         - ``stop_team()`` raises ``ValueError`` if the team is not running

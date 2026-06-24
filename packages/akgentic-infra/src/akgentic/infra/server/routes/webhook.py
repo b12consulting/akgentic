@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -13,6 +12,7 @@ from akgentic.infra.protocols.channels import (
     InteractionChannelIngestion,
     JsonValue,
 )
+from akgentic.infra.server.state_keys import CHANNEL_PARSERS, CHANNEL_REGISTRY, INGESTION
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +20,25 @@ router = APIRouter(prefix="/webhook", tags=["webhook"])
 
 
 def get_channel_parser_registry(request: Request) -> ChannelParserRegistry:
-    """FastAPI dependency: extract ChannelParserRegistry from app.state."""
-    return cast(ChannelParserRegistry, request.app.state.channel_parser_registry)
+    """FastAPI dependency: extract ChannelParserRegistry from app.state.
+
+    ``channel_parser_registry`` is a required slot on any webhook-serving tier:
+    a request reaching this route on a deployment that never wired a registry is
+    a misconfiguration, so ``.require()`` raises ``LookupError`` (surfaced as a
+    500) rather than returning ``None`` and crashing later. The non-optional
+    ``-> ChannelParserRegistry`` return means the handler needs no null-check.
+    """
+    return CHANNEL_PARSERS.require(request)
 
 
 def get_channel_registry(request: Request) -> ChannelRegistry:
     """FastAPI dependency: extract ChannelRegistry from app.state."""
-    return cast(ChannelRegistry, request.app.state.channel_registry)
+    return CHANNEL_REGISTRY.require(request)
 
 
 def get_ingestion(request: Request) -> InteractionChannelIngestion:
     """FastAPI dependency: extract InteractionChannelIngestion from app.state."""
-    return cast(InteractionChannelIngestion, request.app.state.ingestion)
+    return INGESTION.require(request)
 
 
 @router.post("/{channel}", status_code=204)
@@ -84,7 +91,7 @@ async def webhook(
                 message.channel_user_id,
                 existing_team,
             )
-            await ingestion.route_reply(existing_team, message.content)
+            await ingestion.route_reply(existing_team, message.content, message.message_id)
         else:
             # Initiation flow
             new_team_id = await ingestion.initiate_team(

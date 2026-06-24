@@ -9,13 +9,17 @@ from pathlib import Path
 
 from akgentic.catalog.models.errors import CatalogValidationError, EntryNotFoundError
 from akgentic.core.messages.orchestrator import SentMessage
+from akgentic.infra.errors import PlacementConsistencyError
 from akgentic.infra.protocols.event_stream import EventStream
 from akgentic.infra.protocols.runtime_cache import RuntimeCache
 from akgentic.infra.protocols.team_handle import TeamHandle
 from akgentic.infra.server.deps import TierServices
-from akgentic.team.models import PersistedEvent, Process, TeamStatus
+from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process, TeamStatus
 
 logger = logging.getLogger(__name__)
+
+# Maximum page size for GET /teams; the default is 250 (ADR-032 §Decision 1).
+MAX_PAGE_SIZE = 500
 
 
 def _remove_workspace_dir(workspaces_root: Path, team_id: uuid.UUID) -> None:
@@ -120,7 +124,7 @@ class TeamService:
         process = self._services.worker_handle.get_team(handle.team_id)
         if process is None:  # pragma: no cover
             msg = f"Team {handle.team_id} was created but not found in event store"
-            raise RuntimeError(msg)
+            raise PlacementConsistencyError(msg)
         logger.info(
             "Team created: team_id=%s, catalog_namespace=%s",
             process.team_id,
@@ -128,15 +132,27 @@ class TeamService:
         )
         return process
 
-    def list_teams(self, user_id: str) -> list[Process]:
-        """List all teams for a given user.
+    def list_teams(
+        self,
+        *,
+        user_id: str,
+        page: int = 1,
+        size: int = 250,
+    ) -> tuple[list[Process], int]:
+        """Return one numbered page of the user's teams plus the full owned count.
 
-        Pushes the ``user_id`` filter into the EventStore rather than loading
-        every team into Python and filtering here. Per-request cost scales with
-        the requesting user's team count, not with total teams across all
-        users. See team-package ADR-16 / Epic 19 for the Protocol change.
+        Phase 1: the store returns the full owned set, sorted ``created_at DESC,
+        team_id DESC`` and sliced here (ADR-032 §Decision 2). Stateless — a pure
+        function of ``user_id`` + ``page`` + ``size`` + store contents. An
+        out-of-range page yields an empty list with the correct total.
         """
-        return self._services.event_store.list_teams(user_id=user_id)
+        rows = self._services.event_store.list_teams(user_id=user_id)
+        rows.sort(key=lambda p: (p.created_at, p.team_id), reverse=True)
+        total = len(rows)
+        size = max(1, min(size, MAX_PAGE_SIZE))
+        page = max(1, page)
+        start = (page - 1) * size
+        return rows[start : start + size], total
 
     def get_team(self, team_id: uuid.UUID) -> Process | None:
         """Get a single team by ID."""
@@ -286,6 +302,25 @@ class TeamService:
             raise ValueError(msg)
         logger.debug("Loading events for team %s", team_id)
         return self._services.event_store.load_events(team_id)
+
+    def get_agent_states(self, team_id: uuid.UUID) -> list[AgentStateSnapshot]:
+        """Get all persisted agent-state snapshots for a team.
+
+        A thin, faithful read of the snapshot store: returns every snapshot as
+        persisted, with no liveness filtering and no name->UUID resolution. The
+        team-exists guard mirrors ``get_events`` — ``get_team`` returns the
+        persisted process for a stopped team too, so this fires only for a
+        genuinely unknown team.
+
+        Raises:
+            ValueError: If team not found.
+        """
+        process = self._services.worker_handle.get_team(team_id)
+        if process is None:
+            msg = f"Team {team_id} not found"
+            raise ValueError(msg)
+        logger.debug("Loading agent states for team %s", team_id)
+        return self._services.event_store.load_agent_states(team_id)
 
     def get_event_stream(self) -> EventStream:
         """Return the tier's EventStream for cursor-based replay and fan-out."""

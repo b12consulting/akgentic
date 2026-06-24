@@ -18,7 +18,6 @@ from akgentic.infra.adapters.community.local_runtime_cache import LocalRuntimeCa
 from akgentic.infra.adapters.community.local_team_handle import LocalTeamHandle
 from akgentic.infra.adapters.community.local_worker_handle import LocalWorkerHandle
 from akgentic.infra.adapters.community.no_auth import NoAuth
-from akgentic.infra.adapters.community.null_channel_registry import NullChannelRegistry
 from akgentic.infra.adapters.community.yaml_channel_registry import YamlChannelRegistry
 
 __all__ = [
@@ -30,6 +29,5 @@ __all__ = [
     "LocalTeamHandle",
     "LocalWorkerHandle",
     "NoAuth",
-    "NullChannelRegistry",
     "YamlChannelRegistry",
 ]

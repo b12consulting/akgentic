@@ -2,25 +2,25 @@
 
 # akgentic-infra
 
-**Status:** Beta — Community tier complete, department/enterprise tiers planned.
+**Status:** Beta — community tier complete; department and enterprise tiers implemented in the sibling `akgentic-infra-department` and `akgentic-infra-enterprise` packages.
 
 ## What is akgentic-infra?
 
-Infrastructure backend for the Akgentic platform. It provides protocol abstractions that decouple the server and CLI from any specific deployment model, plus a complete set of community-tier implementations for single-process deployment. Implement the protocols to build department (Docker Compose) or enterprise (Kubernetes/Dapr) tiers.
+Infrastructure backend for the Akgentic platform. It provides protocol abstractions that decouple the server and CLI from any specific deployment model, plus a complete set of community-tier implementations for single-process deployment. The department (`akgentic-infra-department`, Docker Compose) and enterprise (`akgentic-infra-enterprise`, Kubernetes/Dapr) tiers implement these same protocols for distributed deployment.
 
 ## Three-Tier Architecture
 
 | Capability        | Community              | Department                    | Enterprise                         |
 |-------------------|------------------------|-------------------------------|------------------------------------|
 | Auth              | `NoAuth`               | OAuth2 + API key              | OAuth2 + API key + SSO + RBAC      |
-| Placement         | `LocalPlacement`       | `LeastTeamsPlacement`         | LabelMatch / Weighted / ZoneAware  |
-| Worker lifecycle  | `LocalWorkerHandle`    | `RemoteWorkerHandle` (HTTP)   | `RemoteWorkerHandle` (Dapr)        |
-| Team interaction  | `LocalTeamHandle`      | Remote (HTTP proxy)           | Remote (Dapr service invocation)   |
-| Runtime cache     | `LocalRuntimeCache`    | Redis-backed                  | Dapr State Store                   |
+| Placement         | `LocalPlacement`       | `HttpPlacement`               | `DaprPlacement` (LabelMatch → Weighted → ZoneAware) |
+| Worker lifecycle  | `LocalWorkerHandle`    | `HttpWorkerHandle`            | `DaprWorkerHandle`                 |
+| Team interaction  | `LocalTeamHandle`      | `HttpTeamHandle`              | `RemoteTeamHandle`                 |
+| Runtime cache     | `LocalRuntimeCache`    | worker `LocalRuntimeCache` + server `HttpRuntimeCache` (no-op) | worker `LocalRuntimeCache` + server `RemoteRuntimeCache` (no-op) |
 | Persistence       | `YamlEventStore`       | MongoDB                       | MongoDB + Dapr State               |
 | Health monitoring | None (single process)  | `RedisHealthMonitor`          | `DaprHealthMonitor`                |
-| Recovery          | None (single process)  | `MarkStoppedRecovery`         | `AutoRestoreRecovery`              |
-| Channels          | `YamlChannelRegistry` / `NullChannelRegistry` | Redis-backed       | Dapr pub/sub                       |
+| Recovery          | None (single process)  | `MarkStoppedRecovery`         | `AutoRestoreRecovery` / `NotifyOnlyRecovery` |
+| Channels          | `YamlChannelRegistry`  | `MongoChannelRegistry`        | `DaprChannelRegistry`              |
 | Worker discovery  | N/A (same process)     | HTTP via Redis-registered URLs| Dapr service invocation            |
 | Observability     | Logfire (direct)       | Logfire (direct)              | Logfire + OTel Collector           |
 | Workspace storage | Local filesystem       | Docker named volume           | NFS / EFS                          |
@@ -99,10 +99,10 @@ graph TB
         SRV[FastAPI Server<br/>stateless]
         SVC_S[TeamService]
         AUTH["OAuth2 + API Key<br/>&lt;AuthStrategy&gt;"]
-        PS_SRV["LeastTeamsPlacement<br/>&lt;PlacementStrategy&gt;"]
+        PS_SRV["HttpPlacement<br/>&lt;PlacementStrategy&gt;"]
         HM["RedisHealthMonitor<br/>&lt;HealthMonitor&gt;"]
         RP["MarkStoppedRecovery<br/>&lt;RecoveryPolicy&gt;"]
-        RWH["RemoteWorkerHandle · HTTP<br/>&lt;WorkerHandle&gt;"]
+        RWH["HttpWorkerHandle<br/>&lt;WorkerHandle&gt;"]
         RES_R["RedisEventStream<br/>&lt;EventStream&gt;"]
         CAT[Catalog API<br/>MongoDB backend]
     end
@@ -186,8 +186,8 @@ graph TB
         SVC_E[TeamService]
         AUTH["OAuth2 + API Key + SSO + RBAC<br/>&lt;AuthStrategy&gt;"]
         CAT[Catalog API<br/>MongoDB backend]
-        PS_SRV["LabelMatch / Weighted / ZoneAware<br/>&lt;PlacementStrategy&gt;"]
-        RWH_E["RemoteWorkerHandle · Dapr<br/>&lt;WorkerHandle&gt;"]
+        PS_SRV["DaprPlacement · LabelMatch / Weighted / ZoneAware<br/>&lt;PlacementStrategy&gt;"]
+        RWH_E["DaprWorkerHandle<br/>&lt;WorkerHandle&gt;"]
         DSR[DaprStateServiceRegistry]
         HM_E["DaprHealthMonitor<br/>&lt;HealthMonitor&gt;"]
         RP_E["AutoRestoreRecovery<br/>&lt;RecoveryPolicy&gt;"]
@@ -280,7 +280,7 @@ src/akgentic/infra/
     worker_handle.py    WorkerHandle
     team_handle.py      TeamHandle
     runtime_cache.py    RuntimeCache
-    channels.py         ChannelAdapter, Ingestion, Parser, Registry
+    channels.py         InteractionChannelAdapter, Ingestion, Parser, Registry
     health.py           HealthMonitor
     recovery.py         RecoveryPolicy
   adapters/           Protocol implementations
@@ -290,10 +290,13 @@ src/akgentic/infra/
     routes/             REST, WebSocket, webhook, and frontend adapter routes
     services/           TeamService (tier-agnostic orchestrator)
     settings.py         Pydantic-settings configuration classes
+    state_keys.py       Typed app.state key declarations (server tier)
     app.py              Application factory (create_app)
   cli/                Typer-based CLI (ak-infra)
+  utils.py            StateKey[T] — typed app.state handle factory
   wiring.py           Dependency injection — wires adapters into services
   worker/             Worker module (planned for department/enterprise tiers)
+    state_keys.py       Typed app.state key declarations (worker tier)
 ```
 
 ## Quick Start
@@ -331,21 +334,23 @@ ak-infra chat --create agent-team
 
 These are the contracts that department/enterprise tiers must implement. All use structural subtyping (`typing.Protocol`) — no inheritance required.
 
-| Protocol                       | File                | Abstracts                                     |
-|--------------------------------|---------------------|-----------------------------------------------|
-| `PlacementStrategy`            | `placement.py`      | Worker selection and team creation             |
-| `WorkerHandle`                 | `worker_handle.py`  | Team stop / delete / resume / get             |
-| `TeamHandle`                   | `team_handle.py`    | Send messages, route human input, subscribe   |
-| `RuntimeCache`                 | `runtime_cache.py`  | Map team IDs to live TeamHandle instances      |
-| `AuthStrategy`                 | `auth.py`           | Request authentication and user extraction     |
-| `InteractionChannelAdapter`    | `channels.py`       | Outbound message delivery to external channels |
-| `InteractionChannelIngestion`  | `channels.py`       | Inbound webhook routing to teams               |
-| `ChannelParser`                | `channels.py`       | Parse channel-specific webhook payloads        |
-| `ChannelRegistry`              | `channels.py`       | Map external channel users to active teams     |
-| `EventStream`                  | `event_stream.py`   | Tier-agnostic event streaming with replay and fan-out (ADR-010) |
-| `StreamReader`                 | `event_stream.py`   | Cursor-based blocking reader for a team's event stream |
-| `HealthMonitor`                | `health.py`         | Worker liveness detection                      |
-| `RecoveryPolicy`               | `recovery.py`       | Recovery behavior on worker failure            |
+The **Used in** column refers to the role in the distributed (department / enterprise) tiers; in the community tier the server and worker run in a single process.
+
+| Protocol                       | File                | Abstracts                                     | Used in |
+|--------------------------------|---------------------|-----------------------------------------------|---------|
+| `PlacementStrategy`            | `placement.py`      | Worker selection and team creation             | Server |
+| `WorkerHandle`                 | `worker_handle.py`  | Team stop / delete / resume / get             | Both — server-side remote handle delegates to the worker's local handle |
+| `TeamHandle`                   | `team_handle.py`    | Send messages, route human input, subscribe   | Both — server-side remote handle delegates to the worker's local handle |
+| `RuntimeCache`                 | `runtime_cache.py`  | Map team IDs to live TeamHandle instances      | Both — real cache on the worker, stateless no-op resolver on the server |
+| `AuthStrategy`                 | `auth.py`           | Request authentication and user extraction     | Server |
+| `InteractionChannelAdapter`    | `channels.py`       | Outbound message delivery to external channels | Worker — runs in the orchestrator's actor thread |
+| `InteractionChannelIngestion`  | `channels.py`       | Inbound webhook routing to teams               | Server |
+| `ChannelParser`                | `channels.py`       | Parse channel-specific webhook payloads        | Server |
+| `ChannelRegistry`              | `channels.py`       | Map external channel users to active teams     | Server |
+| `EventStream`                  | `event_stream.py`   | Tier-agnostic event streaming with replay and fan-out (ADR-010) | Both — worker appends, server reads / fans out |
+| `StreamReader`                 | `event_stream.py`   | Cursor-based blocking reader for a team's event stream | Server — read side of the WebSocket fan-out |
+| `HealthMonitor`                | `health.py`         | Worker liveness detection                      | Server |
+| `RecoveryPolicy`               | `recovery.py`       | Recovery behavior on worker failure            | Server |
 
 ## Server Architecture
 
@@ -384,9 +389,43 @@ Tier-agnostic adapters that work across community, department, and enterprise de
 |------------------------------|--------------------------------------------------------------|
 | `InteractionChannelDispatcher` | Per-team outbound message dispatcher — routes `SentMessage` events to registered channel adapters |
 | `TelegramChannelAdapter`     | Delivers outbound messages via the Telegram Bot API          |
-| `TelegramParser`             | Parses inbound Telegram webhook payloads                     |
+| `TelegramChannelParser`      | Parses inbound Telegram webhook payloads                     |
 | `ChannelParserRegistry`      | Resolves and holds channel parsers/adapters from config      |
+| `EventStreamSubscriber`      | Event subscriber that routes orchestrator events to the team's `EventStream` |
+| `RuntimeCacheEvictionSubscriber` | Event subscriber that evicts a stopped team's handle from the worker's `RuntimeCache` |
 | `TelemetrySubscriber`        | Event subscriber that traces messages via Logfire            |
+
+### Typed `app.state` access (`StateKey[T]`)
+
+`create_app()` stores its wired services on FastAPI's `app.state` so routes can reach them. `app.state` is a `starlette.datastructures.State` whose attribute reads are typed `Any`, so routes used to `cast(...)` every read. `StateKey[T]` (see ADR-030 — Typed `app.state` Access via a `StateKey[T]` Registry) replaces that with a typed, serialization-free handle to one slot. The API is three calls:
+
+- `KEY.set(source, value)` — the producer writes the slot.
+- `KEY.get(source) -> T | None` — soft read; returns the key's `default` when the slot is unset (or raises `LookupError` if the key is `required=True`).
+- `KEY.require(source) -> T` — loud read; never returns `None` (raises `LookupError` when unset/`None`).
+
+`source` may be a `FastAPI`, `Request`, or `WebSocket`. A key is declared once as a module-level constant — that declaration *is* the registration; there is no central registry. `StateKey("name", *, default=..., required=...)` is the full constructor.
+
+**Producer / consumer.** `create_app()` (the producer) sets each slot through its key, and routes (the consumers) read the same key handle:
+
+```python
+# producer — server/app.py
+SERVICES.set(app, services)
+TEAM_SERVICE.set(app, team_service)
+
+# consumer — server/routes/teams.py
+team_service = TEAM_SERVICE.require(request)
+```
+
+**Soft defaults.** A key declared with a `default` reads that default back when its slot was never set: `CHANNEL_PARSERS` and `FRONTEND_ADAPTER` default to `None`, `DRAINING` defaults to `False`. So `CHANNEL_PARSERS.get(request)` returns `ChannelParserRegistry | None` without any `getattr(..., None)` at the call site.
+
+**`Depends` bridge.** DI-shaped handlers wrap the same key in a one-line provider — no second source of truth:
+
+```python
+def get_team_service(request: Request) -> TeamService:
+    return TEAM_SERVICE.require(request)
+```
+
+**Key lives with its producer.** Server keys are declared in `server/state_keys.py`, worker keys in `worker/state_keys.py` — each in the package that writes the slot. Both tiers export a `SERVICES` key, but they are different keys typed to different containers (`TierServices` server-side, `WorkerServices` worker-side); the worker route imports its own (`from akgentic.infra.worker.state_keys import SERVICES`). Department and enterprise tiers adopt these keys on their own branches/PRs — a tracked follow-up (see `_bmad-output/akgentic-infra-department/migration-plan-lift-shared-auth-and-http-helpers-to-akgentic-infra.md`); the coexistence with the older `cast`/`getattr` style during that rollout is intentional.
 
 ## CLI
 

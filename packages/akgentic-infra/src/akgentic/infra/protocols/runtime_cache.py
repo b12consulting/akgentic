@@ -20,16 +20,18 @@ class RuntimeCache(Protocol):
     implementation and transport differ.
 
     Tier topology:
-        - **Community** (``LocalRuntimeCache``): In-memory dict within a
-          single process. Server and workers share the same process, so the
-          cache holds live ``LocalTeamHandle`` objects directly.
-        - **Department / Enterprise** (two-layer): The server holds a
-          ``RemoteCache`` that maps team IDs to ``RemoteTeamHandle`` instances.
-          Each worker holds its own ``LocalRuntimeCache`` with the actual live
-          handles. The ``RemoteCache`` on the server delegates to the worker's
-          ``LocalRuntimeCache`` over the network.
-          - Department: Redis-backed transport.
-          - Enterprise: Dapr state management building block.
+        - **Community** (``LocalRuntimeCache``): single process — an in-memory dict
+          holding live ``LocalTeamHandle`` objects directly. The server and worker
+          are the same process, so one cache fills both roles.
+        - **Department / Enterprise** (two roles, two caches):
+            - *Worker* (``LocalRuntimeCache``): the real cache — an in-memory dict
+              holding the live handles for teams placed on that worker.
+            - *Server* (``HttpRuntimeCache`` department / ``RemoteRuntimeCache``
+              enterprise): a **stateless no-op** — ``store``/``remove`` do nothing
+              and ``get`` re-resolves the team's worker via the service registry
+              (Redis department / Dapr enterprise), returning a fresh remote handle
+              (``HttpTeamHandle`` / ``RemoteTeamHandle``). Holding no actor state
+              keeps any server replica able to serve any request.
 
     Behavioral contract (applies to all implementations):
         - ``get()`` returns ``None`` for unknown team IDs (never raises).
