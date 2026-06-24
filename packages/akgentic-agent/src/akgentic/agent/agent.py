@@ -19,6 +19,7 @@ Architecture:
 """
 
 import logging
+import os
 import random
 from datetime import datetime, timezone
 from time import sleep
@@ -176,14 +177,7 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
             )
         )
 
-        self._react_agent = ReactAgent(
-            config=react_agent_config,
-            deps_type=BaseAgent,
-            tools=tools,
-            toolsets=toolsets,
-            event_loop=self._event_loop,
-            observer=self,
-        )
+        self._react_agent = self._build_react_agent(react_agent_config, tools, toolsets)
 
         # ── Additional dynamic system prompts ─────────────────────────────────
         # ReactAgent already registers: current_datetime_prompt + config.system_prompts
@@ -208,6 +202,58 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
                         f"from team member(s): {', '.join(senders)}."
                         "\nConsider wrapping up the current thread to process them."
                     )
+
+    def on_stop(self) -> None:
+        """Release LLM resources on stop, then run the base teardown.
+
+        Delegates teardown to the ReactAgent's synchronous, idempotent
+        ``close()`` — the agent owns and closes its own loop now, so BaseAgent
+        no longer drives ``aclose()`` on an actor loop. ``super().on_stop()``
+        always runs last so the core StopMessage telemetry fires.
+        """
+        try:
+            self._react_agent.close()
+        except Exception:  # noqa: BLE001 - teardown must not raise
+            logger.exception("[%s] ReactAgent.close() failed on stop", self.config.name)
+        super().on_stop()
+
+    def _build_react_agent(
+        self, config: ReactAgentConfig, tools: list[Any], toolsets: list[Any]
+    ) -> ReactAgent:
+        """Build the LLM agent for this BaseAgent.
+
+        When ``AKGENTIC_MOCK_SCENARIO`` names a scenario YAML, swap in the
+        token-free ``MockReactAgent`` for load testing; otherwise build the
+        real ``ReactAgent``. The deferred import keeps the optional ``loadtest``
+        extra off the normal runtime path.
+        """
+        # Env var name mirrors akgentic.llm.loadtest.SCENARIO_ENV_VAR.
+        scenario = os.environ.get("AKGENTIC_MOCK_SCENARIO")
+        if scenario:
+            from akgentic.llm.loadtest import MockReactAgent  # noqa: PLC0415
+
+            # Carry the scenario path in a config copy's model field (the mock
+            # reads model_cfg.model first); self.config is left untouched.
+            mock_cfg = config.model_copy(
+                update={"model_cfg": config.model_cfg.model_copy(update={"model": scenario})}
+            )
+            return cast(
+                ReactAgent,
+                MockReactAgent(
+                    config=mock_cfg,
+                    deps_type=BaseAgent,
+                    tools=tools,
+                    toolsets=toolsets,
+                    observer=self,
+                ),
+            )
+        return ReactAgent(
+            config=config,
+            deps_type=BaseAgent,
+            tools=tools,
+            toolsets=toolsets,
+            observer=self,
+        )
 
     def init_llm_context(self, context: list[Message]) -> None:
         """Restore LLM conversation context from persisted events.
