@@ -1,0 +1,27 @@
+<section class="namespace-panel-route">
+  <header class="namespace-panel-route__header">
+    <a
+      class="namespace-panel-route__back"
+      routerLink="/"
+      data-test="namespace-panel-route-back-home"
+      >&larr; Back to home</a
+    >
+    <h1 class="namespace-panel-route__title">
+      Namespace: {{ currentNamespace }}
+      <!-- Story 11.7 AC 8, 9 — dirty-state indicator (FR15). *ngIf removes
+           the element from the DOM (and AT tree) entirely when clean — the
+           aria-label "Unsaved changes" is meaningful only when present. -->
+      <span
+        *ngIf="panel?.hasUnsavedChanges() === true"
+        class="namespace-panel-route__dirty-indicator"
+        aria-label="Unsaved changes"
+        data-test="dirty-indicator-route"
+      >●</span>
+    </h1>
+  </header>
+  <app-namespace-panel
+    [namespace]="currentNamespace"
+    [existingNamespaces]="existingNamespaces"
+    (saved)="onSaved()"
+  ></app-namespace-panel>
+</section>

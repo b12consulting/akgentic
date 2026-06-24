@@ -7,14 +7,14 @@ import { MenubarModule } from 'primeng/menubar';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { Subject, takeUntil } from 'rxjs';
-import { emptyableCombineLatest } from './lib/util';
-import { AkgentService } from './services/akgent.service';
-import { ApiService } from './services/api.service';
-import { AuthService } from './services/auth.service';
-import { ConfigService } from './services/config.service';
-import { ContextService } from './services/context.service';
-import { FaviconService } from './services/favicon.service';
-import { ViewService } from './view.service';
+import { emptyableCombineLatest } from './shared/util/util';
+import { AkgentService } from './core/ui/akgent.service';
+import { ApiService } from './core/http/api.service';
+import { AuthService } from './core/auth/auth.service';
+import { ConfigService } from './core/config/config.service';
+import { ContextService } from './core/context/context.service';
+import { FaviconService } from './core/config/favicon.service';
+import { ViewService } from './core/ui/view.service';
 
 @Component({
   selector: 'app-root',

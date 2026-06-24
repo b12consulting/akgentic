@@ -1,0 +1,60 @@
+<ng-container *ngIf="vm$ | async as vm">
+  <!-- Exactly one workspace → header strip + single explorer, NO tab chrome -->
+  <div *ngIf="vm.workspaces.length === 1" class="workspace-pane">
+    <ng-container
+      *ngTemplateOutlet="
+        memberStrip;
+        context: { d: vm.workspaces[0], agents: vm.agentsById }
+      "
+    ></ng-container>
+    <app-workspace-explorer
+      [workspaceId]="
+        vm.workspaces[0].isDefault ? undefined : vm.workspaces[0].workspaceId
+      "
+    ></app-workspace-explorer>
+  </div>
+
+  <!-- ≥1 named workspace → PrimeNG sub-tabs, one panel per descriptor -->
+  <p-tabs *ngIf="vm.workspaces.length > 1" value="0">
+    <p-tablist>
+      <p-tab *ngFor="let d of vm.workspaces; let i = index" [value]="i.toString()">
+        {{ d.label }}
+      </p-tab>
+    </p-tablist>
+    <p-tabpanels>
+      <p-tabpanel *ngFor="let d of vm.workspaces; let i = index" [value]="i.toString()">
+        <div class="workspace-pane">
+          <ng-container
+            *ngTemplateOutlet="memberStrip; context: { d: d, agents: vm.agentsById }"
+          ></ng-container>
+          <app-workspace-explorer
+            [workspaceId]="d.isDefault ? undefined : d.workspaceId"
+          ></app-workspace-explorer>
+        </div>
+      </p-tabpanel>
+    </p-tabpanels>
+  </p-tabs>
+</ng-container>
+
+<!--
+  Member-chip strip (v1 = membership only — name only, no RW level).
+  The strip always renders (with its divider): "Accessible by: <chips>" when
+  the workspace has members, otherwise a neutral "no members" message.
+-->
+<ng-template #memberStrip let-d="d" let-agents="agents">
+  <ng-container *ngIf="resolveMembers(d, agents) as members">
+    <div class="workspace-header-strip">
+      <ng-container *ngIf="members.length > 0; else noMembers">
+        <span class="ws-access-label">Accessible by:</span>
+        <p-chip
+          *ngFor="let m of members"
+          class="ws-member-chip"
+          [label]="m.name"
+        ></p-chip>
+      </ng-container>
+      <ng-template #noMembers>
+        <span class="ws-access-label">No members can access this workspace</span>
+      </ng-template>
+    </div>
+  </ng-container>
+</ng-template>

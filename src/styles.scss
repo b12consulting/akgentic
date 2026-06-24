@@ -137,6 +137,51 @@ chat-wrapper {
   transform: translateY(calc(-100% - 2.5rem));
 }
 
+// ADR-013: slash-command mention dropdown rows. The `angular-mentions`
+// `mention-list` component is created via ViewContainerRef, so its rows live
+// outside the input component's scoped styles — these rules are global.
+// `@` rows carry only `.mention-item-name`; `/` command rows add an args hint
+// and a secondary description line.
+.mention-item-name {
+  font-weight: 600;
+}
+
+.mention-item-args {
+  margin-left: 0.4rem;
+  font-size: 0.8rem;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.mention-item-desc {
+  // Keep the whole row on a single line. `angular-mentions` ships its rows as
+  // `.mention-item { white-space: nowrap }` and its arrow-key scroll math
+  // (`offsetTop + rect.height - clientHeight`) assumes uniform single-line
+  // rows — a block-level (two-line) description breaks that geometry and makes
+  // the dropdown jump on navigation. Stay inline and ellipsize instead of
+  // wrapping so a long description can't widen the nowrap dropdown unbounded.
+  display: inline-block;
+  vertical-align: bottom;
+  max-width: 22rem;
+  margin-left: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+// On the selected (active) row, `angular-mentions` paints the row's `<a>` white
+// on a blue background (`.mention-active>a { color:#fff }`). Our explicit grey
+// on the args hint and description overrides that inherited white and becomes
+// unreadable on the blue fill — restore a readable light tone for the secondary
+// text on the active row only (the bold name already inherits white).
+.mention-active > a {
+  .mention-item-args,
+  .mention-item-desc {
+    color: #e2e8f0;
+  }
+}
+
 // markdown styles
 markdown {
 
