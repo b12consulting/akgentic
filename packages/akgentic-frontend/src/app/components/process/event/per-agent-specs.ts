@@ -6,7 +6,9 @@ import {
   isCommandsAnnouncedEvent,
   isEventMessage,
   isLlmSystemPromptEvent,
+  isLlmUsageEvent,
   isStateChangedMessage,
+  LlmUsageEvent,
   StateChangedMessage,
   SystemPromptPartSnapshot,
 } from '../../../protocol/message.types';
@@ -308,4 +310,79 @@ export const systemPromptSpec: PerAgentSpec<SystemPromptValue> = {
   name: 'systemPrompt',
   match: systemPromptMatch,
   reduce: systemPromptReduce,
+};
+
+// ===========================================================================
+// token-usage reducer surface (Epic 26 / ADR-022 §Decision 2-4)
+// ===========================================================================
+
+/**
+ * Per-agent reduced token-usage value (Epic 26 / ADR-022 §Decision 2). Derived
+ * by folding every `EventMessage(LlmUsageEvent)` for the agent (keyed by the
+ * outer `sender.agent_id`, which IS the agent that ran the model). Terminology
+ * (ADR-022 §Decision 4): `totalSent` Σ `input_tokens`, `totalReceived` Σ
+ * `output_tokens`. `lastContextWindow` is the NEWEST event's `input_tokens`
+ * (ADR-022 §Decision 3 — there is no context-window field on the wire, so the
+ * most-recent prompt size is the proxy). `lastRunId` / `lastModelName` are labels
+ * only. Cache / `requests` fields ride the wire but are excluded from v1.
+ */
+export interface AgentTokenUsage {
+  /** input_tokens of the most-recent event (overwritten each event). */
+  lastContextWindow: number;
+  /** run_id of that most-recent event (label only). */
+  lastRunId: string;
+  /** model_name of that most-recent event (label only). */
+  lastModelName: string;
+  /** running Σ of input_tokens across all this agent's events. */
+  totalSent: number;
+  /** running Σ of output_tokens across all this agent's events. */
+  totalReceived: number;
+}
+
+/** Read the inner `LlmUsageEvent` off an `EventMessage`, or `undefined`. */
+function innerLlmUsage(msg: AkgenticMessage): LlmUsageEvent | undefined {
+  if (!isEventMessage(msg)) return undefined;
+  const inner = (msg as EventMessage).event;
+  return isLlmUsageEvent(inner) ? inner : undefined;
+}
+
+/**
+ * Incremental per-message reducer (the store's `(prev, msg) => next` contract,
+ * ADR-022 §Decision 2). NOT a stock factory: it BOTH accumulates (sums
+ * sent/received) AND overwrites (context window + labels) per event. The first
+ * event seeds from `prev ?? zero`; every event returns a FRESH object (OnPush
+ * safety). A non-usage message passes `prev` through unchanged (the spec's
+ * `match` already gates these out, but the reducer stays defensive). Numeric
+ * reads coalesce a missing/malformed field to `0` so a partial event never
+ * yields `NaN` totals.
+ */
+export function tokenUsageReduce(
+  prev: AgentTokenUsage | undefined,
+  msg: AkgenticMessage,
+): AgentTokenUsage | undefined {
+  const ev = innerLlmUsage(msg);
+  if (ev === undefined) return prev;
+  const input = ev.input_tokens ?? 0;
+  const output = ev.output_tokens ?? 0;
+  return {
+    lastContextWindow: input,
+    lastRunId: ev.run_id,
+    lastModelName: ev.model_name,
+    totalSent: (prev?.totalSent ?? 0) + input,
+    totalReceived: (prev?.totalReceived ?? 0) + output,
+  };
+}
+
+/**
+ * Epic 26 (ADR-022 §Decision 2): per-agent token-usage store derived from
+ * `LlmUsageEvent` riding the `EventMessage` passthrough. Default key
+ * `sender.agent_id` (the agent that ran the model). The custom
+ * `tokenUsageReduce` both accumulates and overwrites, so no stock factory fits.
+ * Read via `tokenUsage.forAgent(id)` / `tokenUsage.all$`; the team total is a
+ * pure derivation over `all$` (TokenUsageSelector), never a separate aggregate.
+ */
+export const tokenUsageSpec: PerAgentSpec<AgentTokenUsage> = {
+  name: 'tokenUsage',
+  match: (m) => isEventMessage(m) && isLlmUsageEvent((m as EventMessage).event),
+  reduce: tokenUsageReduce,
 };

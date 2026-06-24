@@ -5,10 +5,13 @@ import { ConfigService } from '../config/config.service';
 import { FetchService } from './fetch.service';
 import {
   TeamContext,
+  TeamPage,
   TeamResponse,
   TeamListResponse,
   EventResponse,
   EventListResponse,
+  AgentStateResponse,
+  AgentStateListResponse,
   toTeamContext,
 } from '../context/team.interface';
 import {
@@ -36,6 +39,29 @@ export class ApiService {
     });
     const teams = response?.teams ?? [];
     return teams.map(toTeamContext);
+  }
+
+  /**
+   * Classic offset+total page of teams (Epic 28). Issues `GET /teams?page&size`
+   * — bare `/teams` when both args are omitted (server applies its defaults:
+   * page 1 / size 250). A provided arg is appended even if it equals the
+   * server default. Maps `teams` via `toTeamContext` and carries `total_count`
+   * through; a missing/empty body yields `teams: []`, `total_count: 0`.
+   */
+  async getTeamsPage(page?: number, size?: number): Promise<TeamPage> {
+    const params = new URLSearchParams();
+    if (page !== undefined) {
+      params.set('page', String(page));
+    }
+    if (size !== undefined) {
+      params.set('size', String(size));
+    }
+    const query = params.toString();
+    const url = query ? `${this.apiUrl}/teams?${query}` : `${this.apiUrl}/teams`;
+
+    const response: TeamListResponse = await this.fetchService.fetch({ url });
+    const teams = (response?.teams ?? []).map(toTeamContext);
+    return { teams, total_count: response?.total_count ?? 0 };
   }
 
   async getTeam(teamId: string): Promise<TeamContext> {
@@ -154,6 +180,24 @@ export class ApiService {
       url: `${this.apiUrl}/teams/${teamId}/events`,
     });
     return response?.events ?? [];
+  }
+
+  // --- Agent states (ADR-020 §2) ---
+
+  /**
+   * Per-agent state snapshots for a team — the read-path that seeds the
+   * `state` store on init so the backstory head-block renders for STOPPED
+   * teams (the durable event log carries no `StateChangedMessage`, ADR-013).
+   * Mirrors `getEvents`: hits `GET /teams/{teamId}/agent-states` and unwraps
+   * the `states` list, defaulting to `[]` when the body is absent/empty.
+   * Each item's `agent_id` is the agent UUID (team Epic 23), so the caller
+   * can key the `state` store directly with no name→UUID resolution.
+   */
+  async getAgentStates(teamId: string): Promise<AgentStateResponse[]> {
+    const response: AgentStateListResponse = await this.fetchService.fetch({
+      url: `${this.apiUrl}/teams/${teamId}/agent-states`,
+    });
+    return response?.states ?? [];
   }
 
   // --- Catalog ---

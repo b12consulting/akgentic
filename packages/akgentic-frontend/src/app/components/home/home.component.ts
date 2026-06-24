@@ -10,7 +10,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { BehaviorSubject, firstValueFrom, Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { filter, map, take } from 'rxjs/operators';
 
 import { ApiService } from '../../core/http/api.service';
 import { TeamContext, isRunning } from '../../core/context/team.interface';
@@ -19,7 +19,7 @@ import { NamespaceSummary } from '../../protocol/catalog.interface';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
-import { TableModule } from 'primeng/table';
+import { TableModule, TableLazyLoadEvent } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -35,6 +35,11 @@ import { ContextService } from '../../core/context/context.service';
 // loaded only on first opening of the namespace-editor dialog — the initial
 // home-page bundle stays Monaco-free.
 import { NamespacePanelComponent } from '../catalog/namespace-panel/namespace-panel.component';
+
+// Classic team-list page size (Epic 28, ADR-032 §Decision 3). Bound to the
+// paginator's [rows] and used as the loadTeamsPage size fallback so no magic
+// 250 literal is duplicated. Server clamps size to [1, 500].
+const PAGE_SIZE = 250;
 
 @Component({
   selector: 'app-home',
@@ -69,6 +74,19 @@ export class HomeComponent {
   restoringTeams = new Set<string>();
   editingDescriptionFor: string | null = null;
   descriptionDrafts = new Map<string, string>();
+
+  // Classic paginator state (Epic 28). `rows` feeds [rows]; `first` is the
+  // row offset the paginator is parked on; `currentPage` (1-based) is tracked
+  // so create/restore/refresh reload the right page. The table's first
+  // (onLazyLoad) seeds page 1 — ngOnInit no longer fetches the list (AC #3).
+  readonly rows = PAGE_SIZE;
+  first = 0;
+  currentPage = 1;
+
+  // Flips true after the table's first (onLazyLoad) page-1 load resolves. The
+  // hideHome branch awaits this then reads teams$ reactively — so exactly one
+  // page-1 fetch happens (the seed), never a second ngOnInit fetch (AC #3).
+  private firstPageLoaded$ = new BehaviorSubject<boolean>(false);
 
   // Controls the Namespace Panel dialog visibility. The panel component is
   // mounted lazily via @defer in home.component.html so its Monaco-editor
@@ -116,25 +134,48 @@ export class HomeComponent {
   async ngOnInit() {
     await this.loadNamespaces();
 
-    // Populate _context$; return value reused for the hideHome branch.
-    const teams = await this.contextService.getTeams();
-
+    // The list is seeded by the table's first (onLazyLoad) (page 1) — NOT a
+    // fetch here, which would double-seed (AC #3). The hideHome branch reads
+    // the seeded list reactively below.
     if (this.config.hideHome) {
-      // If no team exists, create one using the first namespace.
-      if (!teams || teams.length === 0) {
-        const selected = this.selectedNamespace$.value;
-        if (selected) {
-          await this.contextService.createTeamAndNavigate(selected.namespace);
-        }
-      }
-      // If a team exists, navigate to its process page.
-      if (teams && teams.length > 0) {
-        const teamId = teams[0].team_id;
-        this.router.navigate(['/process', teamId]);
-      }
+      await this.handleHideHome();
     }
 
     this.authService.checkAuth().subscribe();
+  }
+
+  /**
+   * Classic lazy paginator load (Epic 28, ADR-032 §Decision 3). PrimeNG fires
+   * (onLazyLoad) once on init (first: 0) and on every page change. Computes the
+   * 1-based page from the row offset and delegates to the 28.1 data layer,
+   * which REPLACES teams$ with the fetched page (one page in the DOM) and sets
+   * totalCount. Tracks first/currentPage so create/restore/refresh reload the
+   * right page.
+   */
+  async loadPage(event: TableLazyLoadEvent): Promise<void> {
+    const size = event.rows ?? PAGE_SIZE;
+    this.first = event.first ?? 0;
+    this.currentPage = Math.floor(this.first / size) + 1;
+    await this.contextService.loadTeamsPage(this.currentPage, size);
+    this.firstPageLoaded$.next(true);
+  }
+
+  /**
+   * hideHome auto-route: once the table's first page-1 seed lands, read the
+   * current page reactively from teams$ (no extra fetch) and either create a
+   * team (empty) or navigate to the first one. Preserves the master behavior.
+   */
+  private async handleHideHome(): Promise<void> {
+    await firstValueFrom(this.firstPageLoaded$.pipe(filter((done) => done), take(1)));
+    const teams = await firstValueFrom(this.contextService.teams$.pipe(take(1)));
+    if (!teams || teams.length === 0) {
+      const selected = this.selectedNamespace$.value;
+      if (selected) {
+        await this.contextService.createTeamAndNavigate(selected.namespace);
+      }
+      return;
+    }
+    this.router.navigate(['/process', teams[0].team_id]);
   }
 
   /**
@@ -182,7 +223,11 @@ export class HomeComponent {
         return;
       }
       await this.apiService.createTeam(selected.namespace);
-      await this.contextService.getTeams();
+      // New team is newest under created_at desc → it belongs on page 1.
+      // Move the paginator to page 1 and reload (REPLACE — no empty flash).
+      this.first = 0;
+      this.currentPage = 1;
+      await this.contextService.loadTeamsPage(1, PAGE_SIZE);
     } catch (error) {
       console.error('Failed to create team:', error);
     } finally {
@@ -207,7 +252,8 @@ export class HomeComponent {
     this.restoringTeams.add(teamId);
     try {
       await this.apiService.restoreTeam(teamId);
-      await this.contextService.getTeams();
+      // Reload the current page (REPLACE — no empty flash); no page jump.
+      await this.contextService.loadTeamsPage(this.currentPage, PAGE_SIZE);
     } finally {
       this.restoringTeams.delete(teamId);
     }
@@ -235,7 +281,8 @@ export class HomeComponent {
   async refreshContext() {
     this.isRefreshing = true;
     try {
-      await this.contextService.getTeams();
+      // Reload the current page (REPLACE — no empty flash); no page jump.
+      await this.contextService.loadTeamsPage(this.currentPage, PAGE_SIZE);
     } finally {
       this.isRefreshing = false;
     }

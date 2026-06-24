@@ -234,6 +234,126 @@ describe('ApiService', () => {
     });
   });
 
+  describe('getAgentStates (Story 25-1, ADR-020 §2)', () => {
+    it('GETs /teams/:id/agent-states and returns the states array', async () => {
+      const states = [
+        {
+          agent_id: '11111111-1111-1111-1111-111111111111',
+          name: '@Researcher',
+          state: { backstory: 'A seasoned researcher.' },
+          updated_at: '2026-06-18T00:00:00Z',
+        },
+      ];
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve({ states }));
+
+      const result = await service.getAgentStates('team-1');
+
+      expect(fetchServiceSpy.fetch).toHaveBeenCalledTimes(1);
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(/\/teams\/team-1\/agent-states$/);
+      expect(callArgs.options?.method).toBeUndefined(); // defaults to GET
+      expect(result).toEqual(states);
+    });
+
+    it('returns [] when the response body is absent (undefined)', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(undefined));
+
+      const result = await service.getAgentStates('team-1');
+
+      expect(result).toEqual([]);
+    });
+
+    it('returns [] when the response has no states key', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve({} as any));
+
+      const result = await service.getAgentStates('team-1');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getTeamsPage (Story 28.1)', () => {
+    const makeResponse = () => ({
+      teams: [
+        {
+          team_id: 't1',
+          name: 'Alpha',
+          status: 'running',
+          user_id: 'u1',
+          created_at: '2026-06-20T10:00:00Z',
+          updated_at: '2026-06-20T10:00:00Z',
+        },
+      ],
+      total_count: 42,
+    });
+
+    it('(AC5a) issues the bare /teams URL (no query) when both args omitted', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(makeResponse()));
+
+      await service.getTeamsPage();
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(/\/teams$/);
+      expect(callArgs.url).not.toContain('?');
+    });
+
+    it('(AC5b) appends page= when only page is provided', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(makeResponse()));
+
+      await service.getTeamsPage(2);
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toMatch(/\/teams\?/);
+      expect(callArgs.url).toContain('page=2');
+      expect(callArgs.url).not.toContain('size=');
+    });
+
+    it('(AC5c) appends both page= and size= when both provided', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(makeResponse()));
+
+      await service.getTeamsPage(2, 250);
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toContain('page=2');
+      expect(callArgs.url).toContain('size=250');
+    });
+
+    it('(AC5c) sends size even when only size is provided', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(makeResponse()));
+
+      await service.getTeamsPage(undefined, 250);
+
+      const callArgs = fetchServiceSpy.fetch.calls.first().args[0];
+      expect(callArgs.url).toContain('size=250');
+      expect(callArgs.url).not.toContain('page=');
+    });
+
+    it('(AC5d) returns a TeamPage with total_count and teams mapped via toTeamContext', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(makeResponse()));
+
+      const result = await service.getTeamsPage(1, 250);
+
+      expect(result.total_count).toBe(42);
+      expect(result.teams.length).toBe(1);
+      // toTeamContext slims TeamResponse → TeamContext (drops user_id, adds
+      // config_name/description); assert the mapped view-model shape.
+      const team = result.teams[0];
+      expect(team.team_id).toBe('t1');
+      expect(team.config_name).toBe('Alpha');
+      expect(team.description).toBeNull();
+      expect((team as unknown as Record<string, unknown>)['user_id']).toBeUndefined();
+    });
+
+    it('(AC5e) defaults to teams:[] and total_count:0 on a missing/empty body', async () => {
+      fetchServiceSpy.fetch.and.returnValue(Promise.resolve(undefined));
+
+      const result = await service.getTeamsPage();
+
+      expect(result.teams).toEqual([]);
+      expect(result.total_count).toBe(0);
+    });
+  });
+
   describe('sendMessage (existing)', () => {
     it('should broadcast when no agentName provided', async () => {
       await service.sendMessage('team-1', 'broadcast msg');

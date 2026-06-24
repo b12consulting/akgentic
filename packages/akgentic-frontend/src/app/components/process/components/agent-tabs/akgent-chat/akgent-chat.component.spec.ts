@@ -2,7 +2,7 @@ import { SimpleChange } from '@angular/core';
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Observable, of } from 'rxjs';
 
 import { AkgentChatComponent } from './akgent-chat.component';
 import { ApiService } from '../../../../../core/http/api.service';
@@ -17,10 +17,27 @@ import {
   systemPromptMatch,
   systemPromptReduce,
 } from '../../../selectors/system-prompt.selector';
+import { TokenUsageSelector } from '../../../selectors/token-usage.selector';
+import { AgentTokenUsage } from '../../../event/per-agent-specs';
 import {
   AkgenticMessage,
   CommandDescriptor,
 } from '../../../../../protocol/message.types';
+
+/**
+ * Story 26-2 — the component injects the component-scoped TokenUsageSelector for
+ * the member-chat usage pill. Existing TestBeds (head block / follow mode /
+ * keyboard) don't exercise the pill, so they provide this neutral stub whose
+ * `perAgent$` always emits `undefined` (never-run empty-state) — enough to let
+ * the component construct without re-wiring the full tokenUsage store.
+ */
+const NEUTRAL_TOKEN_USAGE_SELECTOR = {
+  provide: TokenUsageSelector,
+  useValue: {
+    perAgent$: (_id: string): Observable<AgentTokenUsage | undefined> =>
+      of(undefined),
+  },
+};
 
 /**
  * Story 15-1 (ADR-013) — member-chat `/` slash-command mention. The member
@@ -88,6 +105,7 @@ describe('AkgentChatComponent — slash-command mention (Story 15-1 / 17-3)', ()
           deps: [PerAgentStoreRegistry],
         },
         SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
       ],
     });
 
@@ -346,6 +364,7 @@ describe('AkgentChatComponent — head system block (Story 16-2)', () => {
           deps: [PerAgentStoreRegistry],
         },
         SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
         // PrimeNG p-fieldset registers a synthetic animation listener.
         provideNoopAnimations(),
       ],
@@ -609,6 +628,7 @@ describe('AkgentChatComponent — never-run backstory head block (Story 20-1)', 
           deps: [PerAgentStoreRegistry],
         },
         SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
         provideNoopAnimations(),
       ],
     });
@@ -740,6 +760,7 @@ describe('AkgentChatComponent — never-run backstory head block (Story 20-1)', 
           deps: [PerAgentStoreRegistry],
         },
         SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
         provideNoopAnimations(),
       ],
     });
@@ -795,6 +816,7 @@ describe('AkgentChatComponent — follow mode + status pill', () => {
           deps: [PerAgentStoreRegistry],
         },
         SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
         provideNoopAnimations(),
       ],
     });
@@ -968,6 +990,7 @@ describe('AkgentChatComponent — keyboard submit parity', () => {
           deps: [PerAgentStoreRegistry],
         },
         SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
         provideNoopAnimations(),
       ],
     });
@@ -1011,5 +1034,206 @@ describe('AkgentChatComponent — keyboard submit parity', () => {
     component.userInputEnterKeySubmit = false;
     textareaEl().triggerEventHandler('keydown.control.enter', {});
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 26-2 (ADR-022 §Decision 5) — member-chat token-usage pill. A compact,
+// non-interactive pill sits as the FIRST child of `.input-row-buttons` (left of
+// Submit), bound to `tokenUsageSelector.perAgent$(agentId) | async`: populated
+// → `ctx <ctx> · ↑<sent> ↓<received>` (every number via `tokenCount`); never-run
+// (`undefined`) → the neutral `ctx — · ↑0 ↓0`. Driven through a fake selector
+// whose `perAgent$` returns a controllable BehaviorSubject so render / live-update
+// / empty-state are deterministic.
+// ---------------------------------------------------------------------------
+describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
+  const AGENT = 'a-mgr';
+
+  function usage(partial: Partial<AgentTokenUsage>): AgentTokenUsage {
+    return {
+      lastContextWindow: 0,
+      lastRunId: 'run-1',
+      lastModelName: 'gpt-4o',
+      totalSent: 0,
+      totalReceived: 0,
+      ...partial,
+    };
+  }
+
+  function setup(initial: AgentTokenUsage | undefined): {
+    fixture: ComponentFixture<AkgentChatComponent>;
+    component: AkgentChatComponent;
+    usage$: BehaviorSubject<AgentTokenUsage | undefined>;
+  } {
+    const usage$ = new BehaviorSubject<AgentTokenUsage | undefined>(initial);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AkgentChatComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            sendMessage: jasmine.createSpy('sendMessage').and.resolveTo(undefined),
+          },
+        },
+        {
+          provide: UtilService,
+          useValue: { copyToClipboard: () => {}, formatJSON: (v: any) => v },
+        },
+        {
+          provide: ContextService,
+          useValue: {
+            currentTeamRunning$: new BehaviorSubject<boolean>(true),
+            currentProcessId$: new BehaviorSubject<string>('proc-1'),
+          },
+        },
+        MessageLogService,
+        PerAgentStoreRegistry,
+        {
+          provide: IngestionService,
+          useFactory: (registry: PerAgentStoreRegistry) => ({
+            commands: { snapshot: (_id: string) => undefined },
+            systemPrompt: registry.register<SystemPromptValue>({
+              name: 'systemPrompt',
+              match: systemPromptMatch,
+              reduce: systemPromptReduce,
+            }),
+          }),
+          deps: [PerAgentStoreRegistry],
+        },
+        SystemPromptSelector,
+        // Fake selector: `perAgent$` returns the controllable subject so the
+        // spec drives populated / updated / empty emissions deterministically.
+        {
+          provide: TokenUsageSelector,
+          useValue: {
+            perAgent$: (_id: string) => usage$.asObservable(),
+          },
+        },
+        provideNoopAnimations(),
+      ],
+    });
+
+    const fixture = TestBed.createComponent(AkgentChatComponent);
+    const component = fixture.componentInstance;
+    component.context$ = new BehaviorSubject<any[]>([]);
+    component.agentId = AGENT;
+    component.agentName = '@' + AGENT;
+    return { fixture, component, usage$ };
+  }
+
+  /** The `.input-row-buttons` row element. */
+  function buttonsRow(
+    fixture: ComponentFixture<AkgentChatComponent>,
+  ): HTMLElement {
+    const el: HTMLElement = fixture.nativeElement;
+    return el.querySelector('.input-row-buttons') as HTMLElement;
+  }
+
+  /** The pill element (the `.usage-pill` span). */
+  function pill(
+    fixture: ComponentFixture<AkgentChatComponent>,
+  ): HTMLElement | null {
+    return buttonsRow(fixture).querySelector('.usage-pill');
+  }
+
+  /** The pill's rendered text with whitespace collapsed (OQ3: glyphs/order are
+   *  the contract, not exact spacing). */
+  function pillText(fixture: ComponentFixture<AkgentChatComponent>): string {
+    return (pill(fixture)?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  it('(a) renders left of Submit inside `.input-row-buttons` with the populated `ctx … · ↑… ↓…` format', () => {
+    const { fixture } = setup(
+      usage({
+        lastContextWindow: 12_300,
+        totalSent: 45_000,
+        totalReceived: 12_100,
+        lastModelName: 'gpt-4o',
+      }),
+    );
+    fixture.detectChanges();
+
+    // tokenCount: 12_300 → "12.3k", 45_000 → "45.0k", 12_100 → "12.1k".
+    expect(pillText(fixture)).toBe('ctx 12.3k · ↑45.0k ↓12.1k');
+
+    // The pill is the FIRST child of the buttons row, and Submit comes after it.
+    const row = buttonsRow(fixture);
+    expect(row.firstElementChild?.classList.contains('usage-pill')).toBeTrue();
+    const children = Array.from(row.children);
+    const pillIdx = children.findIndex((c) => c.classList.contains('usage-pill'));
+    const submitIdx = children.findIndex((c) => c.tagName.toLowerCase() === 'button');
+    expect(pillIdx).toBeLessThan(submitIdx);
+
+    // Non-interactive: a <span>, not a <button>, no routerLink.
+    const p = pill(fixture)!;
+    expect(p.tagName.toLowerCase()).toBe('span');
+    expect(p.getAttribute('href')).toBeNull();
+
+    // Tooltip spells out the words + model (full grouped numbers).
+    expect(p.getAttribute('title')).toBe(
+      'Context window 12,300 · Sent 45,000 · Received 12,100 · gpt-4o',
+    );
+  });
+
+  it('(b) live update: a fresh emission with a SMALLER newest ctx updates ctx to the newest value; totals reflect the sums', () => {
+    const { fixture, usage$ } = setup(
+      usage({ lastContextWindow: 30_000, totalSent: 30_000, totalReceived: 9_000 }),
+    );
+    fixture.detectChanges();
+    expect(pillText(fixture)).toBe('ctx 30.0k · ↑30.0k ↓9.0k');
+
+    // Newest event has a SMALLER context window than the prior one — ctx tracks
+    // the newest input_tokens (ADR-022 §Decision 3, overwrite semantics), while
+    // the totals keep accumulating.
+    usage$.next(
+      usage({ lastContextWindow: 8_000, totalSent: 38_000, totalReceived: 11_500 }),
+    );
+    fixture.detectChanges();
+    expect(pillText(fixture)).toBe('ctx 8.0k · ↑38.0k ↓11.5k');
+  });
+
+  it('(c) never-run agent (`perAgent$` emits undefined) renders the neutral `ctx — · ↑0 ↓0` empty-state', () => {
+    const { fixture } = setup(undefined);
+    fixture.detectChanges();
+
+    expect(pillText(fixture)).toBe('ctx — · ↑0 ↓0');
+    // Still non-interactive, and its tooltip must not render undefined/null.
+    const p = pill(fixture)!;
+    expect(p.tagName.toLowerCase()).toBe('span');
+    expect(p.getAttribute('title')).toBe('No usage yet');
+  });
+
+  it('the pill follows an agent switch (perAgent$ re-bound in ngOnChanges)', () => {
+    const { fixture, component } = setup(
+      usage({ lastContextWindow: 5_000, totalSent: 5_000, totalReceived: 1_000 }),
+    );
+    fixture.detectChanges();
+    const before = pillText(fixture);
+    expect(before).toBe('ctx 5.0k · ↑5.0k ↓1.0k');
+
+    // Switching members reuses this component; ngOnChanges re-binds usage$.
+    component.agentId = 'b-other';
+    component.ngOnChanges({ agentId: new SimpleChange(AGENT, 'b-other', false) });
+    fixture.detectChanges();
+    // The fake selector returns the same subject for any id, so the pill still
+    // renders (the re-bind path did not throw / null the stream).
+    expect(pillText(fixture)).toBe('ctx 5.0k · ↑5.0k ↓1.0k');
+  });
+
+  it('(AC #7) adding the pill leaves the Submit disabled binding intact', () => {
+    const { fixture, component } = setup(
+      usage({ lastContextWindow: 1_000, totalSent: 1_000, totalReceived: 100 }),
+    );
+    fixture.detectChanges();
+
+    const submit = buttonsRow(fixture).querySelector('button') as HTMLButtonElement;
+    // Empty input → Submit disabled (existing rule unchanged).
+    expect(submit.disabled).toBeTrue();
+
+    // Typing enables it (team is running in this harness).
+    component.userInput = 'hello';
+    fixture.detectChanges();
+    expect(submit.disabled).toBeFalse();
   });
 });

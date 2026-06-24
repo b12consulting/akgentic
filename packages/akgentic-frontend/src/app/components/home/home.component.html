@@ -1,6 +1,13 @@
 <section class="content">
   <br />
   <div class="main-container">
+    <!--
+      Controls row (dropdown + Create/Configuration/Refresh + "Show all" toggle).
+      Wrapped so it stays a normal-flow block (its master inline layout) and is
+      NOT a stretched/stacked flex child of .main-container — the table area
+      below is the only flex/scroll region (Story 28.3).
+    -->
+    <div class="home-controls">
     <p-select
       size="small"
       [options]="(namespaces$ | async) || []"
@@ -75,22 +82,49 @@
     ></button>
     <br />
     <br />
+    </div>
 
+    <!--
+      Table area — the single flex/scroll region (Story 28.3). Grows to fill the
+      bounded .main-container so the [scrollable] table's body scrolls within it
+      and the bottom paginator pins; the controls above stay in normal flow.
+    -->
+    <div class="home-table">
+    <!--
+      Classic numbered paginator (Epic 28, ADR-032 §Decision 3). [lazy] +
+      (onLazyLoad) drive a server-paged fetch (250/page); [totalRecords] from
+      the 28.1 totalCount feeds the "X–Y of N" report. The client cross-page
+      sort (former [sortField]/[sortOrder] + pSortableColumn/p-sortIcon) is
+      removed — the server returns each page already ordered created_at desc.
+
+      [scrollable]="true" + scrollHeight="flex" (Epic 28, Story 28.3) make the
+      body scroll within the height-constrained flex parent (.main-container)
+      so the sticky header and the bottom paginator stay pinned — the pager is
+      reachable without scrolling past 250 rows. This is plain PrimeNG table
+      scrolling, NOT virtual scroll: no [virtualScroll]/@angular/cdk (forbidden
+      by ADR-032 §"What we will not do"; [scrollable] is explicitly allowed).
+    -->
     <p-table
       [value]="(contextService.teams$ | async) || []"
       selectionMode="single"
       (onRowSelect)="onRowSelect($event)"
       [tableStyle]="{ 'min-width': '50rem' }"
-      [sortField]="'created_at'"
-      [sortOrder]="-1"
+      [scrollable]="true"
+      scrollHeight="flex"
+      [lazy]="true"
+      (onLazyLoad)="loadPage($event)"
+      [paginator]="true"
+      [rows]="rows"
+      [first]="first"
+      [totalRecords]="contextService.totalCount"
+      [showCurrentPageReport]="true"
+      currentPageReportTemplate="{first}–{last} of {totalRecords}"
+      paginatorPosition="bottom"
     >
       <ng-template #header>
         <tr>
           <th>Name</th>
-          <th pSortableColumn="created_at">
-            Creation Date
-            <p-sortIcon field="created_at"></p-sortIcon>
-          </th>
+          <th>Creation Date</th>
           <th>Status</th>
           <th>Team ID</th>
           <th></th>
@@ -215,6 +249,7 @@
         </tr>
       </ng-template>
     </p-table>
+    </div>
   </div>
 </section>
 

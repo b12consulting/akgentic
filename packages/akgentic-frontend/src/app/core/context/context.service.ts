@@ -19,7 +19,7 @@ import {
   timeout,
 } from 'rxjs/operators';
 import { ApiService } from '../http/api.service';
-import { isRunning, TeamContext, toTeamContext } from './team.interface';
+import { isRunning, TeamContext, TeamPage, toTeamContext } from './team.interface';
 
 @Injectable({
   providedIn: 'root',
@@ -37,6 +37,15 @@ export class ContextService {
   // will push updates via _context$.next(applyPatch(_context$.value, patch)).
   private _context$ = new BehaviorSubject<TeamContext[]>([]);
   public teams$: Observable<TeamContext[]> = this._context$.asObservable();
+
+  // Total teams across all pages (classic offset+total pagination, Epic 28).
+  // Single write path, same discipline as `_context$`; reset with the team
+  // list so a stale total never bleeds across teams.
+  private _totalCount$ = new BehaviorSubject<number>(0);
+  public totalCount$: Observable<number> = this._totalCount$.asObservable();
+  public get totalCount(): number {
+    return this._totalCount$.value;
+  }
 
   /** Derived selector: the team whose id matches `currentProcessId$`, or
    *  `null` if none matches (including the empty-string initial id). The
@@ -68,6 +77,26 @@ export class ContextService {
     const teams = await this.apiService.getTeams();
     this._context$.next(teams);
     return teams;
+  }
+
+  /**
+   * Classic page load (Epic 28): fetch one page via `apiService.getTeamsPage`
+   * and REPLACE the team list with it (one page in the DOM at a time — NOT
+   * append) while recording `total_count`. Returns the page for awaiting
+   * callers. Story 28.2 wires this to the paginator's `(onLazyLoad)`.
+   */
+  async loadTeamsPage(page?: number, size?: number): Promise<TeamPage> {
+    const result = await this.apiService.getTeamsPage(page, size);
+    this._context$.next(result.teams);
+    this._totalCount$.next(result.total_count);
+    return result;
+  }
+
+  /** Clear team-list state on team-switch / context reset so a stale page or
+   *  total never bleeds across teams. */
+  resetTeams(): void {
+    this._context$.next([]);
+    this._totalCount$.next(0);
   }
 
   async getCurrentTeam(

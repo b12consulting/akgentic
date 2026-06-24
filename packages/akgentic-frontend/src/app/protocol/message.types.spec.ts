@@ -1,6 +1,9 @@
 import {
   ActorAddress,
   BaseMessage,
+  isLlmMessageEvent,
+  isLlmSystemPromptEvent,
+  isLlmUsageEvent,
   isWelcomeAnnouncement,
   isWelcomeMessage,
   SentMessage,
@@ -112,5 +115,71 @@ describe('isWelcomeAnnouncement', () => {
     const msg = makeSent(makeWelcome());
     (msg as { message?: BaseMessage }).message = undefined;
     expect(isWelcomeAnnouncement(msg)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isLlmUsageEvent — inner-event check (ADR-022 §Decision 1)
+// ---------------------------------------------------------------------------
+
+describe('isLlmUsageEvent', () => {
+  it('returns true for an inner event whose __model__ includes "LlmUsageEvent"', () => {
+    expect(
+      isLlmUsageEvent({ __model__: 'akgentic.llm.event.LlmUsageEvent' }),
+    ).toBe(true);
+  });
+
+  it('returns false for null / undefined / missing __model__', () => {
+    expect(isLlmUsageEvent(null)).toBe(false);
+    expect(isLlmUsageEvent(undefined)).toBe(false);
+    expect(isLlmUsageEvent({})).toBe(false);
+  });
+
+  it('returns false for a different inner event', () => {
+    expect(
+      isLlmUsageEvent({ __model__: 'akgentic.llm.event.LlmSystemPromptEvent' }),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC #3 — the three Llm*Event guards are mutually exclusive.
+// For any one inner event, AT MOST ONE of (usage / system-prompt) guards fires,
+// and the message-event check never co-fires with either. The discriminators
+// must never overlap for the same event.
+// ---------------------------------------------------------------------------
+
+describe('Llm*Event guard mutual exclusion (AC #3)', () => {
+  const usage = { __model__: 'akgentic.llm.event.LlmUsageEvent' };
+  const systemPrompt = { __model__: 'akgentic.llm.event.LlmSystemPromptEvent' };
+  const message = { __model__: 'akgentic.llm.event.LlmMessageEvent' };
+
+  it('for an LlmUsageEvent, only isLlmUsageEvent fires', () => {
+    expect(isLlmUsageEvent(usage)).toBe(true);
+    expect(isLlmSystemPromptEvent(usage)).toBe(false);
+    expect(isLlmMessageEvent(usage)).toBe(false);
+  });
+
+  it('for an LlmSystemPromptEvent, only isLlmSystemPromptEvent fires', () => {
+    expect(isLlmSystemPromptEvent(systemPrompt)).toBe(true);
+    expect(isLlmUsageEvent(systemPrompt)).toBe(false);
+    expect(isLlmMessageEvent(systemPrompt)).toBe(false);
+  });
+
+  it('for an LlmMessageEvent, neither usage nor system-prompt guard fires', () => {
+    expect(isLlmMessageEvent(message)).toBe(true);
+    expect(isLlmUsageEvent(message)).toBe(false);
+    expect(isLlmSystemPromptEvent(message)).toBe(false);
+  });
+
+  it('the three guards never co-fire for the same event', () => {
+    for (const evt of [usage, systemPrompt, message]) {
+      const fired = [
+        isLlmUsageEvent(evt),
+        isLlmSystemPromptEvent(evt),
+        isLlmMessageEvent(evt),
+      ].filter(Boolean);
+      expect(fired.length).toBe(1);
+    }
   });
 });

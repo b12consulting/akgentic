@@ -13,9 +13,12 @@ export interface TeamResponse {
   updated_at: string;
 }
 
-// Maps to Python TeamListResponse
+// Maps to Python TeamListResponse (classic offset+total pagination, Epic 28).
+// `total_count` is the total teams the user owns across ALL pages; `teams` is
+// the current page. No `next_cursor` (the parked cursor approach, ADR-031).
 export interface TeamListResponse {
   teams: TeamResponse[];
+  total_count: number;
 }
 
 // Maps to Python EventResponse
@@ -29,6 +32,21 @@ export interface EventResponse {
 // Maps to Python EventListResponse
 export interface EventListResponse {
   events: EventResponse[];
+}
+
+// Maps to Python AgentStateResponse (akgentic.infra.server.models, Story 35-1).
+// `agent_id` is the agent UUID (team Epic 23) — the exact key the per-agent
+// `state` store uses, so no client-side name→UUID resolution is needed.
+export interface AgentStateResponse {
+  agent_id: string;
+  name: string | null;
+  state: Record<string, unknown>;
+  updated_at: string;
+}
+
+// Maps to Python AgentStateListResponse
+export interface AgentStateListResponse {
+  states: AgentStateResponse[];
 }
 
 // Maps to Python CreateTeamRequest (akgentic.infra.server.models)
@@ -60,6 +78,16 @@ export interface TeamContext {
   updated_at: string;
   config_name: string;
   description?: string | null;
+}
+
+/**
+ * Frontend-facing page of teams (classic offset+total pagination, Epic 28).
+ * `teams` is already mapped to the `TeamContext` view model; `total_count`
+ * is carried through verbatim from `TeamListResponse`.
+ */
+export interface TeamPage {
+  teams: TeamContext[];
+  total_count: number;
 }
 
 /** Check if a team is currently running. */

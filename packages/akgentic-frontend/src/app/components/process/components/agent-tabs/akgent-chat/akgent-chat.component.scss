@@ -27,6 +27,26 @@
     .pi-spinner {
       font-size: 1rem;
     }
+
+    // ADR-022 §Decision 5 — token-usage pill: compact, muted, non-interactive.
+    // Visually subordinate to Submit (small, muted). `white-space: nowrap`
+    // keeps `ctx … · ↑… ↓…` on one line; `default` cursor signals it is not a
+    // control. Shrinks before Submit at narrow widths so it never pushes the
+    // button off the row.
+    .usage-pill {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: default;
+      color: #64748b;
+      font-size: 0.75rem;
+      font-variant-numeric: tabular-nums;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background-color: #f1f5f9;
+    }
   }
 }
 

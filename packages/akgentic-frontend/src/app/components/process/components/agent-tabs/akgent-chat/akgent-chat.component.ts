@@ -26,6 +26,7 @@ import { BehaviorSubject, combineLatest, Observable, of } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import { CapitalizePipe } from '../../../../../shared/pipes/capitalise.pipe';
+import { TokenCountPipe } from '../../../../../shared/pipes/token-count.pipe';
 import { ApiService } from '../../../../../core/http/api.service';
 import { UtilService } from '../../../../../core/ui/utils.service';
 import { ContextService } from '../../../../../core/context/context.service';
@@ -36,6 +37,8 @@ import {
   SystemPromptSelector,
   systemPromptLabel,
 } from '../../../selectors/system-prompt.selector';
+import { TokenUsageSelector } from '../../../selectors/token-usage.selector';
+import { AgentTokenUsage } from '../../../event/per-agent-specs';
 import { CommandDescriptor } from '../../../../../protocol/message.types';
 
 import { CopyButtonComponent } from '../../../../../shared/components/copy-button/copy-button.component';
@@ -58,6 +61,7 @@ import { CopyButtonComponent } from '../../../../../shared/components/copy-butto
     ProgressSpinnerModule,
     MentionModule,
     CapitalizePipe,
+    TokenCountPipe,
     CopyButtonComponent,
   ],
   templateUrl: './akgent-chat.component.html',
@@ -87,6 +91,10 @@ export class AkgentChatComponent implements OnInit, OnChanges {
   private systemPromptSelector: SystemPromptSelector = inject(
     SystemPromptSelector
   );
+  // ADR-022 §Decision 5: same component-scoped selector pattern as
+  // SystemPromptSelector — resolves the same team-scoped IngestionService as
+  // this subtree, so the usage pill reads THIS team's per-agent totals.
+  private tokenUsageSelector: TokenUsageSelector = inject(TokenUsageSelector);
   private destroyRef = inject(DestroyRef);
 
   context: any[] = [];
@@ -118,6 +126,16 @@ export class AkgentChatComponent implements OnInit, OnChanges {
   headRows$!: Observable<SystemPromptRow[]>;
 
   /**
+   * ADR-022 §Decision 5 — the member-chat usage pill stream. A thin
+   * `perAgent$(agentId) | async` binding (the view owns the never-run empty-state
+   * via `undefined`, ADR-022 §OQ2). Re-pointed at the selected agent in
+   * `bindUsage()` (called from `ngOnInit` + `ngOnChanges`), so the pill follows
+   * member switches like `systemPrompt$`. OnPush-faithful by construction: bound
+   * through `async`, no stored mutable copy, no manual subscription.
+   */
+  usage$!: Observable<AgentTokenUsage | undefined>;
+
+  /**
    * The agent-tabs dropdown REUSES this component across member selections (it
    * lives under `*ngIf="context$.length"`, which stays truthy when switching
    * between agents that both have context), so `ngOnInit` does NOT re-run on a
@@ -129,6 +147,7 @@ export class AkgentChatComponent implements OnInit, OnChanges {
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['agentId'] && !changes['agentId'].firstChange) {
       this.bindSystemPrompt();
+      this.bindUsage();
       // Switching members reuses this component (only the table content swaps),
       // so start FRESH: drop any carried-over follow mode and jump the trace to
       // the TOP — instantly, after the new content renders. `scrollTop = 0` is the
@@ -147,6 +166,9 @@ export class AkgentChatComponent implements OnInit, OnChanges {
     // Initial head system block for this panel's agent (ADR-004 §5b step 2).
     // Subsequent agent switches re-bind it in ngOnChanges — see above.
     this.bindSystemPrompt();
+    // Initial usage-pill stream for this panel's agent (ADR-022 §Decision 5);
+    // re-bound on agent switch in ngOnChanges alongside the head block.
+    this.bindUsage();
 
     // Subscribe to context$ for the selected agent. No scroll on enter / on every
     // message — the panel only auto-scrolls while in FOLLOW mode (see updateContext).
@@ -194,6 +216,15 @@ export class AkgentChatComponent implements OnInit, OnChanges {
         return [];
       }),
     );
+  }
+
+  /** Point `usage$` at the current `agentId`'s token-usage stream (ADR-022
+   *  §Decision 5). The async pipe in the template resubscribes on reassignment,
+   *  so a member switch repoints the pill. `perAgent$` passes the store's
+   *  `undefined` through for a never-run agent — the template renders the
+   *  neutral empty-state (ADR-022 §OQ2). */
+  private bindUsage(): void {
+    this.usage$ = this.tokenUsageSelector.perAgent$(this.agentId);
   }
 
   /**

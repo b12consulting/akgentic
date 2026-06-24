@@ -1,8 +1,10 @@
 import { CommonModule } from '@angular/common';
 import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { Router } from '@angular/router';
+import { Table } from 'primeng/table';
 import { BehaviorSubject, of } from 'rxjs';
 
 import { ApiService } from '../../core/http/api.service';
@@ -30,9 +32,12 @@ describe('HomeComponent', () => {
   let fixture: ComponentFixture<HomeComponent>;
   let component: HomeComponent;
   let teams$: BehaviorSubject<TeamContext[]>;
+  let totalCount$: BehaviorSubject<number>;
   let apiSpy: jasmine.SpyObj<ApiService>;
   let contextSpy: jasmine.SpyObj<ContextService> & {
     teams$: BehaviorSubject<TeamContext[]>;
+    totalCount$: BehaviorSubject<number>;
+    totalCount: number;
   };
   let authSpy: jasmine.SpyObj<AuthService> & {
     currentUser$: BehaviorSubject<any>;
@@ -45,6 +50,7 @@ describe('HomeComponent', () => {
 
   beforeEach(async () => {
     teams$ = new BehaviorSubject<TeamContext[]>([]);
+    totalCount$ = new BehaviorSubject<number>(0);
 
     apiSpy = jasmine.createSpyObj('ApiService', [
       'getNamespaces',
@@ -63,12 +69,42 @@ describe('HomeComponent', () => {
 
     contextSpy = jasmine.createSpyObj<ContextService>(
       'ContextService',
-      ['getTeams', 'deleteTeam', 'createTeamAndNavigate', 'stopTeamAndAwait']
+      [
+        'getTeams',
+        'loadTeamsPage',
+        'resetTeams',
+        'deleteTeam',
+        'createTeamAndNavigate',
+        'stopTeamAndAwait',
+      ],
     ) as jasmine.SpyObj<ContextService> & {
       teams$: BehaviorSubject<TeamContext[]>;
+      totalCount$: BehaviorSubject<number>;
+      totalCount: number;
     };
     contextSpy.teams$ = teams$;
+    contextSpy.totalCount$ = totalCount$;
+    // Plain settable property mirroring the 28.1 totalCount getter so the
+    // template's [totalRecords]="contextService.totalCount" has a value.
+    contextSpy.totalCount = 0;
     contextSpy.getTeams.and.callFake(async () => teams$.value);
+    // loadTeamsPage REPLACES teams$ with the page (one page in the DOM) and
+    // updates totalCount — mirrors the 28.1 data-layer behavior so REPLACE
+    // semantics and the page swap are observable in tests. The fake returns a
+    // single-row page keyed by the requested page so a jump-to-page renders
+    // distinct rows.
+    contextSpy.loadTeamsPage.and.callFake(
+      async (page: number = 1, _size?: number) => {
+        const pageTeams = [
+          makeTeam({ team_id: `team-page-${page}`, name: `Page ${page}` }),
+        ];
+        teams$.next(pageTeams);
+        contextSpy.totalCount = 1000;
+        totalCount$.next(1000);
+        return { teams: pageTeams, total_count: 1000 };
+      },
+    );
+    contextSpy.resetTeams.and.stub();
     contextSpy.deleteTeam.and.returnValue(Promise.resolve());
     contextSpy.createTeamAndNavigate.and.returnValue(Promise.resolve());
     contextSpy.stopTeamAndAwait.and.returnValue(Promise.resolve());
@@ -114,6 +150,10 @@ describe('HomeComponent', () => {
   });
 
   it('(AC6) template renders one row per team emitted on teams$', async () => {
+    // Render first so the lazy table's initial (onLazyLoad) seed fires; then
+    // push the page into teams$ (mirrors a real page arrival — REPLACE).
+    fixture.detectChanges();
+    await fixture.whenStable();
     teams$.next([
       makeTeam({ team_id: 't-1', name: 'Alpha' }),
       makeTeam({ team_id: 't-2', name: 'Beta' }),
@@ -137,6 +177,8 @@ describe('HomeComponent', () => {
   });
 
   it('(AC6, AC9) pushing a new list into teams$ triggers a re-render', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
     teams$.next([makeTeam({ team_id: 't-1' })]);
     fixture.detectChanges();
     await fixture.whenStable();
@@ -159,9 +201,12 @@ describe('HomeComponent', () => {
     expect(apiSpy.deleteTeam).not.toHaveBeenCalled();
   });
 
-  it('(AC7) refreshContext() calls contextService.getTeams once without touching a local field', async () => {
+  it('(28.2 AC4) refreshContext() reloads the current page via loadTeamsPage (REPLACE), not getTeams', async () => {
+    component.currentPage = 2;
     await component.refreshContext();
-    expect(contextSpy.getTeams).toHaveBeenCalledTimes(1);
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledOnceWith(2, 250);
+    expect(contextSpy.getTeams).not.toHaveBeenCalled();
+    expect(contextSpy.resetTeams).not.toHaveBeenCalled();
     expect((component as any).context).toBeUndefined();
   });
 
@@ -952,5 +997,253 @@ describe('HomeComponent', () => {
 
     // Still-present selection left untouched (reference-equal).
     expect(component.selectedNamespace$.value).toBe(original);
+  });
+
+  // --- Epic 28: classic lazy paginated table (view layer) ---
+
+  function paginatorEl(): HTMLElement | null {
+    return fixture.nativeElement.querySelector('p-paginator, .p-paginator');
+  }
+
+  // Reads the rendered PrimeNG Table instance to assert the scroll-contract
+  // inputs (28.3 AC #6a). The scroll body's p-scroller rows may not
+  // materialise deterministically in a detached fixture, so we assert the
+  // binding/configuration, not scraped viewport geometry.
+  function tableInstance(): Table {
+    return fixture.debugElement.query(By.directive(Table)).componentInstance;
+  }
+
+  it('(28.3 AC2/AC6a) table is configured scrollable with a flex scroll height and the paginator is present', async () => {
+    contextSpy.totalCount = 1000;
+    totalCount$.next(1000);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const table = tableInstance();
+    // The body scrolls within the bounded flex parent (sticky header + bottom
+    // paginator follow); the pager is always reachable without scrolling rows.
+    expect(table.scrollable).toBeTrue();
+    expect(table.scrollHeight).toBe('flex');
+    expect(paginatorEl()).withContext('paginator must render below the scroll body').not.toBeNull();
+  });
+
+  it('(28.3 AC4) table does NOT enable virtual scroll', () => {
+    fixture.detectChanges();
+    const table = tableInstance();
+    expect(table.virtualScroll).toBeFalsy();
+  });
+
+  it('(28.2 AC8a) table renders with a paginator and totalRecords driven by totalCount', async () => {
+    contextSpy.totalCount = 1000;
+    totalCount$.next(1000);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The lazy table seeds page 1 on init (loadPage → loadTeamsPage).
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalled();
+    // Paginator chrome present; totalRecords reflects the 28.1 totalCount.
+    expect(paginatorEl()).withContext('paginator must render').not.toBeNull();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('1000');
+  });
+
+  it('(28.2 AC8b) loadPage computes page = first / rows + 1 and delegates to loadTeamsPage', async () => {
+    await component.loadPage({ first: 500, rows: 250 });
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledOnceWith(3, 250);
+    expect(component.currentPage).toBe(3);
+    expect(component.first).toBe(500);
+  });
+
+  it('(28.2 AC8b) loadPage falls back to PAGE_SIZE when event.rows is absent', async () => {
+    await component.loadPage({ first: 0 });
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledOnceWith(1, 250);
+  });
+
+  it('(28.2 AC8c) opening the home page triggers exactly ONE initial page-1 loadTeamsPage (no double-seed)', async () => {
+    // The lazy table fires its initial (onLazyLoad) once on render.
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledTimes(1);
+    expect(contextSpy.loadTeamsPage.calls.first().args[0]).toBe(1);
+    // ngOnInit must NOT itself fetch the list (no double seed).
+    expect(contextSpy.getTeams).not.toHaveBeenCalled();
+  });
+
+  it('(28.2 AC8c) ngOnInit (hideHome off) does NOT fetch the list itself', async () => {
+    // Called directly without rendering — no table, so the only list fetch
+    // would be an (illegal) ngOnInit fetch. Assert there is none.
+    await component.ngOnInit();
+    expect(contextSpy.getTeams).not.toHaveBeenCalled();
+    expect(contextSpy.loadTeamsPage).not.toHaveBeenCalled();
+  });
+
+  it('(28.2 AC8d) a jump-to-page fetches that page and REPLACES (not appends) the rendered rows', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    // Initial seed rendered page 1.
+    expect((fixture.nativeElement.textContent as string)).toContain('team-page-1');
+
+    // Jump to page 3 (first = 500, rows = 250).
+    await component.loadPage({ first: 500, rows: 250 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledWith(3, 250);
+    const text = fixture.nativeElement.textContent as string;
+    // New page rendered; prior page REPLACED (not accumulated).
+    expect(text).toContain('team-page-3');
+    expect(text).not.toContain('team-page-1');
+  });
+
+  it('(28.2 AC8e) createTeam resets to page 1, reloads page 1, and does not blank the list', async () => {
+    component.selectedNamespace$.next({
+      namespace: 'agent-team-v1',
+      name: 'Agent Team',
+      description: 'd',
+    });
+    component.currentPage = 4;
+    component.first = 750;
+    contextSpy.loadTeamsPage.calls.reset();
+
+    await component.createTeam();
+
+    expect(apiSpy.createTeam).toHaveBeenCalledOnceWith('agent-team-v1');
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledOnceWith(1, 250);
+    expect(component.currentPage).toBe(1);
+    expect(component.first).toBe(0);
+    // No empty flash — never reset before reload.
+    expect(contextSpy.resetTeams).not.toHaveBeenCalled();
+  });
+
+  it('(28.2 AC8e) restoreTeam reloads the CURRENT page with no empty emission', async () => {
+    component.currentPage = 2;
+    contextSpy.loadTeamsPage.calls.reset();
+    const emissions: TeamContext[][] = [];
+    const sub = teams$.subscribe((v) => emissions.push(v));
+
+    await component.restoreTeam('team-X');
+
+    expect(apiSpy.restoreTeam).toHaveBeenCalledOnceWith('team-X');
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledOnceWith(2, 250);
+    expect(contextSpy.resetTeams).not.toHaveBeenCalled();
+    // No empty [] emission slipped in before the reloaded page.
+    expect(emissions.some((e) => e.length === 0 && e !== emissions[0])).toBeFalse();
+    sub.unsubscribe();
+  });
+
+  it('(28.2 AC8e) refreshContext reloads the CURRENT page with no empty emission', async () => {
+    component.currentPage = 3;
+    contextSpy.loadTeamsPage.calls.reset();
+
+    await component.refreshContext();
+
+    expect(contextSpy.loadTeamsPage).toHaveBeenCalledOnceWith(3, 250);
+    expect(contextSpy.resetTeams).not.toHaveBeenCalled();
+  });
+
+  it('(28.2 AC8f) cell templates work on a paged row: select navigates, status tag, action handlers, inline edit', async () => {
+    spyOn(component, 'stopTeam').and.callThrough();
+    spyOn(component, 'deleteTeam').and.callThrough();
+
+    fixture.detectChanges();
+    await fixture.whenStable();
+    // Render a known running row (REPLACE the seed page).
+    teams$.next([
+      makeTeam({ team_id: 'row-1', name: 'Row One', status: 'running' }),
+    ]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('row-1');
+    // Status tag reflects running state.
+    expect(text).toContain('Running');
+
+    // Row select → navigate to /process/{team_id}.
+    component.onRowSelect({ data: { team_id: 'row-1' } });
+    expect(routerSpy.navigate).toHaveBeenCalledWith(['/process', 'row-1']);
+
+    // Action handlers invoke the right delegations on a paged row.
+    await component.deleteTeam('row-1');
+    expect(contextSpy.deleteTeam).toHaveBeenCalledWith('row-1');
+    await component.stopTeam('row-1');
+    expect(contextSpy.stopTeamAndAwait).toHaveBeenCalledWith('row-1');
+
+    // Inline description edit: open / save / cancel.
+    component.startEditDescription('row-1', 'old');
+    expect(component.editingDescriptionFor).toBe('row-1');
+    expect(component.descriptionDrafts.get('row-1')).toBe('old');
+    await component.saveDescription('row-1');
+    expect(apiSpy.updateTeamDescription).toHaveBeenCalled();
+    expect(component.editingDescriptionFor).toBeNull();
+    component.startEditDescription('row-1', 'again');
+    component.cancelEditDescription();
+    expect(component.editingDescriptionFor).toBeNull();
+  });
+
+  describe('hideHome reactive read (28.2 AC3)', () => {
+    beforeEach(async () => {
+      // Re-configure with hideHome ON so the auto-route branch runs.
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [HomeComponent, CommonModule, NoopAnimationsModule],
+        providers: [
+          { provide: ApiService, useValue: apiSpy },
+          { provide: ContextService, useValue: contextSpy },
+          { provide: AuthService, useValue: authSpy },
+          { provide: ConfigService, useValue: { hideHome: true } },
+          { provide: Router, useValue: routerSpy },
+        ],
+        schemas: [CUSTOM_ELEMENTS_SCHEMA],
+      }).compileComponents();
+      fixture = TestBed.createComponent(HomeComponent);
+      component = fixture.componentInstance;
+    });
+
+    it('navigates to the first team after the seed lands (reactive read, single fetch)', async () => {
+      // ngOnInit awaits the seed; drive the table seed via loadPage, which the
+      // fake resolves with a one-row page.
+      const init = component.ngOnInit();
+      await component.loadPage({ first: 0, rows: 250 });
+      await init;
+
+      // Exactly one page-1 fetch (the seed) — no extra ngOnInit fetch.
+      expect(contextSpy.loadTeamsPage).toHaveBeenCalledTimes(1);
+      expect(contextSpy.getTeams).not.toHaveBeenCalled();
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/process', 'team-page-1']);
+    });
+
+    it('creates a team when the seeded page is empty', async () => {
+      // loadNamespaces must keep the selection present (else reconciliation
+      // clears it to null and the create branch has no namespace to use).
+      apiSpy.getNamespaces.and.returnValue(
+        Promise.resolve([
+          { namespace: 'agent-team-v1', name: 'Agent Team', description: 'd' },
+        ]),
+      );
+      component.selectedNamespace$.next({
+        namespace: 'agent-team-v1',
+        name: 'Agent Team',
+        description: 'd',
+      });
+      // Seed an EMPTY page so the create branch runs.
+      contextSpy.loadTeamsPage.and.callFake(async () => {
+        teams$.next([]);
+        return { teams: [], total_count: 0 };
+      });
+
+      const init = component.ngOnInit();
+      await component.loadPage({ first: 0, rows: 250 });
+      await init;
+
+      expect(contextSpy.createTeamAndNavigate).toHaveBeenCalledOnceWith('agent-team-v1');
+    });
   });
 });

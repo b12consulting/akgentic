@@ -1,6 +1,29 @@
+// Epic 26 (ADR-022 §Decision 6): column layout so the footer pins beneath the
+// tree (DOM order guarantees "below the tree"; a constrained-height ancestor
+// pushes it to the bottom).
+.tree-component-container {
+  display: flex;
+  flex-direction: column;
+}
+
 .tree-container {
   width: 100%;
   margin: auto;
+  flex: 1;
+}
+
+// Epic 26 (ADR-022 §Decision 6): slim, muted, non-interactive team-total strip.
+// Muted colour matches the member-chat usage pill (Story 26.2); tabular-nums
+// keeps the digits steady on live update.
+.team-total-footer {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.8rem;
+  color: #64748b;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
 }
 
 .human-node {

@@ -4,7 +4,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../http/api.service';
 import { ContextService } from './context.service';
-import { TeamContext, TeamResponse } from './team.interface';
+import { TeamContext, TeamPage, TeamResponse } from './team.interface';
 
 function makeTeam(
   teamId: string,
@@ -41,6 +41,7 @@ describe('ContextService', () => {
   beforeEach(() => {
     apiSpy = jasmine.createSpyObj('ApiService', [
       'getTeams',
+      'getTeamsPage',
       'getTeam',
       'createTeam',
       'deleteTeam',
@@ -899,4 +900,75 @@ describe('ContextService', () => {
     // Unchanged slot preserves reference identity (immutable filter on same refs).
     expect(next[0]).toBe(prevB);
   }));
+
+  // =======================================================================
+  // Story 28.1 — classic page load (REPLACE) + totalCount slice
+  // =======================================================================
+
+  function makePage(teams: TeamContext[], total: number): TeamPage {
+    return { teams, total_count: total };
+  }
+
+  it('(AC5f) loadTeamsPage REPLACES teams$ with the fetched page (does NOT append)', async () => {
+    // Seed a prior page so a buggy append would leave 3 teams, not 2.
+    apiSpy.getTeamsPage.and.returnValue(
+      Promise.resolve(makePage([makeTeam('a')], 1)),
+    );
+    await service.loadTeamsPage(1, 250);
+
+    const page2 = [makeTeam('b'), makeTeam('c')];
+    apiSpy.getTeamsPage.and.returnValue(Promise.resolve(makePage(page2, 2)));
+
+    const returned = await service.loadTeamsPage(2, 250);
+
+    const teams = await firstValueFrom(service.teams$);
+    expect(teams).toEqual(page2);
+    expect(teams.map((t) => t.team_id)).toEqual(['b', 'c']);
+    expect(returned.teams).toEqual(page2);
+  });
+
+  it('(AC5g) loadTeamsPage updates totalCount from the response total_count', async () => {
+    apiSpy.getTeamsPage.and.returnValue(
+      Promise.resolve(makePage([makeTeam('a')], 137)),
+    );
+
+    const emissions: number[] = [];
+    const sub = service.totalCount$.subscribe((v) => emissions.push(v));
+
+    await service.loadTeamsPage(1, 250);
+
+    expect(service.totalCount).toBe(137);
+    // Initial 0 emission + the updated total.
+    expect(emissions[emissions.length - 1]).toBe(137);
+
+    sub.unsubscribe();
+  });
+
+  it('(AC5g) loadTeamsPage calls apiService.getTeamsPage with the given page/size', async () => {
+    apiSpy.getTeamsPage.and.returnValue(Promise.resolve(makePage([], 0)));
+
+    await service.loadTeamsPage(3, 250);
+
+    expect(apiSpy.getTeamsPage).toHaveBeenCalledOnceWith(3, 250);
+  });
+
+  it('(AC5h) resetTeams clears totalCount back to 0 and teams$ to []', async () => {
+    apiSpy.getTeamsPage.and.returnValue(
+      Promise.resolve(makePage([makeTeam('a'), makeTeam('b')], 2)),
+    );
+    await service.loadTeamsPage(1, 250);
+
+    expect((await firstValueFrom(service.teams$)).length).toBe(2);
+    expect(service.totalCount).toBe(2);
+
+    service.resetTeams();
+
+    expect(await firstValueFrom(service.teams$)).toEqual([]);
+    expect(service.totalCount).toBe(0);
+  });
+
+  it('(28.1) totalCount$ emits 0 synchronously on construction', async () => {
+    const value = await firstValueFrom(service.totalCount$);
+    expect(value).toBe(0);
+  });
 });
