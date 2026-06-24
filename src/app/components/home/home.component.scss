@@ -1,7 +1,81 @@
+// Story 28.3 — height-constrained flex column so the classic paginated table
+// fills the area below the app header and defines a bounded scroll region. The
+// table's [scrollable]/scrollHeight="flex" then scrolls the BODY while the
+// header (sticky for free with scrollable) and the bottom paginator stay
+// pinned. Component-local (no shell change): no `position: fixed` (overlap risk
+// with the menubar). The header height is a CSS variable with a fallback rather
+// than a brittle magic pixel — `calc(100vh - var(--app-header-height))` bounds
+// :host so the flex chain has a real height to distribute. `min-height: 0` on
+// each flex child is the unlock that lets the table shrink below its content
+// and form the inner scroll region (without it the page, not the body, scrolls).
+:host {
+    --app-header-height: 4.5rem;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--app-header-height));
+    min-height: 0;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
 .main-container {
     background-color: #F2F7F9;
     border-radius: 6px;
     padding: 1rem;
+
+    // Flex column with exactly two children: the controls block (.home-controls,
+    // natural height, normal flow) and the table area (.home-table) which grows
+    // to bound the scroll region. The flex is scoped to these two wrappers so it
+    // never reaches the individual controls (which would stretch/stack them).
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+// Controls row stays normal block flow — its dropdown / buttons / toggle keep
+// the master inline layout (NOT stretched or stacked). `flex: 0 0 auto` so it
+// takes only its natural height and never grows.
+.home-controls {
+    flex: 0 0 auto;
+}
+
+// The lazy paginated team list area grows to fill the column and bounds the
+// table's scrollHeight="flex" body. `min-height: 0` is the unlock that lets it
+// shrink below content so the inner scroll region forms (else the page scrolls).
+.home-table {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+
+    p-table {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+    }
+}
+
+// Story 28.4 — opaque sticky header. 28.3's [scrollable] gave the table a
+// sticky thead for free, but the app theme sets the datatable header-cell
+// background to `transparent` (app.theme.ts), so scrolling rows bleed through
+// behind the pinned "Name / Creation Date / Status / Team ID" labels. Paint
+// the home table's sticky thead (and its cells) white — matching the row
+// surface — so rows are masked as they scroll under it. PrimeNG renders the
+// datatable header INSIDE this component's view (unlike the teleported dialog
+// header below), so `::ng-deep` is needed to pierce encapsulation; `:host`
+// keeps the rule scoped here and off every other datatable (the global
+// `transparent` preset is intentionally untouched). PrimeNG's sticky thead
+// already wins the stacking, so no z-index is needed.
+:host ::ng-deep .p-datatable-thead,
+:host ::ng-deep .p-datatable-thead > tr > th {
+    background: #fff;
 }
 
 .show-all-namespaces {

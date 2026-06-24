@@ -139,6 +139,32 @@
         <span *ngIf="item.description" class="mention-item-desc">{{ item.description }}</span>
       </ng-template>
       <div class="input-row-buttons">
+        <!--
+          ADR-022 §Decision 5 — non-interactive token-usage pill, first child of
+          `.input-row-buttons` (left of Submit). Bound to
+          `tokenUsageSelector.perAgent$(agentId) | async`: a defined usage renders
+          `ctx <ctx> · ↑<sent> ↓<received>` (every number via `tokenCount`); a
+          never-run agent (`undefined`) renders the neutral `ctx — · ↑0 ↓0`
+          empty-state (the VIEW owns the empty-state, ADR-022 §OQ2). A native
+          `title` tooltip spells out the words + model, degrading to "No usage
+          yet" when never-run. Non-interactive `<span>` — no click, no routerLink.
+        -->
+        <span
+          *ngIf="usage$ | async as usage; else emptyPill"
+          class="usage-pill"
+          [title]="
+            'Context window ' + (usage.lastContextWindow | number) +
+            ' · Sent ' + (usage.totalSent | number) +
+            ' · Received ' + (usage.totalReceived | number) +
+            ' · ' + usage.lastModelName
+          "
+        >
+          ctx {{ usage.lastContextWindow | tokenCount }} ·
+          ↑{{ usage.totalSent | tokenCount }} ↓{{ usage.totalReceived | tokenCount }}
+        </span>
+        <ng-template #emptyPill>
+          <span class="usage-pill" title="No usage yet">ctx — · ↑0 ↓0</span>
+        </ng-template>
         <button
           pButton
           type="button"

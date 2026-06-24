@@ -142,6 +142,9 @@ function configureBed(): {
         provide: ApiService,
         useValue: {
           getEvents: jasmine.createSpy('getEvents').and.resolveTo([]),
+          // Story 25-1 (!running gate): these specs drive the registry log fold
+          // directly via log.appendAll() and never call init(), so
+          // getAgentStates is never invoked — no stub needed.
         },
       },
       {

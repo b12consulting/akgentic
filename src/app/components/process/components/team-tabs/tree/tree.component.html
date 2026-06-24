@@ -27,5 +27,15 @@
       </ng-template>
     </p-tree>
   </div>
+  <!-- Epic 26 (ADR-022 §Decision 6): team-wide token total. ↑ = sent = Σ input;
+       ↓ = received = Σ output. Always rendered (empty team → ↑0 ↓0). -->
+  <div
+    *ngIf="teamTotals$ | async as totals"
+    class="team-total-footer"
+  >
+    Team total ↑{{ totals.totalSent | tokenCount }} ↓{{
+      totals.totalReceived | tokenCount
+    }}
+  </div>
   <app-human-request [nodes]="nodes"></app-human-request>
 </div>

@@ -11,11 +11,13 @@ import { Subscription } from 'rxjs';
 import { makeAgentNameUserFriendly } from '../../../../../shared/util/util';
 import { ApiService } from '../../../../../core/http/api.service';
 import { GraphDataService } from '../../../selectors/graph.selector';
+import { TokenUsageSelector } from '../../../selectors/token-usage.selector';
 import {
   Selectable,
   SelectionService,
 } from '../../../ui-state/selection.service';
 import { HumanRequestComponent } from '../../human-request/human-request.component';
+import { TokenCountPipe } from '../../../../../shared/pipes/token-count.pipe';
 import { EdgeInterface, NodeInterface } from '../../../models/types';
 
 @Component({
@@ -31,10 +33,19 @@ import { EdgeInterface, NodeInterface } from '../../../models/types';
     TabViewModule,
     TextareaModule,
     HumanRequestComponent,
+    TokenCountPipe,
   ],
 })
 export class TreeComponent implements OnInit, OnDestroy {
   selectionService: SelectionService = inject(SelectionService);
+
+  // Epic 26 (ADR-022 §Decision 6): the team-wide token total shown in the
+  // footer strip below the tree. Bare inject — resolves the SAME
+  // component-scoped TokenUsageSelector provided on ProcessComponent (shared
+  // with the member-chat pill), so the footer reads THIS team's scoped totals.
+  // Bound via `async` in the template; never `undefined` (empty team → zeros).
+  private readonly tokenUsageSelector = inject(TokenUsageSelector);
+  readonly teamTotals$ = this.tokenUsageSelector.teamTotals$;
 
   treeNodes: TreeNode[] = []; // Correct initialization as an array of TreeNode
   expandedKeys: { [key: string]: boolean } = {};

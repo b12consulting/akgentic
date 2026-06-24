@@ -203,6 +203,30 @@ export interface LlmSystemPromptEvent {
   parts: SystemPromptPartSnapshot[];
 }
 
+/**
+ * Inner event payload announcing per-`ModelResponse` token usage for one run,
+ * mirroring the akgentic-llm `LlmUsageEvent` frozen dataclass (ADR-022 §Decision
+ * 1). It rides the standard `EventMessage` envelope (outer `sender.agent_id`
+ * identifies the agent that ran the model) and is discriminated frontend-side by
+ * the inner `__model__` — exactly like `LlmSystemPromptEvent` / `LlmMessageEvent`
+ * / `CommandsAnnouncedEvent`. The serializer tags the dataclass with the
+ * fully-qualified `__model__` and preserves integer token counts (no
+ * stringification). Terminology (ADR-022 §Decision 4): `input_tokens` is "sent",
+ * `output_tokens` is "received". `cache_*` and `requests` ride the wire but are
+ * excluded from the v1 headline figures.
+ */
+export interface LlmUsageEvent {
+  __model__: string; // contains 'LlmUsageEvent'
+  run_id: string;
+  model_name: string;
+  provider_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  requests: number;
+}
+
 // Union type for all possible messages
 export type AkgenticMessage =
   | SentMessage
@@ -305,6 +329,33 @@ export function isLlmSystemPromptEvent(
   event: { __model__?: string } | null | undefined,
 ): event is LlmSystemPromptEvent {
   return !!event?.__model__?.includes('LlmSystemPromptEvent');
+}
+
+/**
+ * Inner-event check (ADR-022 §Decision 1): true when the inner event carried by
+ * an `EventMessage` is a `LlmUsageEvent`. Matches on the inner `__model__`, the
+ * same discrimination used for `LlmSystemPromptEvent` / `LlmMessageEvent` /
+ * `CommandsAnnouncedEvent`. `event` is the `EventMessage.event` payload (loosely
+ * typed on the wire); the guard narrows it to `LlmUsageEvent`.
+ */
+export function isLlmUsageEvent(
+  event: { __model__?: string } | null | undefined,
+): event is LlmUsageEvent {
+  return !!event?.__model__?.includes('LlmUsageEvent');
+}
+
+/**
+ * Inner-event check: true when the inner event carried by an `EventMessage` is a
+ * `LlmMessageEvent`. Named here for symmetry with `isLlmUsageEvent` /
+ * `isLlmSystemPromptEvent` (ADR-022 §Decision 1, Open Question 1) so the
+ * mutual-exclusion regression reads cleanly across the three `Llm*Event` guards.
+ * The `per-agent-specs.ts` fold helpers keep their existing inline
+ * `__model__.includes('LlmMessageEvent')` checks; this guard is additive.
+ */
+export function isLlmMessageEvent(
+  event: { __model__?: string } | null | undefined,
+): boolean {
+  return !!event?.__model__?.includes('LlmMessageEvent');
 }
 
 /**

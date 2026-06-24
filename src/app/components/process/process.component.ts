@@ -10,6 +10,7 @@ import { MessageLogService } from './event/message-log.service';
 import { IngestionService } from './event/ingestion.service';
 import { PerAgentStoreRegistry } from './event/per-agent-store';
 import { SystemPromptSelector } from './selectors/system-prompt.selector';
+import { TokenUsageSelector } from './selectors/token-usage.selector';
 import { ToolPresenceService } from './selectors/tool-presence.selector';
 import { WorkspaceRegistryService } from './selectors/workspace-registry.selector';
 import { AgentsByIdService } from './selectors/agents-by-id.selector';
@@ -79,6 +80,11 @@ interface VisualizationOption {
     // single `log$` subscription (same lifecycle guarantee as MessageLogService).
     PerAgentStoreRegistry,
     IngestionService,
+    // Epic 26 (ADR-022): component-scoped read surface over the `tokenUsage`
+    // PerAgentStore. Provided AFTER IngestionService (which it injects); never
+    // `providedIn: 'root'` — it shares the team-scoped log lifecycle, so a team
+    // switch destroys it and the usage pill always reads THIS team's totals.
+    TokenUsageSelector,
     GraphDataService,
     ChatService,
     SelectionService,
