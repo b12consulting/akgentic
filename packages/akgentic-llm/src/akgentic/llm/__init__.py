@@ -26,7 +26,9 @@ from .event import (
     LlmCheckpointCreatedEvent,
     LlmCheckpointRestoredEvent,
     LlmMessageEvent,
+    LlmSystemPromptEvent,
     LlmUsageEvent,
+    SystemPromptPartSnapshot,
     ToolCallEvent,
     ToolReturnEvent,
 )
@@ -63,6 +65,8 @@ __all__ = [
     "LlmUsageEvent",
     "LlmCheckpointCreatedEvent",
     "LlmCheckpointRestoredEvent",
+    "LlmSystemPromptEvent",
+    "SystemPromptPartSnapshot",
     "ToolCallEvent",
     "ToolReturnEvent",
     # Prompts

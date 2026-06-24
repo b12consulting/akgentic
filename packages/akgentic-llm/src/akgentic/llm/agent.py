@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import traceback
-from typing import Any
+from typing import Any, cast
 
 from pydantic_ai import Agent, BinaryContent, UsageLimitExceeded
 from pydantic_ai import UsageLimits as PydanticUsageLimits
@@ -11,12 +11,32 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, ToolReturnPart
 
 from .config import ReactAgentConfig, UsageLimits
 from .context import ContextManager, ContextSnapshot
-from .event import ContextObserver, LlmMessageEvent
+from .event import ContextObserver, LlmMessageEvent, LlmSystemPromptEvent
 from .providers import create_http_client, create_model, get_output_type
 
 logger = logging.getLogger(__name__)
 
 UserPrompt = str | list[str | BinaryContent]
+
+
+def _evict_anyio_run_vars(loop: asyncio.AbstractEventLoop) -> None:
+    """Remove anyio's per-loop run-vars entry so the closed loop can be GC'd.
+
+    anyio keeps per-loop state in a module-global ``WeakKeyDictionary``
+    (``anyio.lowlevel._run_vars``, keyed by the loop); its value retains the
+    finished run ``Task``, which strong-references the loop, so the weak key
+    never clears and the loop leaks. Evicting our own loop's entry breaks that
+    ``_root_task → loop`` anchor. Best-effort and version-guarded: anyio
+    internals are private, and a missing/absent ``_run_vars`` (or no anyio) must
+    not break teardown. Local copy of ``akgentic.core.agent._evict_anyio_run_vars``
+    (NOT imported — ``akgentic-llm`` must not depend on a sibling package).
+    """
+    try:
+        from anyio.lowlevel import _run_vars  # noqa: PLC0415
+
+        _run_vars.pop(loop, None)
+    except Exception:
+        pass
 
 
 class UsageLimitError(Exception):
@@ -74,12 +94,22 @@ class ReactAgent:
             toolsets: List of toolsets (optional, e.g., MCP servers)
             result_type: Type for agent result validation (default: str)
             observer: Context observer to register automatically (optional)
-            event_loop: Asyncio event loop to use (optional, defaults to current loop)
+            event_loop: Deprecated — accepted and ignored. The agent creates and
+                owns its own loop (``self._loop``); the passed loop is neither
+                adopted nor used by ``run_sync``. Kept in the signature for one
+                release so callers can stop passing it without a flag day.
         """
+        # The agent owns its loop: create it and make it current on the
+        # constructing thread BEFORE building the httpx client / model, so the
+        # connection pool stays a per-agent resource bound to one stable loop
+        # (ADR-008). The deprecated `event_loop=` argument is ignored.
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._closed = False
+
         self._config = config
         self._deps_type = deps_type
         self._result_type = result_type
-        self._event_loop = event_loop
 
         # Create context manager (no max_messages by default)
         self._context = ContextManager()
@@ -88,8 +118,10 @@ class ReactAgent:
         if observer:
             self._context.subscribe(observer)
 
-        # Create HTTP client
-        http_client = create_http_client(
+        # Create HTTP client. Held on the instance so its connection pool can be
+        # released on stop via aclose(); otherwise the pydantic-ai Model keeps the
+        # httpx.AsyncClient (open sockets/TLS buffers) alive past team teardown.
+        self._http_client = create_http_client(
             timeout_s=config.runtime_cfg.http_client_config.timeout,
             max_attempts=config.runtime_cfg.http_client_config.max_retries,
             exp_multiplier=config.runtime_cfg.http_client_config.backoff_multiplier,
@@ -97,22 +129,24 @@ class ReactAgent:
         )
 
         # Create model from config
-        self._model = create_model(config.model_cfg, http_client)
+        self._model = create_model(config.model_cfg, self._http_client)
 
         # Wrap result_type with provider-aware output strategy for structured output
         wrapped_result_type: Any = get_output_type(config.model_cfg, result_type)
 
-        # Create pydantic-ai Agent
-        self._pydantic_agent = Agent(
+        # Create pydantic-ai Agent.
+        # pydantic-ai's Agent() @overload stubs are narrower than the runtime
+        # __init__: they reject `history_processors` / `instrument` and a
+        # `type[Any] | None` `deps_type`, all of which the runtime accepts.
+        self._pydantic_agent = Agent(  # type: ignore[call-overload]
             model=self._model,
             tools=tools or [],
             toolsets=toolsets or [],
             retries=config.runtime_cfg.retries,
-            deps_type=deps_type,  # type: ignore[arg-type]
+            deps_type=deps_type,
             end_strategy=config.runtime_cfg.end_strategy,
             output_type=wrapped_result_type,
-            history_processors=[],  # Empty for MVP (story 2-1-6b deferred)
-            instrument=True,
+            instrument=False,
         )
 
     async def run(
@@ -137,6 +171,7 @@ class ReactAgent:
         Raises:
             UsageLimitError: If usage limits exceeded
         """
+        user_prompt = self._fold_pending_operator_actions(user_prompt)
         pydantic_limits = self._to_pydantic_limits(self._config.usage_limits)
 
         try:
@@ -160,6 +195,11 @@ class ReactAgent:
                             added_message_ids.add(msg_id)
                             self._context.add_message(message)
 
+                # Record this run's effective system prompt rendering exactly
+                # once, after pydantic-ai's in-place dynamic re-evaluation and
+                # the new_messages() drain, before returning (ADR-004 §2).
+                self._record_run_system_prompt(run)
+
                 return run.result.output if run.result else None
 
         except UsageLimitExceeded as e:
@@ -168,6 +208,61 @@ class ReactAgent:
         except Exception:
             self._heal_unprocessed_tool_calls(traceback.format_exc())
             raise
+
+    def _fold_pending_operator_actions(self, user_prompt: UserPrompt) -> UserPrompt:
+        """Prepend any buffered pre-first-run operator actions to the run prompt.
+
+        Drains ``ContextManager._pending_operator_actions`` and folds the entries
+        into ``user_prompt`` so they reach the model **as prompt content** rather
+        than as a system-less ``ModelRequest`` in ``message_history`` — which
+        would make pydantic-ai's history non-empty and suppress system-prompt
+        injection on the first run. ``message_history`` is therefore left
+        untouched (empty before the first run), preserving injection.
+
+        Folding is per prompt shape:
+
+        - ``str`` prompt → ``f"{preamble}\\n\\n{user_prompt}"``;
+        - multimodal ``list`` prompt → the joined ``preamble`` inserted as the
+          leading element.
+
+        When nothing is buffered the prompt is returned unchanged.
+
+        Args:
+            user_prompt: The caller's prompt for this run (str or multimodal list).
+
+        Returns:
+            The prompt with buffered operator actions prepended, or the original
+            prompt when the buffer is empty.
+        """
+        pending = self._context.drain_pending_operator_actions()
+        if not pending:
+            return user_prompt
+        preamble = "\n\n".join(pending)
+        if isinstance(user_prompt, str):
+            return f"{preamble}\n\n{user_prompt}"
+        return [preamble, *user_prompt]
+
+    def _record_run_system_prompt(self, run: Any) -> None:
+        """Record the completed run's effective system prompt rendering once.
+
+        Derives the run's ``run_id`` from its own messages — the same value
+        ``_emit_tool_events`` reads via ``message.run_id`` — so the emitted
+        ``LlmSystemPromptEvent.run_id`` correlates with that run's
+        ``LlmMessageEvent``/``ToolCallEvent``/``LlmUsageEvent`` values. When the
+        run produced no new messages (no ``run_id`` available), the recording
+        call is skipped — there is nothing to record (ADR-004 §2).
+
+        Args:
+            run: The completed pydantic-ai run object, exposing
+                ``new_messages()``.
+        """
+        new_messages = run.new_messages()
+        if not new_messages:
+            return
+        run_id = getattr(new_messages[-1], "run_id", None)
+        if run_id is None:
+            return
+        self._context.record_system_prompt(str(run_id))
 
     def run_sync(
         self, user_prompt: UserPrompt, deps: Any = None, output_type: type[Any] | None = None
@@ -185,12 +280,72 @@ class ReactAgent:
             Agent result output
 
         Raises:
+            RuntimeError: If the agent has been closed
             UsageLimitError: If usage limits exceeded
         """
-        if self._event_loop and self._event_loop.is_running():
-            self._event_loop.run_until_complete(self.run(user_prompt, deps, output_type))
+        # Always run on the agent's own loop so the httpx connection pool stays
+        # bound to ONE stable loop across calls. There is no asyncio.run()
+        # fallback: a fresh loop per call would leave pooled connections attached
+        # to already-closed loops, making aclose() raise on stop and leaking the
+        # pool (RAM grows per team).
+        if self._closed or self._loop.is_closed():
+            raise RuntimeError("ReactAgent is closed")
+        return self._loop.run_until_complete(self.run(user_prompt, deps, output_type))
 
-        return asyncio.run(self.run(user_prompt, deps, output_type))
+    async def aclose(self) -> None:
+        """Release async resources (the httpx connection pool); does NOT close the loop.
+
+        Resource-only teardown driven by ``close()`` on a still-open loop. The
+        pydantic-ai Model (and its provider) hold this client, so without
+        ``aclose()`` its open sockets and connection pool survive team stop and
+        accumulate in the worker. Guarded so a second call is harmless.
+        """
+        if not self._http_client.is_closed:
+            await self._http_client.aclose()
+
+    def close(self) -> None:
+        """Synchronously tear the agent down; idempotent.
+
+        Drives async resource teardown (``aclose()``) on the still-open loop,
+        cancels stragglers, drains async generators and the default executor,
+        closes the loop, then evicts anyio's per-loop run-vars anchor — all in
+        ``finally``. The five-step order is load-bearing: async exit handlers
+        must run before the loop closes, and stragglers / async generators must
+        drain before ``loop.close()`` to avoid leaked transports and "Task was
+        destroyed but it is pending" warnings; step 5 (the eviction) runs after
+        ``loop.close()`` so the closed loop can actually be GC'd (the
+        ``_root_task`` ``RunVar`` would otherwise pin it). A second call is a
+        harmless no-op; teardown failures are logged, never raised.
+        """
+        loop = self._loop
+        if self._closed or loop.is_closed():
+            return
+        self._closed = True
+        try:
+            if not loop.is_running():
+                loop.run_until_complete(self.aclose())  # 1. async resource teardown
+                self._cancel_pending(loop)  # 2. cancel stragglers
+                loop.run_until_complete(loop.shutdown_asyncgens())  # 3. drain async gens
+                loop.run_until_complete(loop.shutdown_default_executor())
+        except Exception:
+            logger.warning("ReactAgent.close() teardown failed", exc_info=True)
+        finally:
+            loop.close()  # 4. close the loop
+            _evict_anyio_run_vars(loop)  # 5. break anyio's _root_task → loop anchor
+
+    @staticmethod
+    def _cancel_pending(loop: asyncio.AbstractEventLoop) -> None:
+        """Cancel and await any tasks still pending on ``loop`` before close.
+
+        Mirrors ``Akgent._drain_event_loop``'s straggler step: cancel each
+        pending task, then run the loop once to let the cancellations settle.
+        """
+        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        if not pending:
+            return
+        for task in pending:
+            task.cancel()
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
 
     def _to_pydantic_limits(self, limits: UsageLimits | None) -> PydanticUsageLimits | None:
         """Convert config UsageLimits to pydantic-ai UsageLimits.
@@ -312,6 +467,33 @@ class ReactAgent:
             if hasattr(e, "event") and isinstance(e.event, LlmMessageEvent)
         ]
         self._context.restore(messages)
+        self._seed_system_prompt_from_events(events)
+
+    def _seed_system_prompt_from_events(self, events: list[Any]) -> None:
+        """Seed the dedup hash from the latest persisted ``LlmSystemPromptEvent``.
+
+        Scans ``events`` for the **latest** ``LlmSystemPromptEvent`` (the last in
+        append/persist order) and seeds ``ContextManager._last_system_prompt_hash``
+        from its ``content_hash`` via ``seed_system_prompt_hash`` — without firing
+        observers — so a restored agent does not re-emit an unchanged rendering.
+        When no such event is present (e.g. an older team), the dedup state is left
+        at its current ``None`` so the next run emits the ``None → hash`` transition
+        (ADR-004 §3). Additive to the message-restore scan; the same guard style is
+        reused.
+
+        Args:
+            events: The same event-like list passed to ``restore_context``.
+        """
+        latest = next(
+            (
+                e.event
+                for e in reversed(events)
+                if hasattr(e, "event") and isinstance(e.event, LlmSystemPromptEvent)
+            ),
+            None,
+        )
+        if latest is not None:
+            self._context.seed_system_prompt_hash(latest.content_hash)
 
     def system_prompt(self, func: Any) -> Any:
         """Register a custom dynamic system prompt.
@@ -361,4 +543,6 @@ class ReactAgent:
         Returns:
             Pydantic-ai Agent instance
         """
-        return self._pydantic_agent
+        # `_pydantic_agent` is Any-typed (Agent() call uses a typed-ignore);
+        # the runtime value genuinely is an Agent, so cast to recover the type.
+        return cast(Agent[Any, Any], self._pydantic_agent)

@@ -11,8 +11,12 @@ def test_all_exports_importable():
 
 def test_no_unexpected_exports():
     """Star import should only include __all__ members."""
-    # Submodules are always visible via dir() but not in star imports
-    submodules = {"agent", "config", "context", "event", "pricing", "prompts", "providers"}
+    # Submodules are always visible via dir() but not in star imports.
+    # `loadtest` is an optional-extra subpackage, deliberately absent from __all__.
+    submodules = {
+        "agent", "config", "context", "event", "loadtest",
+        "pricing", "prompts", "providers",
+    }
     exported = {name for name in dir(akgentic.llm) if not name.startswith("_")}
     exported_without_submodules = exported - submodules
     expected = set(akgentic.llm.__all__)
