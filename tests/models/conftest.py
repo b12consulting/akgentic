@@ -230,13 +230,16 @@ def make_agent_state_snapshot(
     team_id: uuid.UUID | None = None,
     agent_id: str = "test-agent",
     state: BaseState | None = None,
+    name: str | None = None,
 ) -> AgentStateSnapshot:
     """Create an AgentStateSnapshot with sensible defaults for testing.
 
     Args:
         team_id: Optional team identifier.
-        agent_id: Agent identifier.
+        agent_id: Agent identifier (UUID string in current snapshots).
         state: Optional BaseState subclass instance.
+        name: Optional agent display name (default None keeps existing callers
+            working and mimics legacy snapshots).
 
     Returns:
         An AgentStateSnapshot with the specified or default configuration.
@@ -244,6 +247,7 @@ def make_agent_state_snapshot(
     return AgentStateSnapshot(
         team_id=team_id or uuid.uuid4(),
         agent_id=agent_id,
+        name=name,
         state=state or SampleAgentState(task_count=5),
         updated_at=datetime.now(UTC),
     )

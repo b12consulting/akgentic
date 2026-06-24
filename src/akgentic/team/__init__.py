@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from akgentic.team.factory import TeamFactory
 from akgentic.team.manager import TeamManager
+from akgentic.team.messages import WelcomeMessage
 from akgentic.team.models import (
     AgentStateSnapshot,
     PersistedEvent,
@@ -44,6 +45,7 @@ __all__: list[str] = [
     "TeamRestorer",
     "TeamRuntime",
     "TeamStatus",
+    "WelcomeMessage",
     "YamlEventStore",
 ]
 

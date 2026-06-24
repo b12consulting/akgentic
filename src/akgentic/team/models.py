@@ -59,10 +59,16 @@ class TeamCard(SerializableBaseModel):
         entry_point: The member that serves as the team's external interface.
         members: Top-level members of the team (excluding the entry point).
         message_types: Message classes the team handles; first is the default.
+        welcome_message: Optional static greeting announced on the team's event
+            stream when the team is first created. ``None`` disables it.
     """
 
-    name: str = Field(description="Unique name identifying this team definition")
-    description: str = Field(description="Human-readable summary of what the team does")
+    name: str | None = Field(
+        default=None, description="Unique name identifying this team definition"
+    )
+    description: str | None = Field(
+        default=None, description="Human-readable summary of what the team does"
+    )
     entry_point: TeamCardMember = Field(
         description="The member that serves as the team's external interface",
     )
@@ -77,6 +83,13 @@ class TeamCard(SerializableBaseModel):
     agent_profiles: list[AgentCard] = Field(
         default_factory=list,
         description="AgentCards available for runtime hiring, not instantiated at startup",
+    )
+    welcome_message: str | None = Field(
+        default=None,
+        description=(
+            "Optional static greeting announced on the team's event stream when "
+            "the team is first created. None disables it."
+        ),
     )
 
     @property
@@ -436,7 +449,18 @@ class AgentStateSnapshot(SerializableBaseModel):
     """
 
     team_id: uuid.UUID = Field(description="Team instance this snapshot belongs to")
-    agent_id: str = Field(description="Identifier of the agent whose state is captured")
+    agent_id: str = Field(
+        description=(
+            "Agent UUID in string form (str(uuid)). Legacy snapshots written "
+            "before this field's semantics changed may hold the agent display "
+            "name instead; such snapshots load with name=None and self-heal on "
+            "the agent's next state change."
+        )
+    )
+    name: str | None = Field(
+        default=None,
+        description="Agent display name; None for snapshots written before this field existed",
+    )
     state: BaseState = Field(
         description="Polymorphic agent state preserving concrete BaseState type"
     )

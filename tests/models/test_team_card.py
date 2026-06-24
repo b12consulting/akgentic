@@ -127,6 +127,24 @@ class TestTeamCard:
         team = make_team_card()
         assert team.message_types == []
 
+    def test_welcome_message_defaults_to_none(self) -> None:
+        """welcome_message defaults to None when omitted (backward compatible)."""
+        team = make_team_card()
+        assert team.welcome_message is None
+
+    def test_welcome_message_accepts_a_string(self) -> None:
+        """welcome_message accepts an explicit greeting string."""
+        entry = TeamCardMember(card=make_agent_card(name="entry", role="Entry"))
+        team = TeamCard(entry_point=entry, welcome_message="Welcome aboard!")
+        assert team.welcome_message == "Welcome aboard!"
+
+    def test_welcome_message_round_trip(self) -> None:
+        """welcome_message survives a model_dump / model_validate round-trip."""
+        entry = TeamCardMember(card=make_agent_card(name="entry", role="Entry"))
+        team = TeamCard(entry_point=entry, welcome_message="Hello team")
+        restored = TeamCard.model_validate(team.model_dump())
+        assert restored.welcome_message == "Hello team"
+
     def test_agent_cards_raises_on_duplicate_config_name(self) -> None:
         """agent_cards raises ValueError when two members share config.name."""
         entry = TeamCardMember(card=make_agent_card(name="entry", role="Entry"))

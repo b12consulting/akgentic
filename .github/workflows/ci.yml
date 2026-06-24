@@ -38,6 +38,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: b12consulting/akgentic-quick-start
+          # Pin to the 1.x-compatible workspace; the default branch (master) is
+          # stale and not compatible with the enterprise alpha line.
+          ref: feat/enterprise-alpha-release-4
           submodules: recursive
           token: ${{ secrets.GH_PAT }}
 
