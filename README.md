@@ -25,6 +25,7 @@ call any LLM without coupling to a specific vendor or framework primitive.
   - [ContextManager](#contextmanager)
   - [Observer Pattern](#observer-pattern)
   - [Tool Event Observability](#tool-event-observability)
+  - [System Prompt Rendering Events](#system-prompt-rendering-events)
 - [Cost Tracking and Aggregation](#cost-tracking-and-aggregation)
 - [Prompts](#prompts)
 - [Development](#development)
@@ -364,7 +365,7 @@ ctx.clear()
 ```python
 from akgentic.llm import (
     ContextObserver, LlmMessageEvent, LlmCheckpointCreatedEvent,
-    LlmUsageEvent, ToolCallEvent, ToolReturnEvent,
+    LlmUsageEvent, LlmSystemPromptEvent, ToolCallEvent, ToolReturnEvent,
 )
 
 class MyObserver:
@@ -376,6 +377,10 @@ class MyObserver:
             print(f"Tool returned: {event.tool_name} ({status})")
         elif isinstance(event, LlmUsageEvent):
             print(f"Usage: {event.model_name} — {event.input_tokens}in/{event.output_tokens}out")
+        elif isinstance(event, LlmSystemPromptEvent):
+            print(f"System prompt for run {event.run_id} ({event.content_hash[:8]}):")
+            for part in event.parts:
+                print(f"  [{part.dynamic_ref or 'static'}] {part.content}")
         elif isinstance(event, LlmMessageEvent):
             print(f"New message: {event.message}")
         elif isinstance(event, LlmCheckpointCreatedEvent):
@@ -385,8 +390,9 @@ agent = ReactAgent(config=config, observer=MyObserver())
 # or: agent.subscribe_context(MyObserver())
 ```
 
-Events: `LlmMessageEvent`, `LlmUsageEvent`, `LlmCheckpointCreatedEvent`,
-`LlmCheckpointRestoredEvent`, `ToolCallEvent`, `ToolReturnEvent`.
+Events: `LlmMessageEvent`, `LlmUsageEvent`, `LlmSystemPromptEvent`,
+`LlmCheckpointCreatedEvent`, `LlmCheckpointRestoredEvent`, `ToolCallEvent`,
+`ToolReturnEvent`.
 Observers are notified synchronously — exceptions propagate to the caller.
 
 ### Tool Event Observability
@@ -416,6 +422,54 @@ for tool activity without requiring consumers to parse pydantic-ai message inter
 
 **Emission ordering:** `LlmMessageEvent` always fires first. Tool events follow immediately.
 A consumer receiving `ToolCallEvent` can safely assume the full message is already in context.
+
+### System Prompt Rendering Events
+
+pydantic-ai re-evaluates dynamic system prompts (date, roster, role profiles, mailbox
+notices, …) **in place** before each model call, so the rendering actually sent to the
+model can change on runs 2+ without any `LlmMessageEvent` being emitted. `LlmSystemPromptEvent`
+records that effective rendering so observers (traces, frontends) can show exactly what the
+model saw on each run.
+
+**`LlmSystemPromptEvent` payload:**
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | `str` | The `ReactAgent` run ID this rendering belongs to — correlates with the run's `LlmMessageEvent` / `ToolCallEvent` / `LlmUsageEvent` |
+| `parts` | `tuple[SystemPromptPartSnapshot, ...]` | Full rendering in model order — self-contained, **not** a diff |
+| `content_hash` | `str` | sha256 hex over the ordered `(dynamic_ref, content)` pairs; carried in the event so dedup state can be re-seeded on restore without re-hashing |
+
+**`SystemPromptPartSnapshot` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `dynamic_ref` | `str \| None` | Function name for dynamic parts (registered via `@agent.system_prompt(dynamic=True)`); `None` for static parts |
+| `content` | `str` | Rendered text actually sent to the model for this part |
+
+**Emission semantics:** emitted by `ContextManager.record_system_prompt(run_id)`, which
+`ReactAgent` calls **once per completed run** after pydantic-ai's in-place re-evaluation has
+produced the rendering. It scans the first `ModelRequest`'s system parts, hashes the ordered
+`(dynamic_ref, content)` pairs, and emits **only when the content hash changed** since the
+previous run — run 1 emits via the `None → hash` transition; an unchanged rendering on later
+runs emits nothing, so the log does not grow with every run; a context with no system parts
+emits nothing. The event store stays **strictly append-only**: emission only appends, and
+restoring an agent re-seeds the dedup hash (via `seed_system_prompt_hash`) **without
+re-emitting** an unchanged rendering.
+
+**Usage — label each block by its source and render the text the model saw:**
+
+```python
+from akgentic.llm import LlmSystemPromptEvent
+
+class SystemPromptTracer:
+    def notify_event(self, event: object) -> None:
+        if not isinstance(event, LlmSystemPromptEvent):
+            return
+        print(f"System prompt @ run {event.run_id} (hash {event.content_hash[:8]})")
+        for snapshot in event.parts:
+            label = snapshot.dynamic_ref or "static"
+            print(f"  [{label}] {snapshot.content}")
+```
 
 ## Cost Tracking and Aggregation
 
@@ -557,6 +611,7 @@ src/akgentic/llm/
     config.py       # ModelConfig, UsageLimits, HttpClientConfig, RuntimeConfig, ReactAgentConfig
     context.py      # ContextManager, ContextSnapshot
     event.py        # LlmMessageEvent, LlmUsageEvent, LlmCheckpoint*Event,
+                    #   LlmSystemPromptEvent, SystemPromptPartSnapshot,
                     #   ToolCallEvent, ToolReturnEvent, ContextObserver protocol
     pricing.py      # PRICING dict, ModelUsage, RunUsageSummary, AgentUsageSummary,
                     #   aggregate_usage()

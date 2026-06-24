@@ -79,6 +79,51 @@ class ToolReturnEvent:
 
 
 @dataclass(frozen=True)
+class SystemPromptPartSnapshot:
+    """Immutable snapshot of one rendered system prompt part.
+
+    Captures the effective text of a single ``SystemPromptPart`` as it was sent
+    to the model on a given run. See ADR-004 for the rendering-events rationale.
+
+    Attributes:
+        dynamic_ref: pydantic-ai ``dynamic_ref`` (the function name for dynamic
+            parts registered via ``@agent.system_prompt(dynamic=True)``);
+            ``None`` for static parts.
+        content: Rendered text actually sent to the model for this part.
+    """
+
+    dynamic_ref: str | None
+    content: str
+
+
+@dataclass(frozen=True)
+class LlmSystemPromptEvent:
+    """Event emitted when the effective system prompt for a run changes.
+
+    pydantic-ai re-evaluates dynamic system prompts in place before each model
+    call, so the rendering can differ run-to-run without an ``LlmMessageEvent``
+    being emitted. ``ContextManager.record_system_prompt`` records the effective
+    rendering once per run and emits this event only when the rendering's hash
+    differs from the previous one (including the first run, where the hash
+    transitions from ``None``). See ADR-004 for the full rationale.
+
+    Each event is self-contained: ``parts`` is the full rendering in model order,
+    not a diff, so no reconstruction from prior events is required.
+
+    Attributes:
+        run_id: ReactAgent run ID this rendering belongs to.
+        parts: Full rendering, in model order, one snapshot per system part.
+        content_hash: sha256 hex digest over the ordered ``(dynamic_ref, content)``
+            pairs. Carried in the event so dedup state can be reseeded on restore
+            without re-hashing.
+    """
+
+    run_id: str
+    parts: tuple[SystemPromptPartSnapshot, ...]
+    content_hash: str
+
+
+@dataclass(frozen=True)
 class LlmUsageEvent:
     """Event emitted for each ModelResponse with token usage data.
 
