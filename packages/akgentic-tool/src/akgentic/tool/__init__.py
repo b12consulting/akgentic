@@ -19,7 +19,7 @@ from .core import (  # noqa: F401
     ToolCard,
     ToolFactory,
 )
-from .errors import CommandNotRecognized, RetriableError  # noqa: F401
+from .errors import CommandNotRecognized, RetriableError, ToolObserverGone  # noqa: F401
 from .event import (  # noqa: F401
     ActorToolObserver,
     CommandArg,
@@ -56,6 +56,7 @@ __all__ = [
     # Errors
     "RetriableError",
     "CommandNotRecognized",
+    "ToolObserverGone",
     # Events and observers
     "ToolObserver",
     "ActorToolObserver",

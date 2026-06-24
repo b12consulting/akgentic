@@ -16,6 +16,12 @@ class RetriableError(Exception):
     pass
 
 
+class ToolObserverGone(RuntimeError):  # noqa: N818 — name mirrors CommandNotRecognized precedent
+    """A tool callable ran after its owning agent was stopped."""
+
+    pass
+
+
 class CommandNotRecognized(Exception):  # noqa: N818 — story-mandated name; identification signal
     """Raised when the first dispatch token is not a known command (ADR-028 §Decision 4).
 
