@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from typing import Any
@@ -14,8 +15,9 @@ from akgentic.core.agent_card import AgentCard
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message
+from akgentic.core.orchestrator import Orchestrator
 
-from akgentic.team.factory import TeamFactory
+from akgentic.team.factory import GRACE_TIMEOUT_SECONDS, TeamFactory
 from akgentic.team.models import TeamCard, TeamCardMember, TeamRuntime
 
 # ---------------------------------------------------------------------------
@@ -297,17 +299,35 @@ class TestTeamFactoryBuild:
             TeamFactory.build(tc, actor_system)
 
     def test_rollback_handles_stop_failure(self, actor_system: ActorSystem) -> None:
-        """Rollback continues even if stopping an actor raises."""
+        """Rollback completes promptly even when stopping an actor raises.
+
+        A broken ``Akgent.stop`` means the failed worker never emits a
+        StopMessage, so the orchestrator's roster never empties and its stop
+        finalizes only via the backstop timer. Drive the rollback grace down to
+        a fraction of a second (patching the module-level ``GRACE_TIMEOUT_SECONDS``
+        the rollback reads) so this best-effort cleanup path does not block for
+        the full production grace on a wedged team. The rollback must still log
+        the stop failure and re-raise the original build error.
+        """
         failing = _make_member("failing", "Failing", agent_class=FailingAgent)
         tc = _make_team_card(members=[failing])
 
-        with patch.object(Akgent, "stop", side_effect=RuntimeError("stop failed")):
+        with (
+            patch("akgentic.team.factory.GRACE_TIMEOUT_SECONDS", 0.1),
+            patch.object(Akgent, "stop", side_effect=RuntimeError("stop failed")),
+        ):
+            start = time.monotonic()
             with pytest.raises(RuntimeError) as excinfo:
                 TeamFactory.build(tc, actor_system)
+            elapsed = time.monotonic() - start
+
             # The original spawn failure from FailingAgent propagates as-is
             # (no wrapping). Test asserts on type + non-empty str, not a
             # fragile match on the fixture's own message text.
             assert str(excinfo.value)
+            # Rollback returned promptly via the small grace backstop rather than
+            # blocking for the full production grace on the wedged orchestrator.
+            assert elapsed < 5.0, f"rollback blocked too long: {elapsed:.1f}s"
 
 
 # ---------------------------------------------------------------------------
@@ -432,3 +452,82 @@ class TestFactoryProxySpawning:
         assert "lead" not in runtime.supervisor_proxies
         # Entry point is still reachable via entry_proxy
         assert runtime.entry_proxy is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests: rollback waits on the orchestrator stop event (ADR-19 §2)
+# ---------------------------------------------------------------------------
+
+
+class TestFactoryRollbackWaitsOnOrchestrator:
+    """AC2: build rollback waits on the orchestrator's non-blocking stop event.
+
+    On a partial-build failure the rollback stops ``reversed(spawned_addrs)``.
+    Agent entries keep the blocking ``Akgent.stop()``; the orchestrator entry
+    (spawned first, stopped last) must use the non-blocking
+    ``Orchestrator.stop(grace).wait()`` so rollback does not return while a
+    live orchestrator lingers.
+    """
+
+    def test_factory_rollback_waits_on_orchestrator(
+        self, actor_system: ActorSystem
+    ) -> None:
+        """AC2: rollback stops agents blocking, then waits on the orchestrator
+        entry's stop event; the orchestrator is dead once build re-raises.
+
+        We wrap the real ``Orchestrator.stop`` so it returns a wrapped event
+        whose ``wait`` records the call order, and the real ``Akgent.stop`` so
+        agent stops record their order. The orchestrator's ``wait()`` must run
+        AFTER both agent stops (reversed order) and the orchestrator must be
+        torn down by the time ``build`` re-raises.
+        """
+        good_worker = _make_member("good", "Good")
+        failing = _make_member("failing", "Failing", agent_class=FailingAgent)
+        tc = _make_team_card(members=[good_worker, failing])
+
+        events: list[str] = []
+        wait_calls: list[float] = []
+        grace_args: list[float] = []
+
+        real_orch_stop = Orchestrator.stop
+        real_agent_stop = Akgent.stop
+
+        def wrapped_orch_stop(
+            self: Orchestrator, grace_timeout: float = GRACE_TIMEOUT_SECONDS
+        ) -> threading.Event:
+            grace_args.append(grace_timeout)
+            evt = real_orch_stop(self, grace_timeout)
+
+            class _RecordingEvent:
+                def __init__(self, inner: threading.Event) -> None:
+                    self._inner = inner
+
+                def wait(self, timeout: float | None = None) -> bool:
+                    events.append("orchestrator-wait")
+                    wait_calls.append(time.monotonic())
+                    return self._inner.wait(timeout)
+
+            return _RecordingEvent(evt)  # type: ignore[return-value]
+
+        def wrapped_agent_stop(self: Akgent[Any, Any]) -> None:
+            # Only record non-orchestrator agent stops.
+            if not isinstance(self, Orchestrator):
+                events.append("agent-stop")
+            return real_agent_stop(self)
+
+        with (
+            patch.object(Orchestrator, "stop", wrapped_orch_stop),
+            patch.object(Akgent, "stop", wrapped_agent_stop),
+        ):
+            with pytest.raises(RuntimeError):
+                TeamFactory.build(tc, actor_system)
+
+        # Orchestrator stop received the single grace timeout, and its wait()
+        # ran. Agent stops are blocking and occur BEFORE the orchestrator wait
+        # (reversed spawn order → orchestrator last).
+        assert grace_args == [GRACE_TIMEOUT_SECONDS]
+        assert events.count("agent-stop") >= 1, f"no agent stops recorded: {events}"
+        assert "orchestrator-wait" in events
+        assert events.index("orchestrator-wait") == len(events) - 1, (
+            f"orchestrator wait must be last (after agent stops): {events}"
+        )

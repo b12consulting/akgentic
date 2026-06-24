@@ -8,11 +8,22 @@ Collection layout::
     teams              # One document per team (Process metadata) -- upsert by team_id
     events             # One document per event -- append-only, indexed by (team_id, sequence)
     agent_states       # One document per agent per team -- upsert by (team_id, agent_id)
+
+Each collection name defaults to the value shown above but can be overridden
+via an environment variable so several deployments can share one MongoDB
+database without colliding:
+
+    teams         -> MONGO_TEAMS_COLLECTION
+    events        -> MONGO_EVENTS_COLLECTION
+    agent_states  -> MONGO_AGENT_STATES_COLLECTION
+
+An env var that is unset or empty falls back to the default name shown above.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from typing import TYPE_CHECKING
 
@@ -32,6 +43,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Environment variables that override the MongoDB collection names, each
+# falling back to the hardcoded default below when unset or empty. Letting
+# each collection be renamed independently lets multiple akgentic-team
+# deployments share a single MongoDB database without colliding.
+_TEAMS_COLLECTION_ENV = "MONGO_TEAMS_COLLECTION"
+_EVENTS_COLLECTION_ENV = "MONGO_EVENTS_COLLECTION"
+_AGENT_STATES_COLLECTION_ENV = "MONGO_AGENT_STATES_COLLECTION"
+
+_DEFAULT_TEAMS_COLLECTION = "teams"
+_DEFAULT_EVENTS_COLLECTION = "events"
+_DEFAULT_AGENT_STATES_COLLECTION = "agent_states"
+
 
 class MongoEventStore:
     """MongoDB-backed EventStore using pymongo collections.
@@ -41,15 +64,27 @@ class MongoEventStore:
     ``events`` (append-only, indexed by team_id + sequence), and
     ``agent_states`` (upsert by team_id + agent_id).
 
+    Each collection name defaults to the value shown above but can be
+    overridden via an environment variable — ``MONGO_TEAMS_COLLECTION``,
+    ``MONGO_EVENTS_COLLECTION``, and ``MONGO_AGENT_STATES_COLLECTION`` — so
+    several deployments can share one MongoDB database. An unset or empty
+    variable falls back to its default. Indexes are created against the
+    resolved collections, so renamed collections are indexed identically.
+
     Args:
         db: A pymongo Database instance connected to the target MongoDB server.
     """
 
     def __init__(self, db: pymongo.database.Database) -> None:  # type: ignore[type-arg]
         self._db = db
-        self._teams: pymongo.collection.Collection = db["teams"]  # type: ignore[type-arg]
-        self._events: pymongo.collection.Collection = db["events"]  # type: ignore[type-arg]
-        self._agent_states: pymongo.collection.Collection = db["agent_states"]  # type: ignore[type-arg]
+        teams_name = os.environ.get(_TEAMS_COLLECTION_ENV) or _DEFAULT_TEAMS_COLLECTION
+        events_name = os.environ.get(_EVENTS_COLLECTION_ENV) or _DEFAULT_EVENTS_COLLECTION
+        agent_states_name = (
+            os.environ.get(_AGENT_STATES_COLLECTION_ENV) or _DEFAULT_AGENT_STATES_COLLECTION
+        )
+        self._teams: pymongo.collection.Collection = db[teams_name]  # type: ignore[type-arg]
+        self._events: pymongo.collection.Collection = db[events_name]  # type: ignore[type-arg]
+        self._agent_states: pymongo.collection.Collection = db[agent_states_name]  # type: ignore[type-arg]
 
         # Create indexes for efficient queries
         self._events.create_index([("team_id", 1), ("sequence", 1)])
