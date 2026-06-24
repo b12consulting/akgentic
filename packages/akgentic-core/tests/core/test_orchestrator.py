@@ -14,7 +14,12 @@ from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, UserMessage
-from akgentic.core.messages.orchestrator import EventMessage, SentMessage, StartMessage
+from akgentic.core.messages.orchestrator import (
+    EventMessage,
+    SentMessage,
+    StartMessage,
+    StopMessage,
+)
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 
 
@@ -790,6 +795,14 @@ class TestSnapshotForSubscribers:
         assert dispatched.sender.role == "TestAgent"
         assert dispatched.sender.team_id == child_addr.team_id
 
+        # Complete the simulated agent lifecycle: a registered member deregisters
+        # when it stops (StopMessage), clearing the orchestrator roster so the
+        # non-blocking stop can finalize. The injected StartMessage above alone
+        # leaves a phantom member that never reports a StopMessage.
+        stop_msg = StopMessage()
+        stop_msg.init(child_addr, child_addr.team_id)
+        orch_proxy.receiveMsg_StopMessage(stop_msg, child_addr)
+
         system.shutdown()
 
     def test_orchestrator_messages_retain_actor_address_impl(self) -> None:
@@ -826,6 +839,11 @@ class TestSnapshotForSubscribers:
         ]
         assert len(agent_starts) == 1
         assert isinstance(agent_starts[0].sender, ActorAddressImpl)
+
+        # Complete the simulated agent lifecycle so the roster clears before stop.
+        stop_msg = StopMessage()
+        stop_msg.init(child_addr, child_addr.team_id)
+        orch_proxy.receiveMsg_StopMessage(stop_msg, child_addr)
 
         system.shutdown()
 
@@ -958,6 +976,11 @@ class TestSnapshotForSubscribers:
         ]
         assert len(internal_starts) == 1
         assert isinstance(internal_starts[0].parent, ActorAddressImpl)
+
+        # Complete the simulated agent lifecycle so the roster clears before stop.
+        stop_msg = StopMessage()
+        stop_msg.init(child_addr, child_addr.team_id)
+        orch_proxy.receiveMsg_StopMessage(stop_msg, child_addr)
 
         system.shutdown()
 

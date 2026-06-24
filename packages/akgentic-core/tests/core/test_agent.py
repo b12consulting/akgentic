@@ -528,6 +528,64 @@ class TestProxyWrapper:
             ref.stop()
 
 
+class TestNoActorEventLoop:
+    """Akgent no longer owns an event loop (ADR-009 §Decision.5)."""
+
+    def test_constructed_agent_has_no_event_loop_attribute(self, agent_setup) -> None:
+        """A started Akgent never creates a base ``_event_loop`` attribute (FR2)."""
+        agent_id, config, team_id = agent_setup
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        try:
+            actor = ref._actor_weakref()
+            assert actor is not None
+            assert not hasattr(actor, "_event_loop")
+        finally:
+            ref.stop()
+
+    def test_stop_emits_single_stop_message_without_drain(self, agent_setup) -> None:
+        """Stopping an Akgent emits exactly one StopMessage and drains no loop (FR3)."""
+        agent_id, config, team_id = agent_setup
+
+        mock_orch_ref = MagicMock()
+        mock_orch_ref.is_alive.return_value = True
+        mock_orch = ActorAddressImpl(mock_orch_ref)
+
+        ref = SampleAgent.start(
+            agent_id=agent_id,
+            config=config,
+            team_id=team_id,
+            orchestrator=mock_orch,
+        )
+        # No base loop was ever created.
+        actor = ref._actor_weakref()
+        assert actor is not None
+        assert not hasattr(actor, "_event_loop")
+
+        # Block until the actor thread is fully joined: on_stop() (and its
+        # StopMessage notify) runs during Pykka's shutdown, after the run loop
+        # exits — a proxy stop().get() can return before it completes. The
+        # blocking ActorRef.stop() guarantees on_stop has finished here.
+        ref.stop(block=True)
+
+        from akgentic.core.messages.orchestrator import StopMessage
+
+        stop_calls = [
+            call
+            for call in mock_orch_ref.tell.call_args_list
+            if any(isinstance(arg, StopMessage) for arg in call[0])
+        ]
+        assert len(stop_calls) == 1
+
+    def test_drain_machinery_absent_from_class(self) -> None:
+        """The drain helpers are gone from Akgent and the module (FR3)."""
+        assert not hasattr(Akgent, "_drain_event_loop")
+        assert not hasattr(Akgent, "_cancel_pending_tasks")
+
+        import akgentic.core.agent as agent_module
+
+        assert not hasattr(agent_module, "_evict_anyio_run_vars")
+
+
 class TestOrchestratorIntegration:
     """Tests for orchestrator notification integration."""
 

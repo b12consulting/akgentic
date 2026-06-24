@@ -24,15 +24,28 @@ if TYPE_CHECKING:
 
 
 class ActorAddressImpl(ActorAddress):
-    """ActorAddress wrapping a live Pykka ActorRef.
+    """ActorAddress wrapping a live Pykka ActorRef — a resilient snapshot.
 
-    Provides access to agent metadata by reading from the underlying actor
-    instance. Used for local in-memory actor communication.
+    An ``ActorAddressImpl`` is a **point-in-time snapshot** of an actor's
+    identity and metadata (ADR-013). Because the Pykka 4.4.2+ ``ActorRef`` holds
+    only a *weakref* to the underlying actor (ADR-003), an address can outlive
+    its actor: the actor is garbage-collected while the address lives on in
+    orchestrator history, queued telemetry, or subscriber snapshots.
+
+    To make that lifecycle safe, **all** metadata (``agent_id``, ``name``,
+    ``role``, ``team_id``, ``squad_id``, the actor ``type`` and the
+    ``user_message`` flag) is captured into private vars at construction. Every
+    accessor, ``serialize()`` and ``__repr__`` read the cache — reading metadata
+    or checking liveness NEVER raises on a collected actor. The live
+    ``_actor_ref`` is retained for message *delivery* only (``send`` /
+    ``proxy``).
 
     Note:
-        This implementation accesses the Pykka 4.4.2+ weakref API
-        (_actor_ref._actor_weakref) to dereference the underlying actor.
-        Direct property access on a GC'd actor raises RuntimeError.
+        Metadata reflects the actor's state at construction time, not a live
+        view. If an actor's ``config`` is mutated after an address is built, an
+        address constructed earlier keeps the old value. Addresses are
+        short-lived (built per-send via ``myAddress``), so this snapshot
+        semantics is correct for the dominant use.
 
     Args:
         actor_ref: The Pykka ActorRef to wrap.
@@ -45,81 +58,92 @@ class ActorAddressImpl(ActorAddress):
     """
 
     def __init__(self, actor_ref: ActorRef[Any]) -> None:
-        """Initialize with a Pykka ActorRef.
+        """Initialize with a Pykka ActorRef, caching all metadata (ADR-013 §1).
+
+        Addresses are only ever built from a live ref (``myAddress``,
+        ``createActor``, ``ActorSystem`` lookups), so the underlying actor is
+        alive here. Capture everything the address will ever need — identity,
+        config metadata, the actor type and the user-message flag — so every
+        later read survives the actor's garbage collection.
+
+        The capture is wrapped: an already-dead ref at construction (rare) leaves
+        a safe snapshot (``None``/``False``) rather than raising.
 
         Args:
-            actor_ref: The Pykka ActorRef to wrap.
+            actor_ref: The Pykka ActorRef to wrap. Retained for delivery only.
         """
         self._actor_ref = actor_ref
-
-    def _resolve_actor(self) -> Any:
-        """Dereference the weak reference to the underlying actor.
-
-        Returns:
-            The live actor instance.
-
-        Raises:
-            RuntimeError: If the actor has been garbage collected.
-        """
-        actor = self._actor_ref._actor_weakref()
-        if actor is None:
-            raise RuntimeError(f"Actor {self._actor_ref.actor_urn} has been garbage collected")
-        return actor
+        self._agent_id: uuid.UUID | None = None
+        self._name: str | None = None
+        self._role: str | None = None
+        self._team_id: uuid.UUID | None = None
+        self._squad_id: uuid.UUID | None = None
+        self._actor_type: type[Any] | None = None
+        self._user_message: bool = False
+        try:
+            actor = actor_ref._actor_weakref()
+            if actor is not None:
+                self._agent_id = actor.agent_id
+                self._name = actor.config.name
+                self._role = actor.config.role
+                self._team_id = actor.team_id
+                self._squad_id = actor.config.squad_id
+                self._actor_type = type(actor)
+                self._user_message = callable(getattr(actor, "receiveMsg_UserMessage", None))
+        except Exception:  # noqa: BLE001
+            # Already-dead ref at construction (rare): keep the safe snapshot.
+            pass
 
     @property
     def agent_id(self) -> uuid.UUID:
-        """Unique identifier from the underlying actor.
+        """Unique identifier (cached at construction; GC-safe — ADR-013 §2).
 
         Returns:
-            UUID from the actor's agent_id attribute.
+            UUID captured from the actor's ``agent_id`` at construction.
         """
-        return self._resolve_actor().agent_id  # type: ignore[no-any-return]
+        return self._agent_id  # type: ignore[return-value]
 
     @property
     def name(self) -> str:
-        """Agent name from the underlying actor's config.
+        """Agent name (cached at construction; GC-safe — ADR-013 §2).
 
         Returns:
-            Name string from config, or string representation of actor_ref as fallback.
+            Name string captured from ``config.name`` at construction.
         """
-        actor = self._resolve_actor()
-        return actor.config.name  # type: ignore[no-any-return]
+        return self._name  # type: ignore[return-value]
 
     @property
     def role(self) -> str:
-        """Agent role from the underlying actor's config.
+        """Agent role (cached at construction; GC-safe — ADR-013 §2).
 
         Returns:
-            Role string from config, or class name as fallback.
+            Role string captured from ``config.role`` at construction.
         """
-        actor = self._resolve_actor()
-        return actor.config.role  # type: ignore[no-any-return]
+        return self._role  # type: ignore[return-value]
 
     @property
     def team_id(self) -> uuid.UUID:
-        """Team identifier from the underlying actor.
+        """Team identifier (cached at construction; GC-safe — ADR-013 §2).
 
         Returns:
-            UUID from team_id.
+            UUID captured from the actor's ``team_id`` at construction.
         """
-        actor = self._resolve_actor()
-        return actor.team_id  # type: ignore[no-any-return]
+        return self._team_id  # type: ignore[return-value]
 
     @property
     def squad_id(self) -> uuid.UUID | None:
-        """Squad identifier from the underlying actor's config.
+        """Squad identifier (cached at construction; GC-safe — ADR-013 §2).
 
         Returns:
-            UUID from config.squad_id, or None if not available.
+            UUID captured from ``config.squad_id`` at construction, or None.
         """
-        actor = self._resolve_actor()
-        return actor.config.squad_id  # type: ignore[no-any-return]
+        return self._squad_id
 
     def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message via Pykka proxy.
 
-        Uses the actor's send method via proxy to deliver the message.
-        Blocks until the message is delivered.
+        Uses the live ``_actor_ref`` — the one operation that genuinely needs
+        the live actor (ADR-013 §4). Blocks until the message is delivered.
 
         Args:
             recipient: The intended recipient of the message.
@@ -128,49 +152,55 @@ class ActorAddressImpl(ActorAddress):
         self._actor_ref.proxy().send(recipient, message).get()
 
     def is_alive(self) -> bool:
-        """Check if the underlying actor is still running.
+        """Check if the underlying actor is still running (never raises).
+
+        Liveness is best-effort: a torn-down or collected ref is simply
+        "not alive" (ADR-013 §3).
 
         Returns:
-            True if the Pykka actor is alive.
+            True if the Pykka actor is alive; False on any exception.
         """
-        return self._actor_ref.is_alive()
+        try:
+            return self._actor_ref.is_alive()
+        except Exception:  # noqa: BLE001 — a torn-down/collected ref is not alive
+            return False
 
     def handle_user_message(self) -> bool:
-        """Check if the agent accepts user messages.
-
-        Checks for the existence of a receiveMsg_UserMessage method on the actor.
+        """Check if the agent accepts user messages (cached; GC-safe).
 
         Returns:
-            True if the actor has a receiveMsg_UserMessage method.
+            True if the actor had a ``receiveMsg_UserMessage`` method at
+            construction.
         """
-        actor = self._resolve_actor()
-        accept_method = getattr(actor, "receiveMsg_UserMessage", None)
-        return callable(accept_method)
+        return self._user_message
 
     def serialize(self) -> ActorAddressDict:
-        """Serialize to dictionary for transport.
+        """Serialize to dictionary for transport (composed from the cache).
 
-        Captures all metadata from the live actor for reconstruction.
-        The __actor_type__ is set to the actual agent class, not the address wrapper.
+        Composes the dict on demand from the cached values — never touches the
+        weakref (ADR-013 §2), so a stopped + GC'd address serializes cleanly.
+        The ``__actor_type__`` is the actual agent class, not the address wrapper.
 
         Returns:
-            ActorAddressDict with all actor metadata.
+            ActorAddressDict with all cached actor metadata.
         """
-        agent_type = self._resolve_actor().__class__
+        actor_type = self._actor_type
         return {
             "__actor_address__": True,
-            "__actor_type__": f"{agent_type.__module__}.{agent_type.__name__}",
-            "agent_id": str(self.agent_id),
-            "name": self.name,
-            "role": self.role,
-            "team_id": str(self.team_id),
-            "squad_id": str(self.squad_id) if self.squad_id is not None else "",
-            "user_message": self.handle_user_message(),
+            "__actor_type__": (
+                f"{actor_type.__module__}.{actor_type.__name__}" if actor_type else ""
+            ),
+            "agent_id": str(self._agent_id) if self._agent_id is not None else "",
+            "name": self._name or "",
+            "role": self._role or "",
+            "team_id": str(self._team_id) if self._team_id is not None else "",
+            "squad_id": str(self._squad_id) if self._squad_id is not None else "",
+            "user_message": self._user_message,
         }
 
     def __repr__(self) -> str:
-        """String representation for debugging."""
-        return f"<ActorAddress {self.role} {self.name} ({self.agent_id})>"
+        """String representation for debugging (reads the cache)."""
+        return f"<ActorAddress {self._role} {self._name} ({self._agent_id})>"
 
     def __eq__(self, other: object) -> bool:
         """Compare addresses by agent_id (same class only)."""
