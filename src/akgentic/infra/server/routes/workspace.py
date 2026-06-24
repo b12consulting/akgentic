@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from pathlib import PurePosixPath
@@ -95,7 +96,7 @@ async def upload_workspace_file(
     file: Annotated[UploadFile, File()],
 ) -> WorkspaceFileUploadResponse:
     """Upload a file to a team's workspace."""
-    _validate_team(team_id, request)
+    await asyncio.to_thread(_validate_team, team_id, request)
     settings = cast(CommunitySettings, request.app.state.settings)
     ws = _get_workspace(team_id, settings)
     data = await file.read()
@@ -103,7 +104,7 @@ async def upload_workspace_file(
         raise HTTPException(status_code=413, detail="File exceeds 10 MB size limit")
     logger.info("POST /workspace/%s/file path=%s, size=%d", team_id, path, len(data))
     try:
-        ws.write(path, data)
+        await asyncio.to_thread(ws.write, path, data)
     except PermissionError:
         raise HTTPException(status_code=403, detail="Path access denied") from None
     return WorkspaceFileUploadResponse(path=path, size=len(data))

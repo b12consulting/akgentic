@@ -15,6 +15,9 @@ from akgentic.infra.adapters.shared.channel_parser_registry import (
 )
 from akgentic.infra.adapters.shared.event_stream_subscriber import EventStreamSubscriber
 from akgentic.infra.adapters.shared.null_event_stream import NullEventStream, NullStreamReader
+from akgentic.infra.adapters.shared.runtime_cache_eviction_subscriber import (
+    RuntimeCacheEvictionSubscriber,
+)
 from akgentic.infra.adapters.shared.telegram_adapter import TelegramChannelAdapter
 from akgentic.infra.adapters.shared.telegram_parser import TelegramChannelParser
 from akgentic.infra.adapters.shared.telemetry_subscriber import TelemetrySubscriber
@@ -26,6 +29,7 @@ __all__ = [
     "InteractionChannelDispatcher",
     "NullEventStream",
     "NullStreamReader",
+    "RuntimeCacheEvictionSubscriber",
     "TelegramChannelAdapter",
     "TelegramChannelParser",
     "TelemetrySubscriber",
