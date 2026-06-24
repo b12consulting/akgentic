@@ -85,7 +85,7 @@ class VectorStoreTool(ToolCard):
         Raises:
             ValueError: When ``observer.orchestrator`` is ``None``.
         """
-        self._observer = observer
+        super().observer(observer)  # store the observer weakly via the base setter
 
         if observer.orchestrator is None:
             raise ValueError("VectorStoreTool requires access to the orchestrator.")

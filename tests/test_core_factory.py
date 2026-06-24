@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar
 
 import pytest
-
 from akgentic.tool.core import (
     COMMAND,
     TOOL_CALL,
@@ -375,6 +374,8 @@ class StubPlanningTool(ToolCard):
 
 def test_tool_factory_topological_sort_happy_path() -> None:
     """VectorStore is wired before KG and Planning regardless of input order."""
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
     calls: list[str] = []
 
     class _RecordingVS(StubVectorStoreTool):
@@ -400,7 +401,9 @@ def test_tool_factory_topological_sort_happy_path() -> None:
     plan = _RecordingPlan()
     vs = _RecordingVS()
 
-    factory = ToolFactory(tool_cards=[kg, plan, vs], observer=object())
+    # Observer is held weakly by ToolCard, so it must be weak-referenceable
+    # (a bare object() is not). The value is irrelevant to the ordering assertion.
+    factory = ToolFactory(tool_cards=[kg, plan, vs], observer=MagicMock())
     # VS must be first; KG and Planning preserve their relative input order (kg before plan).
     assert calls == ["_RecordingVS", "_RecordingKG", "_RecordingPlan"]
     assert [type(c).__name__ for c in factory.tool_cards] == [

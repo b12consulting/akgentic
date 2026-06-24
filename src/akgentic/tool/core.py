@@ -10,16 +10,17 @@ import functools
 import inspect
 import shlex
 import warnings
+import weakref
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Callable, TypeVar, get_type_hints
 
-from pydantic import TypeAdapter
+from pydantic import PrivateAttr, TypeAdapter
 
 from akgentic.core.utils import SerializableBaseModel
-from akgentic.tool.errors import CommandNotRecognized, RetriableError
+from akgentic.tool.errors import CommandNotRecognized, RetriableError, ToolObserverGone
 from akgentic.tool.event import CommandArg, CommandDescriptor, ToolObserver
 
 T = TypeVar("T", bound="BaseToolParam")
@@ -116,6 +117,9 @@ class ToolCard(SerializableBaseModel, ABC):
     on the card payload.
     """
 
+    # Runtime-only, WEAK: a tool/closure/registry must never pin its agent.
+    _observer_ref: "weakref.ref[ToolObserver] | None" = PrivateAttr(default=None)
+
     @property
     def depends_on(self) -> list[str]:
         """Class-name list of ToolCards that MUST be wired before this one.
@@ -130,11 +134,14 @@ class ToolCard(SerializableBaseModel, ABC):
         return []
 
     def observer(self, observer: ToolObserver) -> "ToolCard":
-        """Attach an observer and perform runtime setup.
+        """Attach an observer (held weakly) and perform runtime setup.
 
         Follows the same pattern as ``BaseState.observer()``.
         Override for setup that requires the observer (e.g., actor proxies).
         All methods can then access the observer via ``self._observer``.
+
+        The observer is stored through a ``weakref`` so a tool, its closures, and
+        its command registry can never pin a stopped owning agent in memory.
 
         Args:
             observer: Optional observer for tool call events.
@@ -144,6 +151,23 @@ class ToolCard(SerializableBaseModel, ABC):
         """
         self._observer = observer
         return self
+
+    @property
+    def _observer(self) -> "ToolObserver":
+        """Live observer for synchronous, in-life use. Raises if the agent has stopped."""
+        obs = self._observer_or_none()
+        if obs is None:
+            raise ToolObserverGone("tool used after its owning agent was stopped")
+        return obs
+
+    @_observer.setter
+    def _observer(self, observer: ToolObserver) -> None:
+        """Store the observer weakly (backward-compatible ``self._observer = observer``)."""
+        self._observer_ref = weakref.ref(observer)
+
+    def _observer_or_none(self) -> "ToolObserver | None":
+        """Return the live observer, or ``None`` if unset or already collected."""
+        return self._observer_ref() if self._observer_ref is not None else None
 
     @abstractmethod
     def get_tools(self) -> list[Callable]:

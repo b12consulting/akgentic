@@ -465,7 +465,7 @@ class WorkspaceTool(ToolCard):
         """
         if observer.orchestrator is None:
             raise ValueError("WorkspaceTool requires access to the orchestrator.")
-        self._observer = observer
+        super().observer(observer)  # store the observer weakly via the base setter
         ws_name = self.workspace_id or str(observer.team_id)
         self._workspace = get_workspace(ws_name)
         self._seed_resources()
