@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import uuid
+from enum import StrEnum
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from akgentic.core.utils import SerializableBaseModel
 
 from akgentic.tool.errors import RetriableError
 from akgentic.tool.workspace.edit import EditItem
-from akgentic.tool.workspace.tool import WorkspaceTool, _normalize_glob_pattern
-from akgentic.tool.workspace.workspace import Filesystem
+from akgentic.tool.workspace.tool import (
+    Resource,
+    ResourceType,
+    WorkspaceTool,
+    _normalize_glob_pattern,
+)
+from akgentic.tool.workspace.workspace import Filesystem, Workspace
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -599,6 +608,41 @@ class TestFilesystemMkdir:
 
 
 # ---------------------------------------------------------------------------
+# Story 19.2: Filesystem.exists()
+# ---------------------------------------------------------------------------
+
+
+class TestFilesystemExists:
+    def test_exists_true_for_existing_file(self, tmp_path: Path) -> None:
+        """exists() returns True for a file that was written (AC #2)."""
+        tool, fs = make_wired_tool(tmp_path)
+        fs.write("notes/todo.txt", b"hello")
+        assert fs.exists("notes/todo.txt") is True
+
+    def test_exists_false_for_absent_path(self, tmp_path: Path) -> None:
+        """exists() returns False for a path that was never created (AC #3)."""
+        tool, fs = make_wired_tool(tmp_path)
+        assert fs.exists("missing.txt") is False
+
+    def test_exists_true_for_existing_directory(self, tmp_path: Path) -> None:
+        """exists() returns True for an existing directory (AC #4)."""
+        tool, fs = make_wired_tool(tmp_path)
+        fs.mkdir("src/utils")
+        assert fs.exists("src/utils") is True
+
+    def test_exists_traversal_raises(self, tmp_path: Path) -> None:
+        """exists() raises PermissionError for a root-escaping path (AC #5)."""
+        tool, fs = make_wired_tool(tmp_path)
+        with pytest.raises(PermissionError):
+            fs.exists("../escape")
+
+    def test_filesystem_satisfies_workspace_protocol(self, tmp_path: Path) -> None:
+        """Filesystem satisfies the runtime-checkable Workspace Protocol (AC #1)."""
+        tool, fs = make_wired_tool(tmp_path)
+        assert isinstance(fs, Workspace)
+
+
+# ---------------------------------------------------------------------------
 # Story 5.6: workspace_mkdir tool
 # ---------------------------------------------------------------------------
 
@@ -998,3 +1042,215 @@ class TestFilesystemRootAbsolute:
         relative_base = str(tmp_path / "rel")
         fs = Filesystem(relative_base, "workspace")
         assert fs._root.is_absolute()
+
+
+# ---------------------------------------------------------------------------
+# Resource model and ResourceType encoding (Story 19.1, AC #1-#6)
+# ---------------------------------------------------------------------------
+
+
+class TestResourceType:
+    """ResourceType is a StrEnum with TEXT and IMAGE string members (AC #1)."""
+
+    def test_resourcetype_is_strenum(self) -> None:
+        """ResourceType members are str instances (StrEnum contract)."""
+        assert issubclass(ResourceType, StrEnum)
+        assert isinstance(ResourceType.TEXT, str)
+        assert isinstance(ResourceType.IMAGE, str)
+
+    def test_resourcetype_member_values(self) -> None:
+        """TEXT == 'text' and IMAGE == 'image'."""
+        assert ResourceType.TEXT.value == "text"
+        assert ResourceType.IMAGE.value == "image"
+
+
+class TestResourceModel:
+    """Resource construction, defaults, to_bytes, and serialization (AC #2-#5)."""
+
+    def test_construct_with_all_fields(self) -> None:
+        """Resource constructs with file_name, file_type, and content (AC #2)."""
+        res = Resource(file_name="logo.png", file_type=ResourceType.IMAGE, content="QUJD")
+        assert res.file_name == "logo.png"
+        assert res.file_type is ResourceType.IMAGE
+        assert res.content == "QUJD"
+
+    def test_file_type_defaults_to_text(self) -> None:
+        """file_type defaults to ResourceType.TEXT when omitted (AC #2)."""
+        res = Resource(file_name="notes.md", content="hello")
+        assert res.file_type is ResourceType.TEXT
+
+    def test_resource_is_serializable_base_model(self) -> None:
+        """Resource subclasses SerializableBaseModel (AC #2)."""
+        assert issubclass(Resource, SerializableBaseModel)
+
+    def test_to_bytes_text_returns_utf8(self) -> None:
+        """to_bytes() on a TEXT resource returns UTF-8 bytes of content (AC #3)."""
+        res = Resource(file_name="notes.md", file_type=ResourceType.TEXT, content="héllo")
+        assert res.to_bytes() == "héllo".encode("utf-8")
+
+    def test_to_bytes_image_returns_decoded_bytes(self) -> None:
+        """to_bytes() on an IMAGE resource returns base64-decoded bytes (AC #4)."""
+        raw = b"\x89PNG\r\n\x1a\n"
+        encoded = base64.b64encode(raw).decode("ascii")
+        res = Resource(file_name="logo.png", file_type=ResourceType.IMAGE, content=encoded)
+        assert res.to_bytes() == raw
+
+    def test_to_bytes_image_malformed_base64_raises(self) -> None:
+        """Malformed base64 content for an IMAGE resource raises binascii.Error (AC #4)."""
+        res = Resource(file_name="logo.png", file_type=ResourceType.IMAGE, content="not!base64!")
+        with pytest.raises(binascii.Error):
+            res.to_bytes()
+
+    def test_round_trip_text(self) -> None:
+        """A TEXT Resource round-trips through model_dump / model_validate (AC #5)."""
+        res = Resource(file_name="notes.md", file_type=ResourceType.TEXT, content="hello")
+        restored = Resource.model_validate(res.model_dump())
+        assert restored == res
+        assert restored.file_type is ResourceType.TEXT
+
+    def test_round_trip_image(self) -> None:
+        """An IMAGE Resource round-trips through model_dump / model_validate (AC #5)."""
+        res = Resource(file_name="logo.png", file_type=ResourceType.IMAGE, content="QUJD")
+        restored = Resource.model_validate(res.model_dump())
+        assert restored == res
+        assert restored.file_type is ResourceType.IMAGE
+
+
+def test_resource_and_resourcetype_importable_from_public_api() -> None:
+    """Resource and ResourceType import cleanly from akgentic.tool.workspace (AC #6)."""
+    from akgentic.tool.workspace import Resource as PublicResource
+    from akgentic.tool.workspace import ResourceType as PublicResourceType
+
+    assert PublicResource is Resource
+    assert PublicResourceType is ResourceType
+
+
+# ---------------------------------------------------------------------------
+# Story 19.3: seed declared resources at WorkspaceTool startup (AC #1-#9)
+# ---------------------------------------------------------------------------
+
+
+def _seed_tool(
+    tmp_path: Path,
+    resources: list[Resource],
+) -> tuple[WorkspaceTool, Filesystem]:
+    """Wire a WorkspaceTool carrying *resources* to a real tmp Filesystem."""
+    observer, fs = make_observer(tmp_path)
+    with patch("akgentic.tool.workspace.tool.get_workspace", return_value=fs):
+        tool = WorkspaceTool(resources=resources)
+        tool.observer(observer)
+    return tool, fs
+
+
+class TestWorkspaceToolResourcesField:
+    """The `resources` field: default, typing, serialization (AC #1, #5)."""
+
+    def test_resources_defaults_to_empty_list(self) -> None:
+        """resources defaults to [] when not configured (AC #1, #5)."""
+        tool = WorkspaceTool()
+        assert tool.resources == []
+
+    def test_resources_round_trips_through_model_dump(self) -> None:
+        """A WorkspaceTool with resources round-trips identically (AC #1)."""
+        resources = [
+            Resource(file_name="notes.md", file_type=ResourceType.TEXT, content="hello"),
+            Resource(file_name="logo.png", file_type=ResourceType.IMAGE, content="QUJD"),
+        ]
+        tool = WorkspaceTool(resources=resources)
+        restored = WorkspaceTool.model_validate(tool.model_dump())
+        assert restored.resources == resources
+
+    def test_resources_serialize_as_plain_dicts(self) -> None:
+        """`resources` serializes to plain dicts — list[Resource] is serializable (AC #1)."""
+        resources = [
+            Resource(file_name="notes.md", file_type=ResourceType.TEXT, content="hello"),
+        ]
+        dumped = WorkspaceTool(resources=resources).model_dump()["resources"]
+        assert isinstance(dumped, list) and len(dumped) == 1
+        entry = dumped[0]
+        assert isinstance(entry, dict)
+        assert entry["file_name"] == "notes.md"
+        assert entry["file_type"] == "text"
+        assert entry["content"] == "hello"
+
+
+class TestWorkspaceToolSeedResources:
+    """observer() seeds declared resources into the workspace (AC #2-#8)."""
+
+    def test_observer_seeds_text_and_image_resources(self, tmp_path: Path) -> None:
+        """A TEXT resource lands as UTF-8, an IMAGE resource as decoded bytes (AC #2)."""
+        raw = b"\x89PNG\r\n\x1a\n"
+        encoded = base64.b64encode(raw).decode("ascii")
+        resources = [
+            Resource(file_name="notes.md", file_type=ResourceType.TEXT, content="héllo"),
+            Resource(file_name="logo.png", file_type=ResourceType.IMAGE, content=encoded),
+        ]
+        tool, fs = _seed_tool(tmp_path, resources)
+        assert fs.read("notes.md") == "héllo".encode("utf-8")
+        assert fs.read("logo.png") == raw
+
+    def test_observer_does_not_overwrite_existing_file(self, tmp_path: Path) -> None:
+        """A resource whose file_name already exists is preserved (AC #3)."""
+        observer, fs = make_observer(tmp_path)
+        fs.write("notes.md", b"original content")
+        resources = [Resource(file_name="notes.md", content="seeded content")]
+        with patch("akgentic.tool.workspace.tool.get_workspace", return_value=fs):
+            tool = WorkspaceTool(resources=resources)
+            tool.observer(observer)
+        assert fs.read("notes.md") == b"original content"
+
+    def test_observer_seeds_nested_path_creating_parents(self, tmp_path: Path) -> None:
+        """A nested file_name seeds with parent directories created (AC #4)."""
+        resources = [Resource(file_name="docs/spec.md", content="spec body")]
+        tool, fs = _seed_tool(tmp_path, resources)
+        assert fs.read("docs/spec.md") == b"spec body"
+
+    def test_observer_empty_resources_seeds_nothing(self, tmp_path: Path) -> None:
+        """Default empty resources → observer() seeds nothing (AC #5)."""
+        tool, fs = _seed_tool(tmp_path, [])
+        assert fs.list() == []
+
+    def test_observer_root_escaping_resource_raises_permission_error(
+        self, tmp_path: Path
+    ) -> None:
+        """A root-escaping file_name raises PermissionError out of observer() (AC #6)."""
+        observer, fs = make_observer(tmp_path)
+        resources = [Resource(file_name="../escape.txt", content="evil")]
+        with patch("akgentic.tool.workspace.tool.get_workspace", return_value=fs):
+            tool = WorkspaceTool(resources=resources)
+            with pytest.raises(PermissionError):
+                tool.observer(observer)
+
+    def test_observer_malformed_base64_image_raises_binascii_error(
+        self, tmp_path: Path
+    ) -> None:
+        """An IMAGE resource with malformed base64 raises binascii.Error (AC #7)."""
+        observer, fs = make_observer(tmp_path)
+        resources = [
+            Resource(file_name="logo.png", file_type=ResourceType.IMAGE, content="not!base64!")
+        ]
+        with patch("akgentic.tool.workspace.tool.get_workspace", return_value=fs):
+            tool = WorkspaceTool(resources=resources)
+            with pytest.raises(binascii.Error):
+                tool.observer(observer)
+
+    def test_observer_run_twice_preserves_existing_and_seeds_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """A second observer() run preserves existing files, seeds still-missing ones (AC #8)."""
+        observer, fs = make_observer(tmp_path)
+        resources = [
+            Resource(file_name="kept.md", content="seeded once"),
+            Resource(file_name="later.md", content="later body"),
+        ]
+        with patch("akgentic.tool.workspace.tool.get_workspace", return_value=fs):
+            tool = WorkspaceTool(resources=resources)
+            tool.observer(observer)
+        # An agent/human edits the seeded file between team restores.
+        fs.write("kept.md", b"edited by agent")
+        # A team restore builds a fresh WorkspaceTool and re-runs observer().
+        with patch("akgentic.tool.workspace.tool.get_workspace", return_value=fs):
+            restored_tool = WorkspaceTool(resources=resources)
+            restored_tool.observer(observer)
+        assert fs.read("kept.md") == b"edited by agent"
+        assert fs.read("later.md") == b"later body"
