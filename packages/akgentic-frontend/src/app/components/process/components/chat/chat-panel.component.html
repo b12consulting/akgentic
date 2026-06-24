@@ -1,0 +1,83 @@
+<div class="chat-container">
+  <ng-container *ngIf="displayItems.length > 0; else noMessagesPlaceholder">
+    <div
+      class="message-list"
+      #scrollContainer
+      (click)="onBackgroundClick()"
+      (scroll)="onScroll()"
+    >
+      <ng-container *ngFor="let item of displayItems; trackBy: trackByDisplayItem">
+        <app-chat-message
+          *ngIf="item.kind === 'message'"
+          [attr.data-message-id]="item.data.id"
+          [message]="item.data"
+          [selected]="item.data.id === selectedMessageId"
+          [notification]="hasNotification(item.data)"
+          (messageSelected)="onMessageSelected($event)"
+          (toggleCollapse)="onToggleCollapse($event)"
+          (bubbleClicked)="onBubbleClicked($event)"
+          (rule3Clicked)="onRule3Clicked($event)"
+        ></app-chat-message>
+        <app-chat-thinking
+          *ngIf="item.kind === 'thinking'"
+          [state]="item.data"
+          [expanded]="isThinkingExpanded(item.data)"
+          (toggleExpanded)="onToggleThinkingExpanded($event)"
+        ></app-chat-thinking>
+      </ng-container>
+      <!-- ADR-016: trailing spacer reserves scroll room so the just-sent message
+           can park at the top. Plain element AFTER the *ngFor (never iterated by
+           trackByDisplayItem); its min-height is written imperatively. -->
+      <div class="message-spacer" #spacer></div>
+    </div>
+  </ng-container>
+  <ng-template #noMessagesPlaceholder>
+    <ng-container *ngIf="loadingProcess$ | async; else emptyState">
+      <div class="empty-section">
+        <div class="empty-section-box">
+          <i class="pi pi-spin pi-spinner chat-placeholder-icon"></i>
+          <div class="chat-placeholder-title">Loading process...</div>
+          <div class="chat-placeholder-desc">
+            Please wait while we fetch the conversation.
+          </div>
+        </div>
+      </div>
+    </ng-container>
+    <ng-template #emptyState>
+      <div class="empty-section">
+        <div class="empty-section-box">
+          <i class="pi pi-comment chat-placeholder-icon"></i>
+          <div class="chat-placeholder-title">No messages yet</div>
+          <div class="chat-placeholder-desc">
+            Start a conversation by sending a message below.
+          </div>
+        </div>
+      </div>
+    </ng-template>
+  </ng-template>
+  <!-- The "New messages" indicator sits directly ON TOP of the input field
+       (positioned against `.input-area`, which wraps the input). OUTSIDE
+       #scrollContainer so it never changes scrollHeight; *ngIf-gated so it is
+       absent (and captures no pointer events) when hidden. Its click handler is
+       the ONLY entry into follow mode. -->
+  <div class="input-area">
+    <button
+      *ngIf="indicatorLabel"
+      type="button"
+      class="jump-to-latest"
+      (click)="onJumpToLatest()"
+    >
+      <i class="pi" [ngClass]="indicatorIcon"></i>
+      <span>{{ indicatorLabel }}</span>
+    </button>
+    <app-user-input [processId]="processId"></app-user-input>
+  </div>
+  <app-chat-human-modal
+    [visible]="modalVisible"
+    [agentPair]="modalAgentPair"
+    [pendingMessages]="modalPendingMessages"
+    [answeredMessages]="modalAnsweredMessages"
+    (visibleChange)="onModalVisibleChange($event)"
+    (reply)="onModalReply($event)"
+  ></app-chat-human-modal>
+</div>

@@ -1,0 +1,111 @@
+<!--
+  Render one of four deterministic branches (AC 7). The `data-test` on the
+  root is load-bearing — parent-level specs migrated from the deleted
+  inline blocks query `[data-test="validation-report"]` (AC 19).
+
+  Branch precedence: rawError wins over report when both are non-null
+  (AC 7 branch (d)). Rendering choices documented inline:
+    - Plain <ul> used for findings (plain-ul vs p-table open question;
+      <ul> is lighter for the typical <10 rows case).
+    - <p-tag> severity chips for kind/global labels.
+    - Per-line rendering of an EntryValidationIssue's `errors` array
+      (one <li> per error) — more readable than semicolon-separated.
+-->
+
+<!-- Branch (d): unstructured fallback — takes precedence over `report`. -->
+<div
+  *ngIf="rawError !== null; else reportBranch"
+  class="validation-report validation-report--raw"
+  data-test="validation-report"
+>
+  <h4>Server returned an unstructured error</h4>
+  <pre data-test="validation-report-raw">{{ rawError }}</pre>
+  <button
+    pButton
+    type="button"
+    size="small"
+    severity="secondary"
+    label="Clear results"
+    icon="pi pi-times"
+    (click)="clearRequested.emit()"
+    data-test="clear-results-btn"
+  ></button>
+</div>
+
+<ng-template #reportBranch>
+  <!-- Branch (a): nothing to render — both inputs null. -->
+  <ng-container *ngIf="report !== null; else nothingBranch">
+    <!-- Branch (b): clean pass — report.ok === true. -->
+    <div
+      *ngIf="report.ok; else findingsBranch"
+      class="validation-report validation-report--ok"
+      data-test="validation-report"
+    >
+      <p-tag severity="success" value="Validation passed" icon="pi pi-check-circle"></p-tag>
+      <button
+        pButton
+        type="button"
+        size="small"
+        severity="secondary"
+        label="Clear results"
+        icon="pi pi-times"
+        (click)="clearRequested.emit()"
+        data-test="clear-results-btn"
+      ></button>
+    </div>
+
+    <!-- Branch (c): report with findings. -->
+    <ng-template #findingsBranch>
+      <div
+        class="validation-report validation-report--issues"
+        data-test="validation-report"
+      >
+        <h4>Validation report (issues)</h4>
+
+        <!-- Global errors list: plain <ul>; danger-severity p-tag per row. -->
+        <ul
+          *ngIf="report.global_errors.length > 0"
+          class="validation-report__global-list"
+          data-test="validation-report-global"
+        >
+          <li *ngFor="let msg of report.global_errors">
+            <p-tag severity="danger" value="global"></p-tag>
+            <span class="validation-report__msg">{{ msg }}</span>
+          </li>
+        </ul>
+
+        <!-- Entry issues list: one <li> per issue, one <li> per error
+             nested (per-line rendering — see rationale above). -->
+        <ul
+          *ngIf="report.entry_issues.length > 0"
+          class="validation-report__entry-list"
+          data-test="validation-report-entries"
+        >
+          <li *ngFor="let issue of report.entry_issues">
+            <p-tag severity="warn" [value]="issue.kind"></p-tag>
+            <span class="validation-report__entry-id">{{ issue.entry_id }}</span>
+            <ul class="validation-report__entry-errors">
+              <li *ngFor="let err of issue.errors">{{ err }}</li>
+            </ul>
+          </li>
+        </ul>
+
+        <button
+          pButton
+          type="button"
+          size="small"
+          severity="secondary"
+          label="Clear results"
+          icon="pi pi-times"
+          (click)="clearRequested.emit()"
+          data-test="clear-results-btn"
+        ></button>
+      </div>
+    </ng-template>
+  </ng-container>
+
+  <!-- Branch (a) fallback: emit zero DOM. -->
+  <ng-template #nothingBranch>
+    <ng-container></ng-container>
+  </ng-template>
+</ng-template>
