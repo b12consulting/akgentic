@@ -19,6 +19,26 @@ logger = logging.getLogger(__name__)
 UserPrompt = str | list[str | BinaryContent]
 
 
+def _evict_anyio_run_vars(loop: asyncio.AbstractEventLoop) -> None:
+    """Remove anyio's per-loop run-vars entry so the closed loop can be GC'd.
+
+    anyio keeps per-loop state in a module-global ``WeakKeyDictionary``
+    (``anyio.lowlevel._run_vars``, keyed by the loop); its value retains the
+    finished run ``Task``, which strong-references the loop, so the weak key
+    never clears and the loop leaks. Evicting our own loop's entry breaks that
+    ``_root_task → loop`` anchor. Best-effort and version-guarded: anyio
+    internals are private, and a missing/absent ``_run_vars`` (or no anyio) must
+    not break teardown. Local copy of ``akgentic.core.agent._evict_anyio_run_vars``
+    (NOT imported — ``akgentic-llm`` must not depend on a sibling package).
+    """
+    try:
+        from anyio.lowlevel import _run_vars  # noqa: PLC0415
+
+        _run_vars.pop(loop, None)
+    except Exception:
+        pass
+
+
 class UsageLimitError(Exception):
     """Raised when usage limits are exceeded during agent execution."""
 
@@ -74,12 +94,22 @@ class ReactAgent:
             toolsets: List of toolsets (optional, e.g., MCP servers)
             result_type: Type for agent result validation (default: str)
             observer: Context observer to register automatically (optional)
-            event_loop: Asyncio event loop to use (optional, defaults to current loop)
+            event_loop: Deprecated — accepted and ignored. The agent creates and
+                owns its own loop (``self._loop``); the passed loop is neither
+                adopted nor used by ``run_sync``. Kept in the signature for one
+                release so callers can stop passing it without a flag day.
         """
+        # The agent owns its loop: create it and make it current on the
+        # constructing thread BEFORE building the httpx client / model, so the
+        # connection pool stays a per-agent resource bound to one stable loop
+        # (ADR-008). The deprecated `event_loop=` argument is ignored.
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._closed = False
+
         self._config = config
         self._deps_type = deps_type
         self._result_type = result_type
-        self._event_loop = event_loop
 
         # Create context manager (no max_messages by default)
         self._context = ContextManager()
@@ -88,8 +118,10 @@ class ReactAgent:
         if observer:
             self._context.subscribe(observer)
 
-        # Create HTTP client
-        http_client = create_http_client(
+        # Create HTTP client. Held on the instance so its connection pool can be
+        # released on stop via aclose(); otherwise the pydantic-ai Model keeps the
+        # httpx.AsyncClient (open sockets/TLS buffers) alive past team teardown.
+        self._http_client = create_http_client(
             timeout_s=config.runtime_cfg.http_client_config.timeout,
             max_attempts=config.runtime_cfg.http_client_config.max_retries,
             exp_multiplier=config.runtime_cfg.http_client_config.backoff_multiplier,
@@ -97,7 +129,7 @@ class ReactAgent:
         )
 
         # Create model from config
-        self._model = create_model(config.model_cfg, http_client)
+        self._model = create_model(config.model_cfg, self._http_client)
 
         # Wrap result_type with provider-aware output strategy for structured output
         wrapped_result_type: Any = get_output_type(config.model_cfg, result_type)
@@ -114,8 +146,7 @@ class ReactAgent:
             deps_type=deps_type,
             end_strategy=config.runtime_cfg.end_strategy,
             output_type=wrapped_result_type,
-            history_processors=[],  # Empty for MVP (story 2-1-6b deferred)
-            instrument=True,
+            instrument=False,
         )
 
     async def run(
@@ -249,12 +280,72 @@ class ReactAgent:
             Agent result output
 
         Raises:
+            RuntimeError: If the agent has been closed
             UsageLimitError: If usage limits exceeded
         """
-        if self._event_loop and self._event_loop.is_running():
-            self._event_loop.run_until_complete(self.run(user_prompt, deps, output_type))
+        # Always run on the agent's own loop so the httpx connection pool stays
+        # bound to ONE stable loop across calls. There is no asyncio.run()
+        # fallback: a fresh loop per call would leave pooled connections attached
+        # to already-closed loops, making aclose() raise on stop and leaking the
+        # pool (RAM grows per team).
+        if self._closed or self._loop.is_closed():
+            raise RuntimeError("ReactAgent is closed")
+        return self._loop.run_until_complete(self.run(user_prompt, deps, output_type))
 
-        return asyncio.run(self.run(user_prompt, deps, output_type))
+    async def aclose(self) -> None:
+        """Release async resources (the httpx connection pool); does NOT close the loop.
+
+        Resource-only teardown driven by ``close()`` on a still-open loop. The
+        pydantic-ai Model (and its provider) hold this client, so without
+        ``aclose()`` its open sockets and connection pool survive team stop and
+        accumulate in the worker. Guarded so a second call is harmless.
+        """
+        if not self._http_client.is_closed:
+            await self._http_client.aclose()
+
+    def close(self) -> None:
+        """Synchronously tear the agent down; idempotent.
+
+        Drives async resource teardown (``aclose()``) on the still-open loop,
+        cancels stragglers, drains async generators and the default executor,
+        closes the loop, then evicts anyio's per-loop run-vars anchor — all in
+        ``finally``. The five-step order is load-bearing: async exit handlers
+        must run before the loop closes, and stragglers / async generators must
+        drain before ``loop.close()`` to avoid leaked transports and "Task was
+        destroyed but it is pending" warnings; step 5 (the eviction) runs after
+        ``loop.close()`` so the closed loop can actually be GC'd (the
+        ``_root_task`` ``RunVar`` would otherwise pin it). A second call is a
+        harmless no-op; teardown failures are logged, never raised.
+        """
+        loop = self._loop
+        if self._closed or loop.is_closed():
+            return
+        self._closed = True
+        try:
+            if not loop.is_running():
+                loop.run_until_complete(self.aclose())  # 1. async resource teardown
+                self._cancel_pending(loop)  # 2. cancel stragglers
+                loop.run_until_complete(loop.shutdown_asyncgens())  # 3. drain async gens
+                loop.run_until_complete(loop.shutdown_default_executor())
+        except Exception:
+            logger.warning("ReactAgent.close() teardown failed", exc_info=True)
+        finally:
+            loop.close()  # 4. close the loop
+            _evict_anyio_run_vars(loop)  # 5. break anyio's _root_task → loop anchor
+
+    @staticmethod
+    def _cancel_pending(loop: asyncio.AbstractEventLoop) -> None:
+        """Cancel and await any tasks still pending on ``loop`` before close.
+
+        Mirrors ``Akgent._drain_event_loop``'s straggler step: cancel each
+        pending task, then run the loop once to let the cancellations settle.
+        """
+        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        if not pending:
+            return
+        for task in pending:
+            task.cancel()
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
 
     def _to_pydantic_limits(self, limits: UsageLimits | None) -> PydanticUsageLimits | None:
         """Convert config UsageLimits to pydantic-ai UsageLimits.
