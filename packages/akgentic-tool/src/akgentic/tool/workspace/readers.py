@@ -170,11 +170,14 @@ class DocumentReader(BaseModel):
         # Pass 1: plain MarkItDown (no LLM)
         text = self._convert_via_tempfile(MarkItDown(), content, suffix)
 
-        # Pass 2: LLM vision fallback if Pass 1 yielded insufficient content
-        openai_client = self._get_openai_client()
-        if len("".join(text.split())) < 50 and openai_client is not None:
-            md_vision = MarkItDown(llm_client=openai_client, llm_model=self.llm_model)
-            text = self._convert_via_tempfile(md_vision, content, suffix)
+        # Pass 2: LLM vision fallback if Pass 1 yielded insufficient content.
+        # Only construct the OpenAI client when Pass 1 came up short — otherwise
+        # a successful Pass 1 would needlessly require credentials it never uses.
+        if len("".join(text.split())) < 50:
+            openai_client = self._get_openai_client()
+            if openai_client is not None:
+                md_vision = MarkItDown(llm_client=openai_client, llm_model=self.llm_model)
+                text = self._convert_via_tempfile(md_vision, content, suffix)
 
         if len("".join(text.split())) < 50:
             return "<!-- markitdown: no text extracted -->"

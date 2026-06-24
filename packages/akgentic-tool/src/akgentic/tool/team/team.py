@@ -195,7 +195,7 @@ class TeamTool(ToolCard):
         Raises:
             ValueError: If observer.orchestrator is None
         """
-        self._observer = observer
+        super().observer(observer)  # store the observer weakly via the base setter
         if observer.orchestrator is None:
             raise ValueError("TeamTool requires access to the orchestrator.")
 
@@ -274,7 +274,7 @@ class TeamTool(ToolCard):
             Callable that hires team members
         """
         orchestrator_proxy = self._orchestrator_proxy
-        observer = self._observer
+        observer_or_none = self._observer_or_none  # bound method -> weak edge to agent
 
         def hire_members(roles: list[str]) -> str:
             """Hire multiple new team members with the given roles.
@@ -292,6 +292,9 @@ class TeamTool(ToolCard):
                 Confirmation message with hired member names
                 (e.g., 'Members hired: [@Developer123, @Tester456]')
             """
+            observer = observer_or_none()
+            if observer is None:
+                raise RetriableError("Team is shutting down; cannot hire.")
             if not roles:
                 raise RetriableError("No roles provided. Specify at least one role to hire.")
 
@@ -341,7 +344,7 @@ class TeamTool(ToolCard):
             Callable that hires a single team member
         """
         orchestrator_proxy = self._orchestrator_proxy
-        observer = self._observer
+        observer_or_none = self._observer_or_none  # bound method -> weak edge to agent
 
         def hire_member(role: str, name: str | None = None):
             """Hire a single new team member with the given role.
@@ -356,6 +359,9 @@ class TeamTool(ToolCard):
             Returns:
                 Tuple of (member_name, member_address)
             """
+            observer = observer_or_none()
+            if observer is None:
+                raise RetriableError("Team is shutting down; cannot hire.")
             existing_names = {member.name for member in orchestrator_proxy.get_team()}
             return _hire_single_member(orchestrator_proxy, observer, role, name, existing_names)
 
@@ -371,7 +377,7 @@ class TeamTool(ToolCard):
             Callable that fires team members
         """
         orchestrator_proxy = self._orchestrator_proxy
-        observer = self._observer
+        observer_or_none = self._observer_or_none  # bound method -> weak edge to agent
 
         def fire_members(names: list[str]) -> str:
             """Fire multiple team members with the given names.
@@ -388,6 +394,9 @@ class TeamTool(ToolCard):
             Returns:
                 Combined confirmation messages (e.g., "Members fired: @Developer123, @Tester456")
             """
+            observer = observer_or_none()
+            if observer is None:
+                raise RetriableError("Team is shutting down; cannot fire.")
             if not names:
                 raise RetriableError("No names provided. Specify at least one member name to fire.")
 
@@ -427,7 +436,7 @@ class TeamTool(ToolCard):
             Callable that fires a single team member
         """
         orchestrator_proxy = self._orchestrator_proxy
-        observer = self._observer
+        observer_or_none = self._observer_or_none  # bound method -> weak edge to agent
 
         def fire_member(name: str) -> str:
             """Fire a team member with the given name.
@@ -440,6 +449,9 @@ class TeamTool(ToolCard):
             Returns:
                 Confirmation message (e.g., "Member @Developer123 has been fired.")
             """
+            observer = observer_or_none()
+            if observer is None:
+                raise RetriableError("Team is shutting down; cannot fire.")
             _fire_single_member(orchestrator_proxy, observer, name)
             return f"Member {name} has been fired."
 
@@ -455,7 +467,7 @@ class TeamTool(ToolCard):
             Callable that generates team roster prompt
         """
         orchestrator_proxy = self._orchestrator_proxy
-        observer = self._observer
+        observer_or_none = self._observer_or_none  # bound method -> weak edge to agent
 
         def team_roster_prompt() -> str:
             """Get current team composition as context.
@@ -467,6 +479,9 @@ class TeamTool(ToolCard):
                 Formatted team roster or empty string if no members
             """
             try:
+                observer = observer_or_none()
+                if observer is None:
+                    return ""  # agent gone -> no roster context
                 team_members = orchestrator_proxy.get_team()
                 if not team_members:
                     return ""

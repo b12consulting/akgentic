@@ -12,17 +12,20 @@ The default ``read_only=False`` also includes write-side callables (``workspace_
 
 from __future__ import annotations
 
+import base64
 import difflib
 import io
 import re as _re
 import shutil
 import subprocess
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from pydantic import PrivateAttr
 from pydantic_ai.messages import BinaryContent
 
+from akgentic.core.utils import SerializableBaseModel
 from akgentic.tool.core import COMMAND, TOOL_CALL, BaseToolParam, Channels, ToolCard, _resolve
 from akgentic.tool.errors import RetriableError
 from akgentic.tool.event import ActorToolObserver
@@ -358,6 +361,48 @@ class WorkspaceMkdir(BaseToolParam):
     expose: set[Channels] = {TOOL_CALL}
 
 
+class ResourceType(StrEnum):
+    """Encoding of a seeded resource's ``content`` field.
+
+    Acts as the explicit encoding discriminator for a :class:`Resource`: it
+    decides how ``content`` is decoded into bytes (see :meth:`Resource.to_bytes`).
+    Encoding is always explicit — never inferred from the filename extension.
+    """
+
+    TEXT = "text"  # content is UTF-8 text, written verbatim
+    IMAGE = "image"  # content is base64-encoded binary, decoded before write
+
+
+class Resource(SerializableBaseModel):
+    """A file seeded into the team workspace at team-creation time.
+
+    Fully Pydantic-serializable: primitive fields plus a :class:`ResourceType`
+    ``StrEnum`` only, so it round-trips cleanly through ``model_dump`` /
+    ``model_validate``. The file extension lives in ``file_name`` (e.g.
+    ``logo.png``); ``file_type`` carries the encoding discriminator, not a MIME
+    type.
+    """
+
+    file_name: str
+    file_type: ResourceType = ResourceType.TEXT
+    content: str
+
+    def to_bytes(self) -> bytes:
+        """Decode ``content`` into the bytes to write to the workspace.
+
+        Returns:
+            ``base64.b64decode(content)`` when ``file_type`` is
+            :attr:`ResourceType.IMAGE`, else ``content.encode("utf-8")``.
+
+        Raises:
+            binascii.Error: If ``file_type`` is :attr:`ResourceType.IMAGE` and
+                ``content`` is not valid base64.
+        """
+        if self.file_type is ResourceType.IMAGE:
+            return base64.b64decode(self.content)
+        return self.content.encode("utf-8")
+
+
 class WorkspaceTool(ToolCard):
     """Workspace access with configurable read-only or full read/write/delete/edit mode.
 
@@ -399,6 +444,11 @@ class WorkspaceTool(ToolCard):
     workspace_patch: WorkspacePatch | bool = True
     workspace_mkdir: WorkspaceMkdir | bool = True
 
+    resources: list[Resource] = []
+    """Files seeded into the team workspace at observer() time, before the
+    agent's first turn. Each resource is written only if its path does not
+    already exist — restoring a team never clobbers edited files."""
+
     # Private runtime state — not part of the serialised config.
     # Default None sentinel lets the workspace property detect uninitialized state
     # reliably under both normal execution and coverage instrumentation.
@@ -420,10 +470,23 @@ class WorkspaceTool(ToolCard):
         """
         if observer.orchestrator is None:
             raise ValueError("WorkspaceTool requires access to the orchestrator.")
-        self._observer = observer
+        super().observer(observer)  # store the observer weakly via the base setter
         ws_name = self.workspace_id or str(observer.team_id)
         self._workspace = get_workspace(ws_name)
+        self._seed_resources()
         return self
+
+    def _seed_resources(self) -> None:
+        """Write each configured resource that is not already present.
+
+        Idempotent: an existing file is never overwritten, so a team restore
+        cannot clobber edits made to a seeded file since team creation.
+        """
+        assert self._workspace is not None
+        for resource in self.resources:
+            if self._workspace.exists(resource.file_name):
+                continue
+            self._workspace.write(resource.file_name, resource.to_bytes())
 
     @property
     def workspace(self) -> Filesystem:
@@ -682,7 +745,9 @@ class WorkspaceTool(ToolCard):
                 files as ``name (N bytes)``. Returns "Empty directory." if no entries.
 
             Raises:
-                RetriableError: If path escapes the workspace root.
+                RetriableError: If the directory does not exist, the path points at
+                    a file rather than a directory, or the path escapes the
+                    workspace root.
             """
             try:
                 if path:
@@ -707,6 +772,8 @@ class WorkspaceTool(ToolCard):
                     # ASCII tree — depth=0 means unlimited, depth>1 means N levels
                     tree_lines = _build_tree(resolved, max_depth=depth)
                     return ".\n" + "\n".join(tree_lines) if tree_lines else "Empty directory."
+            except (FileNotFoundError, NotADirectoryError):
+                raise RetriableError(f"Directory not found: {path}")
             except PermissionError:
                 raise RetriableError(_PERM_ERR_MSG)
 
