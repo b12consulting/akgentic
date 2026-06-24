@@ -13,7 +13,13 @@ from akgentic.infra.protocols.channels import (
 )
 from akgentic.infra.protocols.event_stream import EventStream, StreamClosed, StreamReader
 from akgentic.infra.protocols.health import HealthMonitor
-from akgentic.infra.protocols.placement import PlacementStrategy
+from akgentic.infra.protocols.placement import (
+    NoCapacityError,
+    NoSandboxCapacityError,
+    PlacementError,
+    PlacementStrategy,
+    WorkerRejectedError,
+)
 from akgentic.infra.protocols.recovery import RecoveryPolicy
 from akgentic.infra.protocols.runtime_cache import RuntimeCache
 from akgentic.infra.protocols.team_handle import TeamHandle
@@ -29,8 +35,12 @@ __all__ = [
     "InteractionChannelAdapter",
     "InteractionChannelIngestion",
     "JsonValue",
+    "NoCapacityError",
+    "NoSandboxCapacityError",
+    "PlacementError",
     "PlacementStrategy",
     "RecoveryPolicy",
+    "WorkerRejectedError",
     "RuntimeCache",
     "StreamClosed",
     "StreamReader",

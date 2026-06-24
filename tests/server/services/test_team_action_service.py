@@ -6,8 +6,9 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from akgentic.agent.config import AgentState
 from akgentic.core.messages.orchestrator import SentMessage
-from akgentic.team.models import PersistedEvent, TeamStatus
+from akgentic.team.models import AgentStateSnapshot, PersistedEvent, TeamStatus
 
 from akgentic.infra.server.services.team_service import TeamService
 from tests.fixtures.events import build_sent_message
@@ -130,6 +131,39 @@ def test_get_events_not_found(team_service: TeamService) -> None:
     """get_events raises ValueError for non-existent team."""
     with pytest.raises(ValueError, match="not found"):
         team_service.get_events(uuid.uuid4())
+
+
+def test_get_agent_states_empty(team_service: TeamService) -> None:
+    """get_agent_states returns [] for an existing team with no snapshots."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    assert team_service.get_agent_states(process.team_id) == []
+
+
+def test_get_agent_states_returns_persisted_snapshots(team_service: TeamService) -> None:
+    """get_agent_states returns persisted snapshots as-is (no resolution/filtering)."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    agent_uuid = str(uuid.uuid4())
+    snapshot = AgentStateSnapshot(
+        team_id=process.team_id,
+        agent_id=agent_uuid,
+        name="@Manager",
+        state=AgentState(backstory="coordinate"),
+        updated_at=datetime.now(UTC),
+    )
+    team_service._services.event_store.save_agent_state(snapshot)
+
+    states = team_service.get_agent_states(process.team_id)
+
+    assert [s.agent_id for s in states] == [agent_uuid]
+    assert states[0].name == "@Manager"
+    assert isinstance(states[0].state, AgentState)
+    assert states[0].state.backstory == "coordinate"
+
+
+def test_get_agent_states_not_found(team_service: TeamService) -> None:
+    """get_agent_states raises ValueError for non-existent team."""
+    with pytest.raises(ValueError, match="not found"):
+        team_service.get_agent_states(uuid.uuid4())
 
 
 def test_process_human_input_not_found_team(team_service: TeamService) -> None:

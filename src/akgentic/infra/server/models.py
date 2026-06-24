@@ -32,9 +32,10 @@ class TeamResponse(BaseModel):
 
 
 class TeamListResponse(BaseModel):
-    """Response body for GET /teams."""
+    """Response body for GET /teams (one numbered page + full owned count)."""
 
-    teams: list[TeamResponse] = Field(description="List of team metadata entries")
+    teams: list[TeamResponse] = Field(description="Current page of team metadata entries")
+    total_count: int = Field(description="Total teams for the user across all pages")
 
 
 class SendMessageRequest(BaseModel):
@@ -69,6 +70,31 @@ class EventListResponse(BaseModel):
     """Response body for GET /teams/{team_id}/events."""
 
     events: list[EventResponse] = Field(description="List of persisted events")
+
+
+class AgentStateResponse(BaseModel):
+    """Serialized form of a persisted AgentStateSnapshot.
+
+    A faithful passthrough of the snapshot store: ``agent_id`` and ``name``
+    are returned exactly as stored (no resolution / re-keying), and ``state``
+    is the snapshot's serialized ``BaseState`` — same shape convention as
+    ``EventResponse.event``.
+    """
+
+    agent_id: str = Field(
+        description="Snapshot's stored agent identifier, returned as-is (no resolution)"
+    )
+    name: str | None = Field(
+        description="Agent display name as stored; None for pre-Epic-23 snapshots"
+    )
+    state: dict[str, object] = Field(description="Serialized agent state payload")
+    updated_at: datetime = Field(description="Timestamp when the snapshot was taken")
+
+
+class AgentStateListResponse(BaseModel):
+    """Response body for GET /teams/{team_id}/agent-states."""
+
+    states: list[AgentStateResponse] = Field(description="List of persisted agent state snapshots")
 
 
 # --- Workspace response models ---

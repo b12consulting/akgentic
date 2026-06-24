@@ -6,9 +6,13 @@ import inspect
 import uuid
 from unittest.mock import MagicMock
 
+import pytest
 from akgentic.infra.adapters.community.local_placement import LocalPlacement
 from akgentic.infra.adapters.community.local_team_handle import LocalTeamHandle
-from akgentic.infra.protocols.placement import PlacementStrategy
+from akgentic.infra.protocols.placement import (
+    PlacementError,
+    PlacementStrategy,
+)
 
 
 def _make_adapter() -> LocalPlacement:
@@ -74,9 +78,7 @@ class TestLocalPlacementBehavior:
         adapter = LocalPlacement(team_manager, service_registry)
         team_card = MagicMock()
         explicit_id = uuid.uuid4()
-        adapter.create_team(
-            team_card, "user-1", user_email="user@example.com", team_id=explicit_id
-        )
+        adapter.create_team(team_card, "user-1", user_email="user@example.com", team_id=explicit_id)
         team_manager.create_team.assert_called_once_with(
             team_card,
             "user-1",
@@ -108,3 +110,28 @@ class TestLocalPlacementBehavior:
         a = _make_adapter()
         b = _make_adapter()
         assert a.instance_id != b.instance_id
+
+
+class TestLocalPlacementCreateFailure:
+    """AC12: a TeamManager.create_team failure surfaces as a PlacementError."""
+
+    def test_create_team_failure_raises_placement_error(self) -> None:
+        """A delegate exception is wrapped in PlacementError (a ServerError)."""
+        team_manager = MagicMock()
+        team_manager.create_team.side_effect = RuntimeError("boom")
+        adapter = LocalPlacement(team_manager, MagicMock())
+        with pytest.raises(PlacementError) as exc_info:
+            adapter.create_team(MagicMock(), "user-1")
+        # Wrapped, not re-raised verbatim: carries the placement HTTP mapping.
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.__cause__ is not None
+
+    def test_create_team_passes_through_placement_error(self) -> None:
+        """An already-typed PlacementError propagates unchanged (not re-wrapped)."""
+        original = PlacementError("already typed")
+        team_manager = MagicMock()
+        team_manager.create_team.side_effect = original
+        adapter = LocalPlacement(team_manager, MagicMock())
+        with pytest.raises(PlacementError) as exc_info:
+            adapter.create_team(MagicMock(), "user-1")
+        assert exc_info.value is original

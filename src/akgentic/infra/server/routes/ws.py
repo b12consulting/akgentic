@@ -15,7 +15,6 @@ import contextlib
 import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -25,6 +24,12 @@ from akgentic.infra.protocols.event_stream import StreamClosed, StreamReader
 from akgentic.infra.server.routes.frontend_adapter import FrontendAdapter
 from akgentic.infra.server.services.team_service import TeamService
 from akgentic.team.models import TeamStatus
+
+# NOTE: ``state_keys`` is imported lazily inside the functions below, not at
+# module top. ``state_keys`` imports ``ConnectionManager`` from THIS module to
+# type its ``CONNECTION_MANAGER`` key, so a top-level import here would form an
+# import cycle (state_keys ⇄ ws). The keys are only needed at request time, so a
+# function-local import resolves the already-cached module with no runtime cost.
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +50,11 @@ def _get_reader_pool(websocket: WebSocket) -> ThreadPoolExecutor:
 
     See issue #227.
     """
+    from akgentic.infra.server.state_keys import SETTINGS
+
     global _WS_READER_POOL
     if _WS_READER_POOL is None:
-        settings = websocket.app.state.settings
+        settings = SETTINGS.require(websocket)
         _WS_READER_POOL = ThreadPoolExecutor(
             max_workers=settings.ws_reader_pool_size,
             thread_name_prefix="ws-reader",
@@ -148,12 +155,16 @@ class ConnectionManager:
 
 def _get_team_service(ws: WebSocket) -> TeamService:
     """Extract TeamService from app.state."""
-    return cast(TeamService, ws.app.state.team_service)
+    from akgentic.infra.server.state_keys import TEAM_SERVICE
+
+    return TEAM_SERVICE.require(ws)
 
 
 def _get_connection_manager(ws: WebSocket) -> ConnectionManager:
     """Extract ConnectionManager from app.state."""
-    return cast(ConnectionManager, ws.app.state.connection_manager)
+    from akgentic.infra.server.state_keys import CONNECTION_MANAGER
+
+    return CONNECTION_MANAGER.require(ws)
 
 
 @router.websocket("/ws/{team_id}")
@@ -177,7 +188,9 @@ async def websocket_events(websocket: WebSocket, team_id: uuid.UUID) -> None:
     conn_mgr.track(websocket)
     logger.info("WebSocket connected: team_id=%s", team_id)
 
-    adapter: FrontendAdapter | None = getattr(websocket.app.state, "frontend_adapter", None)
+    from akgentic.infra.server.state_keys import FRONTEND_ADAPTER
+
+    adapter = FRONTEND_ADAPTER.get(websocket)
 
     try:
         if process.status == TeamStatus.RUNNING:

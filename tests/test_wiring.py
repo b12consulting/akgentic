@@ -2,30 +2,25 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
-from akgentic.core import ActorSystem
 from akgentic.team.manager import TeamManager
-from akgentic.team.ports import EventStore, NullServiceRegistry, ServiceRegistry
+from akgentic.team.ports import NullServiceRegistry, ServiceRegistry
 from akgentic.team.repositories.yaml import YamlEventStore
 
 from akgentic.infra.adapters.community.local_event_stream import LocalEventStream
 from akgentic.infra.adapters.community.local_placement import LocalPlacement
 from akgentic.infra.adapters.community.local_worker_handle import LocalWorkerHandle
 from akgentic.infra.adapters.community.no_auth import NoAuth
-from akgentic.infra.adapters.community.null_channel_registry import NullChannelRegistry
 from akgentic.infra.adapters.community.yaml_channel_registry import YamlChannelRegistry
 from akgentic.infra.adapters.shared.event_stream_subscriber import EventStreamSubscriber
 from akgentic.infra.adapters.shared.telemetry_subscriber import TelemetrySubscriber
-from akgentic.infra.protocols.event_stream import EventStream
 from akgentic.infra.server.deps import CommunityServices
 from akgentic.infra.server.settings import CommunitySettings
-from akgentic.infra.wiring import _build_actor_layer, wire_community
+from akgentic.infra.wiring import wire_community
 from akgentic.infra.worker.deps import WorkerServices
 
 
@@ -135,12 +130,14 @@ class TestWireCommunity:
         finally:
             services.team_manager._actor_system.shutdown(timeout=5)
 
-    def test_default_channel_registry_is_null(
+    async def test_default_channel_registry_is_disabled(
         self,
         services: CommunityServices,
     ) -> None:
-        """When channel_registry_path is None (default), uses NullChannelRegistry."""
-        assert isinstance(services.channel_registry, NullChannelRegistry)
+        """When channel_registry_path is None (default), the YAML registry is disabled."""
+        assert isinstance(services.channel_registry, YamlChannelRegistry)
+        # Disabled: lookups return None (no file I/O).
+        assert await services.channel_registry.find_team("telegram", "user-1") is None
 
     def test_channel_registry_path_uses_yaml(self, tmp_path: Path) -> None:
         """When channel_registry_path is set, uses YamlChannelRegistry."""
@@ -183,50 +180,6 @@ class TestWireCommunityEventStream:
         subscribers = services.team_manager._shared_subscribers
         has_event_stream_sub = any(isinstance(s, EventStreamSubscriber) for s in subscribers)
         assert has_event_stream_sub
-
-
-class TestBuildActorLayerTwoTuple:
-    """Story 28.1 AC #8, #9: ``_build_actor_layer`` returns two items; telemetry installed."""
-
-    def test_returns_two_tuple(self) -> None:
-        """The named-local ``_telemetry_subscriber`` slot is gone — two items only."""
-        result = _build_actor_layer(
-            MagicMock(spec=EventStore),
-            NullServiceRegistry(),
-            MagicMock(spec=EventStream),
-        )
-        try:
-            assert len(result) == 2
-            actor_system, team_manager = result
-            assert isinstance(actor_system, ActorSystem)
-            assert isinstance(team_manager, TeamManager)
-        finally:
-            result[0].shutdown(timeout=5)
-
-    def test_return_annotation_is_two_tuple(self) -> None:
-        """Static surface check: the return annotation lists exactly two types."""
-        annotation = inspect.signature(_build_actor_layer).return_annotation
-        # Match either the string form or the typing form depending on
-        # ``from __future__ import annotations`` resolution.
-        expected_pieces = ("ActorSystem", "TeamManager")
-        rendered = str(annotation)
-        for piece in expected_pieces:
-            assert piece in rendered, f"expected {piece!r} in {rendered!r}"
-        # And no telemetry-shaped third element survives.
-        assert "TelemetrySubscriber" not in rendered, rendered
-
-    def test_telemetry_subscriber_still_installed_on_team_manager(self) -> None:
-        """AC #9: Production-path telemetry is preserved — installed on TeamManager."""
-        result = _build_actor_layer(
-            MagicMock(spec=EventStore),
-            NullServiceRegistry(),
-            MagicMock(spec=EventStream),
-        )
-        try:
-            _, team_manager = result
-            assert any(isinstance(s, TelemetrySubscriber) for s in team_manager._shared_subscribers)
-        finally:
-            result[0].shutdown(timeout=5)
 
 
 class TestWireCommunityDropsTelemetryField:

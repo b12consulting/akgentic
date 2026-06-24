@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import NoReturn, cast
+from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from akgentic.catalog.models.errors import EntryNotFoundError
 from akgentic.infra.server.auth import RequestUser, get_request_user
 from akgentic.infra.server.models import (
+    AgentStateListResponse,
+    AgentStateResponse,
     CreateTeamRequest,
     EventListResponse,
     EventResponse,
@@ -20,6 +22,7 @@ from akgentic.infra.server.models import (
     TeamResponse,
 )
 from akgentic.infra.server.services.team_service import TeamService
+from akgentic.infra.server.state_keys import CONNECTION_MANAGER, TEAM_SERVICE
 from akgentic.team.models import Process
 
 logger = logging.getLogger(__name__)
@@ -29,7 +32,7 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 
 def get_team_service(request: Request) -> TeamService:
     """FastAPI dependency: extract TeamService from app.state."""
-    return cast(TeamService, request.app.state.team_service)
+    return TEAM_SERVICE.require(request)
 
 
 def _process_to_response(process: Process) -> TeamResponse:
@@ -72,11 +75,16 @@ def create_team(
 def list_teams(
     user: RequestUser = Depends(get_request_user),
     service: TeamService = Depends(get_team_service),
+    page: int = 1,
+    size: int = 250,
 ) -> TeamListResponse:
-    """List all teams for the current user."""
-    logger.debug("GET /teams")
-    processes = service.list_teams(user_id=user.user_id)
-    return TeamListResponse(teams=[_process_to_response(p) for p in processes])
+    """List one numbered page of teams for the current user, plus the total count."""
+    logger.debug("GET /teams — page=%s size=%s", page, size)
+    page_slice, total = service.list_teams(user_id=user.user_id, page=page, size=size)
+    return TeamListResponse(
+        teams=[_process_to_response(p) for p in page_slice],
+        total_count=total,
+    )
 
 
 @router.get("/{team_id}", response_model=TeamResponse)
@@ -193,7 +201,7 @@ def restore_team(
     except ValueError as exc:
         _raise_action_error(exc)
 
-    conn_mgr = getattr(request.app.state, "connection_manager", None)
+    conn_mgr = CONNECTION_MANAGER.get(request)
     if conn_mgr is not None:
         from akgentic.infra.server.routes.ws import notify_restore
 
@@ -222,6 +230,30 @@ def get_events(
                 timestamp=ev.timestamp,
             )
             for ev in events
+        ]
+    )
+
+
+@router.get("/{team_id}/agent-states", response_model=AgentStateListResponse)
+def get_agent_states(
+    team_id: uuid.UUID,
+    service: TeamService = Depends(get_team_service),
+) -> AgentStateListResponse:
+    """Get the latest persisted state snapshot for each agent of a team."""
+    logger.debug("GET /teams/%s/agent-states", team_id)
+    try:
+        snapshots = service.get_agent_states(team_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Team not found") from None
+    return AgentStateListResponse(
+        states=[
+            AgentStateResponse(
+                agent_id=s.agent_id,
+                name=s.name,
+                state=s.state.model_dump(mode="json"),
+                updated_at=s.updated_at,
+            )
+            for s in snapshots
         ]
     )
 

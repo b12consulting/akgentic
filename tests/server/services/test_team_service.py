@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -12,7 +13,7 @@ import pytest
 from akgentic.catalog.models.errors import EntryNotFoundError
 from akgentic.team.models import Process, TeamStatus
 
-from akgentic.infra.server.services.team_service import TeamService
+from akgentic.infra.server.services.team_service import MAX_PAGE_SIZE, TeamService
 
 
 def test_create_team_returns_process(team_service: TeamService) -> None:
@@ -68,19 +69,22 @@ def test_create_team_forwards_user_email_and_team_id(team_service: TeamService) 
 
 
 def test_list_teams_empty(team_service: TeamService) -> None:
-    """Listing teams when none exist returns empty list."""
-    result = team_service.list_teams(user_id="anonymous")
-    assert result == []
+    """Listing teams when none exist returns an empty page and a zero total."""
+    page, total = team_service.list_teams(user_id="anonymous")
+    assert page == []
+    assert total == 0
 
 
 def test_list_teams_filters_by_user(team_service: TeamService) -> None:
     """list_teams returns only teams belonging to the given user."""
     team_service.create_team(catalog_namespace="test-team", user_id="alice")
     team_service.create_team(catalog_namespace="test-team", user_id="bob")
-    alice_teams = team_service.list_teams(user_id="alice")
-    bob_teams = team_service.list_teams(user_id="bob")
+    alice_teams, alice_total = team_service.list_teams(user_id="alice")
+    bob_teams, bob_total = team_service.list_teams(user_id="bob")
     assert len(alice_teams) == 1
+    assert alice_total == 1
     assert len(bob_teams) == 1
+    assert bob_total == 1
     assert alice_teams[0].user_id == "alice"
 
 
@@ -97,16 +101,16 @@ def test_list_teams_delegates_to_event_store_with_user_id(team_service: TeamServ
     # SkipValidation on the field allows direct assignment without re-validation.
     team_service._services.event_store = mock_event_store  # type: ignore[assignment]
 
-    result = team_service.list_teams(user_id="alice")
+    page, total = team_service.list_teams(user_id="alice")
 
     # The delegating call shape — exactly one call, user_id="alice" as kwarg.
+    # Phase-2 (store-side offset pushdown) is out of scope: NO page/size here.
     mock_event_store.list_teams.assert_called_once_with(user_id="alice")
-    # The call must NOT be a no-arg call followed by an in-Python filter.
     assert mock_event_store.list_teams.call_args.args == ()
     assert mock_event_store.list_teams.call_args.kwargs == {"user_id": "alice"}
-    # And the returned list is the event store's return value verbatim
-    # (no intermediate Python comprehension repacking it).
-    assert result == []
+    # Empty owned set -> empty page, zero total.
+    assert page == []
+    assert total == 0
 
 
 def test_list_teams_passes_empty_string_user_id_verbatim(team_service: TeamService) -> None:
@@ -387,3 +391,210 @@ class TestDeleteTeamWorkspaceCleanup:
 
         assert rmtree_calls == []
         service._services.worker_handle.delete_team.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Story 37.1 — classic offset+total pagination on list_teams (ADR-032).
+#
+# These tests use a MagicMock event store returning hand-built Process
+# snapshots so created_at / team_id are deterministic (the real fixture
+# stamps near-identical timestamps). team_card is a MagicMock per the
+# established `Process.model_construct` pattern.
+# ---------------------------------------------------------------------------
+
+_BASE_TIME = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def _make_process(created_at: datetime, team_id: uuid.UUID) -> Process:
+    """Build a Process snapshot with explicit sort-key columns."""
+    return Process.model_construct(
+        team_id=team_id,
+        team_card=MagicMock(),
+        status=TeamStatus.RUNNING,
+        user_id="alice",
+        user_email="",
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+
+def _service_over(rows: list[Process]) -> TeamService:
+    """TeamService whose event store returns a fresh copy of ``rows`` each call."""
+    services = MagicMock()
+    services.event_store.list_teams.side_effect = lambda **_kw: list(rows)
+    return TeamService(services, workspaces_root=Path("/unused"))
+
+
+def _distinct_rows(n: int) -> list[Process]:
+    """``n`` processes with strictly increasing created_at (distinct positions)."""
+    return [_make_process(_BASE_TIME + timedelta(minutes=i), uuid.uuid4()) for i in range(n)]
+
+
+def test_page1_returns_size_rows_with_full_total() -> None:
+    """(a) page 1 returns <= size rows; total_count is the full owned count."""
+    service = _service_over(_distinct_rows(300))
+    page, total = service.list_teams(user_id="alice")  # default page=1, size=250
+    assert len(page) == 250
+    assert total == 300
+
+
+def test_page1_under_size_returns_all_with_full_total() -> None:
+    """(a) a set smaller than size returns every team with the full total."""
+    service = _service_over(_distinct_rows(40))
+    page, total = service.list_teams(user_id="alice", size=250)
+    assert len(page) == 40
+    assert total == 40
+
+
+def test_page_n_returns_correct_slice_in_order() -> None:
+    """(b) page N returns the offset slice in created_at DESC, team_id DESC order."""
+    rows = _distinct_rows(10)
+    service = _service_over(rows)
+    expected = sorted(rows, key=lambda p: (p.created_at, p.team_id), reverse=True)
+
+    page1, total1 = service.list_teams(user_id="alice", page=1, size=3)
+    page2, total2 = service.list_teams(user_id="alice", page=2, size=3)
+    page4, total4 = service.list_teams(user_id="alice", page=4, size=3)
+
+    assert total1 == total2 == total4 == 10
+    assert [p.team_id for p in page1] == [p.team_id for p in expected[0:3]]
+    assert [p.team_id for p in page2] == [p.team_id for p in expected[3:6]]
+    # Last partial page: rows 9..10 of 10 (size-3 slice at offset 9).
+    assert [p.team_id for p in page4] == [p.team_id for p in expected[9:12]]
+    assert len(page4) == 1
+
+
+def test_out_of_range_page_returns_empty_with_correct_total() -> None:
+    """(c) a page past the end returns [] with the correct total (no error)."""
+    service = _service_over(_distinct_rows(5))
+    page, total = service.list_teams(user_id="alice", page=99, size=10)
+    assert page == []
+    assert total == 5
+
+
+def test_ordering_is_created_at_then_team_id_desc() -> None:
+    """(d) order is created_at DESC, team_id DESC, with a tie broken by team_id."""
+    t0 = _BASE_TIME
+    t1 = _BASE_TIME + timedelta(minutes=1)
+    low = uuid.UUID(int=1)
+    high = uuid.UUID(int=2)
+    # Two rows share created_at=t0 to exercise the team_id tie-breaker.
+    rows = [
+        _make_process(t0, low),
+        _make_process(t1, high),
+        _make_process(t0, high),
+    ]
+    service = _service_over(rows)
+    page, total = service.list_teams(user_id="alice", size=10)
+    keys = [(p.created_at, p.team_id) for p in page]
+    assert total == 3
+    assert keys == sorted(keys, reverse=True)
+    # Newest timestamp first; among the t0 tie, the higher team_id leads.
+    assert keys == [(t1, high), (t0, high), (t0, low)]
+
+
+def test_size_clamps_to_lower_bound() -> None:
+    """(e) size <= 0 clamps to 1 (returns a single row)."""
+    service = _service_over(_distinct_rows(3))
+    page_zero, total_zero = service.list_teams(user_id="alice", size=0)
+    page_neg, _ = service.list_teams(user_id="alice", size=-5)
+    assert len(page_zero) == 1
+    assert total_zero == 3
+    assert len(page_neg) == 1
+
+
+def test_size_clamps_to_upper_bound() -> None:
+    """(e) size > MAX_PAGE_SIZE clamps to MAX_PAGE_SIZE (500)."""
+    service = _service_over(_distinct_rows(600))
+    page, total = service.list_teams(user_id="alice", size=99999)
+    assert len(page) == MAX_PAGE_SIZE
+    assert total == 600
+
+
+def test_size_250_default_and_explicit() -> None:
+    """(e) default size is 250, and size=250 (cap raised above 200) works."""
+    service_default = _service_over(_distinct_rows(300))
+    page_default, _ = service_default.list_teams(user_id="alice")
+    assert len(page_default) == 250
+
+    service_explicit = _service_over(_distinct_rows(300))
+    page_explicit, _ = service_explicit.list_teams(user_id="alice", size=250)
+    assert len(page_explicit) == 250
+
+
+def test_default_page_is_1() -> None:
+    """(f) default page is 1: omitting page returns the first slice."""
+    rows = _distinct_rows(10)
+    service = _service_over(rows)
+    expected = sorted(rows, key=lambda p: (p.created_at, p.team_id), reverse=True)
+    default_page, _ = service.list_teams(user_id="alice", size=3)
+    explicit_page1, _ = service.list_teams(user_id="alice", page=1, size=3)
+    assert [p.team_id for p in default_page] == [p.team_id for p in expected[0:3]]
+    assert [p.team_id for p in default_page] == [p.team_id for p in explicit_page1]
+
+
+def test_page_clamps_to_lower_bound() -> None:
+    """(f) page <= 0 clamps to 1 (same slice as page 1)."""
+    rows = _distinct_rows(10)
+    service = _service_over(rows)
+    page_zero, _ = service.list_teams(user_id="alice", page=0, size=3)
+    page_neg, _ = service.list_teams(user_id="alice", page=-3, size=3)
+    page1, _ = service.list_teams(user_id="alice", page=1, size=3)
+    assert [p.team_id for p in page_zero] == [p.team_id for p in page1]
+    assert [p.team_id for p in page_neg] == [p.team_id for p in page1]
+
+
+# ---------------------------------------------------------------------------
+# Story 37.1 AC #7 — list_teams is stateless: a pure function of
+# (user_id, page, size) + current store contents; nothing is cached between
+# requests, so a page is correct regardless of which replica serves it.
+# ---------------------------------------------------------------------------
+
+
+def test_list_teams_refetches_store_every_call() -> None:
+    """Every list_teams call re-reads the store — no cached sorted list."""
+    service = _service_over(_distinct_rows(5))
+    service.list_teams(user_id="alice", page=1, size=2)
+    service.list_teams(user_id="alice", page=2, size=2)
+    service.list_teams(user_id="alice", page=3, size=2)
+    # One store read per request — no request reused a prior request's fetch.
+    assert service._services.event_store.list_teams.call_count == 3
+
+
+def test_same_args_yield_same_page_independent_requests() -> None:
+    """Two independent requests with the same (page, size) return the same page."""
+    rows = _distinct_rows(7)
+    service = _service_over(rows)
+    page_a, total_a = service.list_teams(user_id="alice", page=2, size=2)
+    page_b, total_b = service.list_teams(user_id="alice", page=2, size=2)
+    assert [p.team_id for p in page_a] == [p.team_id for p in page_b]
+    assert total_a == total_b
+
+
+def test_page_followable_on_fresh_service_instance() -> None:
+    """A page minted by one service instance matches a SEPARATE, freshly
+    constructed instance over the same store contents — simulating a different
+    worker/replica with no shared in-process state.
+    """
+    rows = _distinct_rows(7)
+    minting_service = _service_over(rows)
+    page1, _ = minting_service.list_teams(user_id="alice", page=1, size=3)
+
+    # A brand-new instance (different "replica"), no prior request primed.
+    fresh_service = _service_over(rows)
+    page2, _ = fresh_service.list_teams(user_id="alice", page=2, size=3)
+
+    seen = {p.team_id for p in page1} | {p.team_id for p in page2}
+    assert {p.team_id for p in page1}.isdisjoint({p.team_id for p in page2})
+    assert len(seen) == 6  # 3 + 3, no overlap, no gap across the replica boundary
+
+
+def test_list_teams_holds_no_per_request_state() -> None:
+    """list_teams mutates no instance attribute that survives the call."""
+    service = _service_over(_distinct_rows(5))
+    before = dict(vars(service))
+    service.list_teams(user_id="alice", page=1, size=2)
+    after = dict(vars(service))
+    # No new attribute, and the wired collaborators are unchanged identities.
+    assert before.keys() == after.keys()
+    assert all(before[k] is after[k] for k in before)

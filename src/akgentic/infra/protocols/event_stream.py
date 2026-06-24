@@ -14,7 +14,12 @@ class StreamClosed(Exception):  # noqa: N818 — ADR-010 specifies this name
 
 
 class StreamReader(Protocol):
-    """Cursor-based blocking reader for a team's event stream."""
+    """Cursor-based blocking reader for a team's event stream.
+
+    Implementations (returned by the matching ``EventStream.subscribe``):
+    ``LocalStreamReader`` (community), ``RedisStreamReader`` (department),
+    ``DaprStreamReader`` (enterprise).
+    """
 
     def read_next(self, timeout: float = 0.5) -> Message | None:
         """Read next event from cursor position.
@@ -41,6 +46,13 @@ class EventStream(Protocol):
 
     Replaces per-WebSocket subscriber queues with a shared stream
     per team that supports cursor-based reads from any offset.
+
+    Implementations:
+
+    - **Community** (``LocalEventStream``): in-memory per-team streams.
+    - **Department** (``RedisEventStream``): Redis Streams on
+      ``controller:{team_id}:events``.
+    - **Enterprise** (``DaprEventStream``): Dapr state-store-backed streams.
     """
 
     def append(self, team_id: uuid.UUID, event: Message) -> int:

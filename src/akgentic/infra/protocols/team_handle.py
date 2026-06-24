@@ -18,7 +18,8 @@ class TeamHandle(Protocol):
     ``TeamService`` can send messages, route human input, and manage
     event subscriptions without knowing the underlying tier implementation.
 
-    Implementations: LocalTeamHandle (community), RemoteTeamHandle (department/enterprise).
+    Implementations: ``LocalTeamHandle`` (community), ``HttpTeamHandle``
+    (department), ``RemoteTeamHandle`` (enterprise).
 
     Error contract:
         - ``send()`` / ``send_to()`` raise ``ValueError`` if the team is no

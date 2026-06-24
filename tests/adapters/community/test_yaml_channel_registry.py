@@ -156,3 +156,22 @@ async def test_register_overwrites_existing(registry: YamlChannelRegistry) -> No
     await registry.register("slack", "U111", t2)
 
     assert await registry.find_team("slack", "U111") == t2
+
+
+async def test_disabled_registry_find_team_returns_none() -> None:
+    """With no path configured the registry is disabled: find_team returns None."""
+    reg = YamlChannelRegistry()
+    assert await reg.find_team("whatsapp", "+1234567890") is None
+
+
+async def test_disabled_registry_register_is_noop() -> None:
+    """register() is a no-op when the registry is disabled (no file I/O, no error)."""
+    reg = YamlChannelRegistry()
+    await reg.register("slack", "U111", uuid.uuid4())
+    assert await reg.find_team("slack", "U111") is None
+
+
+async def test_disabled_registry_deregister_is_noop() -> None:
+    """deregister() is a no-op when the registry is disabled."""
+    reg = YamlChannelRegistry()
+    await reg.deregister("slack", "U111")

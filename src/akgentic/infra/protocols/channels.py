@@ -29,7 +29,10 @@ class ChannelMessage(SerializableBaseModel):
 class InteractionChannelAdapter(Protocol):
     """Delivers outbound messages to humans via an external channel.
 
-    Implementations: WebAdapter, TwilioAdapter, SlackAdapter, etc.
+    Implementations: ``TelegramChannelAdapter`` (in
+    ``akgentic.infra.adapters.shared``). Channel adapters are tier-agnostic —
+    the same concrete adapter is reused by the community, department, and
+    enterprise profiles.
 
     Threading constraint:
         ``deliver()`` runs inside a Pykka actor thread (called from
@@ -70,6 +73,13 @@ class InteractionChannelAdapter(Protocol):
 @runtime_checkable
 class InteractionChannelIngestion(Protocol):
     """Routes inbound human replies from external channels to the correct team's UserProxy.
+
+    Implementations:
+
+    - **Community** (``LocalIngestion``): in-process routing to the local TeamService.
+    - **Department** (``HttpIngestion``): routes to the owning worker over HTTP.
+    - **Enterprise** (``DaprIngestion``): routes to the owning worker via Dapr
+      service invocation.
 
     Error contract:
         - ``route_reply()`` raises ``ValueError`` if ``team_id`` does not
@@ -124,6 +134,14 @@ class ChannelParser(Protocol):
     """Parses channel-specific webhook payloads into a common ChannelMessage.
 
     Runs in FastAPI async context — uses async signatures.
+
+    Implementations:
+
+    - ``TelegramChannelParser`` (in ``akgentic.infra.adapters.shared``) — parses
+      Telegram webhooks; available to all tiers.
+    - **Enterprise** (``SlackParser`` plus application-supplied parsers):
+      concrete parsers are registered with ``EnterpriseChannelParserRegistry``
+      from the ``parser_class`` FQCNs in the channel definitions.
     """
 
     @property
@@ -162,9 +180,10 @@ class ChannelRegistry(Protocol):
 
     Implementations:
 
-    - **Community** (``YamlChannelRegistry``): YAML file on disk.
-    - **Department / Enterprise**: Redis or DB-backed registry for
-      multi-instance deployments.
+    - **Community** (``YamlChannelRegistry``): YAML file on disk; channels are
+      disabled when no registry path is configured.
+    - **Department** (``MongoChannelRegistry``): MongoDB ``channel_users`` collection.
+    - **Enterprise** (``DaprChannelRegistry``): Dapr state store.
     """
 
     async def register(self, channel: str, channel_user_id: str, team_id: uuid.UUID) -> None:

@@ -108,6 +108,6 @@ class CommunitySettings(ServerSettings):
         default=None,
         description=(
             "Path to channel registry YAML file; "
-            "when unset, channels are disabled (NullChannelRegistry)"
+            "when unset, the channel registry is disabled (no-op lookups)"
         ),
     )

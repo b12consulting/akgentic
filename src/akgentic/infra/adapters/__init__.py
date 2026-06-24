@@ -14,7 +14,6 @@ from akgentic.infra.adapters.community import (
     LocalTeamHandle,
     LocalWorkerHandle,
     NoAuth,
-    NullChannelRegistry,
     YamlChannelRegistry,
 )
 from akgentic.infra.adapters.shared import (
@@ -38,7 +37,6 @@ __all__ = [
     "LocalTeamHandle",
     "LocalWorkerHandle",
     "NoAuth",
-    "NullChannelRegistry",
     "NullEventStream",
     "NullStreamReader",
     "TelegramChannelAdapter",
