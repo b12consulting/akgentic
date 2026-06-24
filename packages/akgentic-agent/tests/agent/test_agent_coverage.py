@@ -1,22 +1,23 @@
 """Tests for BaseAgent methods not covered by test_agent.py or test_simple_team.py.
 
-Covers: process_message, receiveMsg_AgentMessage, notify_human,
-on_hire, on_fire, hire_member, cmd_* commands.
-All tests use _make_minimal_agent pattern — no live actors or LLM calls.
+Covers: process_message, receiveMsg_AgentMessage (incl. slash-command dispatch),
+notify_human, on_hire, on_fire, hire_member, and the on_start discovery event.
+All tests use _make_minimal_agent pattern — no live actors or LLM calls. The
+command surface is exercised through a mocked CommandRegistry.
 """
 
-from typing import Any
+from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
+from akgentic.core import ActorAddress
+from akgentic.tool.errors import CommandNotRecognized
 from pydantic_ai import ModelRetry
 
 from akgentic.agent.agent import BaseAgent
 from akgentic.agent.config import AgentConfig
 from akgentic.agent.messages import AgentMessage
 from akgentic.agent.output_models import Request, StructuredOutput
-from akgentic.core import ActorAddress
-
 
 # =============================================================================
 # HELPERS (same pattern as test_agent.py)
@@ -38,19 +39,36 @@ def _make_mock_message(sender_name: str = "@Human") -> MagicMock:
     return msg
 
 
-def _make_minimal_agent(name: str = "@TestAgent") -> BaseAgent:
+def _make_registry(callables: dict[str, Callable] | None = None) -> MagicMock:
+    """Return a mock CommandRegistry backed by ``callables``.
+
+    - ``has(name)`` → name in callables
+    - ``callable(name)`` → callables[name], else raises CommandNotRecognized
+    - ``dispatch`` / ``descriptors`` are plain MagicMocks the caller configures.
+    """
+    table = callables or {}
+    registry = MagicMock()
+    registry.has.side_effect = lambda name: name in table
+
+    def _callable(name: str) -> Callable:
+        try:
+            return table[name]
+        except KeyError:
+            raise CommandNotRecognized(name) from None
+
+    registry.callable.side_effect = _callable
+    return registry
+
+
+def _make_minimal_agent(
+    name: str = "@TestAgent", callables: dict[str, Callable] | None = None
+) -> BaseAgent:
     """Construct a BaseAgent without Pykka actor system."""
     agent: BaseAgent = object.__new__(BaseAgent)
 
-    agent._expand_media_refs_command = None  # type: ignore[attr-defined]
+    agent._command_registry = _make_registry(callables)  # type: ignore[attr-defined]
     agent._react_agent = MagicMock()  # type: ignore[attr-defined]
     agent._current_message = _make_mock_message()  # type: ignore[attr-defined]
-    agent._hire_member_command = None  # type: ignore[attr-defined]
-    agent._fire_member_command = None  # type: ignore[attr-defined]
-    agent._get_planning_command = None  # type: ignore[attr-defined]
-    agent._get_planning_task_command = None  # type: ignore[attr-defined]
-    agent._get_team_roster_command = None  # type: ignore[attr-defined]
-    agent._get_role_profiles_command = None  # type: ignore[attr-defined]
 
     mock_config = MagicMock(spec=AgentConfig)
     mock_config.name = name
@@ -101,11 +119,10 @@ class TestProcessMessage:
         assert sent_msg.content == "do this"
 
     def test_routes_to_hire_member_without_at_prefix(self) -> None:
-        """recipient without '@' → hire_member; content is raw (no prefix)."""
-        agent = _make_minimal_agent()
-
+        """recipient without '@' → hire via registry callable; content is raw."""
         hired_addr = _make_mock_sender("@Developer")
-        agent._hire_member_command = MagicMock(return_value=hired_addr)  # type: ignore[attr-defined]
+        hire_cmd = MagicMock(return_value=hired_addr)
+        agent = _make_minimal_agent(callables={"hire_member": hire_cmd})
 
         output = StructuredOutput(
             messages=[
@@ -121,7 +138,7 @@ class TestProcessMessage:
         sender = _make_mock_sender("@Human")
         agent.process_message("test", sender)
 
-        agent._hire_member_command.assert_called_once_with("Developer")  # type: ignore[attr-defined]
+        hire_cmd.assert_called_once_with("Developer")
         agent.send.assert_called_once()
         sent_msg = agent.send.call_args[0][1]
         assert sent_msg.type == "instruction"
@@ -334,170 +351,309 @@ class TestOnHireOnFire:
 
 
 class TestHireMember:
-    """Test hire_member command delegation."""
+    """Test hire_member resolves and invokes the registry callable (AC-8)."""
 
-    def test_delegates_to_command(self) -> None:
-        agent = _make_minimal_agent()
+    def test_delegates_to_registry_callable(self) -> None:
         mock_addr = MagicMock()
-        agent._hire_member_command = MagicMock(return_value=mock_addr)  # type: ignore[attr-defined]
+        hire_cmd = MagicMock(return_value=mock_addr)
+        agent = _make_minimal_agent(callables={"hire_member": hire_cmd})
 
         result = agent.hire_member("Developer")
 
-        agent._hire_member_command.assert_called_once_with("Developer")  # type: ignore[attr-defined]
+        hire_cmd.assert_called_once_with("Developer")
         assert result == mock_addr
 
-    def test_raises_when_command_not_available(self) -> None:
-        agent = _make_minimal_agent()
-        agent._hire_member_command = None  # type: ignore[attr-defined]
+    def test_raises_when_command_not_registered(self) -> None:
+        agent = _make_minimal_agent()  # registry has no hire_member
 
         with pytest.raises(RuntimeError, match="hire_member command not available"):
             agent.hire_member("Developer")
 
+    def test_propagates_model_retry(self) -> None:
+        """ModelRetry from the typed callable is propagated (not swallowed)."""
+        hire_cmd = MagicMock(side_effect=ModelRetry("role not found"))
+        agent = _make_minimal_agent(callables={"hire_member": hire_cmd})
+
+        with pytest.raises(ModelRetry, match="role not found"):
+            agent.hire_member("Unknown")
+
 
 # =============================================================================
-# cmd_hire_member
+# Slash-command dispatch (receiveMsg_AgentMessage → _dispatch_command)
 # =============================================================================
 
 
-class TestCmdHireMember:
-    """Test cmd_hire_member (catches ModelRetry)."""
+class TestSlashCommandDispatch:
+    """AC-3/4/5: /-prefixed interception, fallback, and post-id failure."""
 
-    def test_success_returns_address(self) -> None:
+    @patch("akgentic.agent.agent.sleep")
+    def test_dispatch_success_sends_result_no_llm(self, mock_sleep: MagicMock) -> None:
+        """AC-3: known /command → dispatch result sent to sender, LLM not called."""
         agent = _make_minimal_agent()
-        mock_addr = MagicMock()
-        agent._hire_member_command = MagicMock(return_value=mock_addr)  # type: ignore[attr-defined]
+        agent._command_registry.dispatch.return_value = "Member @Dev123 hired."  # type: ignore[attr-defined]
+        agent.process_message = MagicMock()  # type: ignore[method-assign]
 
-        result = agent.cmd_hire_member("Developer")
-        assert result == mock_addr
+        message = AgentMessage(content="/hire Developer", type="request")
+        message.sender = _make_mock_sender("@Human")
+        sender = _make_mock_sender("@Human")
 
-    def test_model_retry_returns_error_string(self) -> None:
+        agent.receiveMsg_AgentMessage(message, sender)
+
+        agent._command_registry.dispatch.assert_called_once_with("/hire Developer")  # type: ignore[attr-defined]
+        agent.process_message.assert_not_called()
+        agent.send.assert_called_once()
+        sent_to, sent_msg = agent.send.call_args[0]
+        assert sent_to is sender
+        assert isinstance(sent_msg, AgentMessage)
+        assert sent_msg.type == "notification"
+        assert sent_msg.content == "Member @Dev123 hired."
+
+    @patch("akgentic.agent.agent.sleep")
+    def test_command_not_recognized_falls_back_to_llm(self, mock_sleep: MagicMock) -> None:
+        """AC-4: CommandNotRecognized → original content goes to the LLM path."""
         agent = _make_minimal_agent()
-        agent._hire_member_command = MagicMock(  # type: ignore[attr-defined]
-            side_effect=ModelRetry("role not found")
+        agent._command_registry.dispatch.side_effect = CommandNotRecognized("etc")  # type: ignore[attr-defined]
+        agent.process_message = MagicMock()  # type: ignore[method-assign]
+
+        message = AgentMessage(content="/etc/passwd", type="request")
+        message.sender = _make_mock_sender("@Human")
+        sender = _make_mock_sender("@Human")
+
+        agent.receiveMsg_AgentMessage(message, sender)
+
+        # No result string sent for the dispatch attempt
+        agent.send.assert_not_called()
+        # Fell back to the normal path with the prefixed ORIGINAL content
+        agent.process_message.assert_called_once()
+        prefixed = agent.process_message.call_args[0][0]
+        assert prefixed.endswith("/etc/passwd")
+        assert "You received a request from @Human:" in prefixed
+
+    @patch("akgentic.agent.agent.sleep")
+    def test_post_identification_failure_returns_string_no_llm(self, mock_sleep: MagicMock) -> None:
+        """AC-5: known command with bad args → dispatch returns a string, no LLM."""
+        agent = _make_minimal_agent()
+        agent._command_registry.dispatch.return_value = (  # type: ignore[attr-defined]
+            "Command 'hire_member' failed: requires at least 1 argument(s), got 0"
+        )
+        agent.process_message = MagicMock()  # type: ignore[method-assign]
+
+        message = AgentMessage(content="/hire_member", type="request")
+        message.sender = _make_mock_sender("@Human")
+        sender = _make_mock_sender("@Human")
+
+        agent.receiveMsg_AgentMessage(message, sender)
+
+        agent.process_message.assert_not_called()
+        agent.send.assert_called_once()
+        sent_msg = agent.send.call_args[0][1]
+        assert sent_msg.type == "notification"
+        assert "failed" in sent_msg.content
+
+    @patch("akgentic.agent.agent.sleep")
+    def test_non_slash_content_never_dispatches(self, mock_sleep: MagicMock) -> None:
+        """Plain (non-/) content bypasses dispatch entirely and goes to the LLM."""
+        agent = _make_minimal_agent()
+        agent.process_message = MagicMock()  # type: ignore[method-assign]
+
+        message = AgentMessage(content="hello there", type="request")
+        message.sender = _make_mock_sender("@Human")
+
+        agent.receiveMsg_AgentMessage(message, _make_mock_sender("@Human"))
+
+        agent._command_registry.dispatch.assert_not_called()  # type: ignore[attr-defined]
+        agent.process_message.assert_called_once()
+
+
+# =============================================================================
+# on_start discovery event (CommandsAnnouncedEvent) — actor-system level
+# =============================================================================
+
+
+class TestCommandsAnnouncedEventEmission:
+    """AC-2: on_start emits exactly one CommandsAnnouncedEvent for the agent."""
+
+    def test_on_start_emits_single_discovery_event(self) -> None:
+        """Creating a BaseAgent emits one CommandsAnnouncedEvent(agent==myAddress).
+
+        Exercised through the real actor system (on_start runs on createActor);
+        no LLM call happens because no message is sent. A subscriber captures the
+        orchestrator event stream and we assert exactly one CommandsAnnouncedEvent
+        is announced for this agent, carrying the registry descriptors.
+        """
+        import time
+
+        from akgentic.core import ActorSystem, BaseConfig, EventSubscriber, Orchestrator
+        from akgentic.core.messages import EventMessage, Message
+        from akgentic.llm import ModelConfig, PromptTemplate
+        from akgentic.tool.event import CommandsAnnouncedEvent
+
+        announced: list[CommandsAnnouncedEvent] = []
+
+        class _Subscriber(EventSubscriber):
+            def on_stop(self) -> None:
+                pass
+
+            def on_message(self, message: Message) -> None:
+                if isinstance(message, EventMessage) and isinstance(
+                    message.event, CommandsAnnouncedEvent
+                ):
+                    announced.append(message.event)
+
+        system = ActorSystem()
+        try:
+            orch_addr = system.createActor(
+                Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+            )
+            orchestrator = system.proxy_ask(orch_addr, Orchestrator)
+            orchestrator.subscribe(_Subscriber())
+
+            config = AgentConfig(
+                name="@Manager",
+                role="Manager",
+                prompt=PromptTemplate(template="You are a manager."),
+                model_cfg=ModelConfig(provider="openai", model="gpt-5-mini"),
+            )
+            manager_addr = orchestrator.createActor(BaseAgent, config=config)
+
+            time.sleep(0.5)
+
+            for_agent = [e for e in announced if e.agent.name == manager_addr.name]
+            assert len(for_agent) == 1, f"expected exactly one event, got {len(for_agent)}"
+            event = for_agent[0]
+            # TeamTool is auto-injected, so the registry exposes hire/fire commands.
+            command_names = {desc.name for desc in event.commands}
+            assert "hire_member" in command_names
+            assert "fire_member" in command_names
+        finally:
+            try:
+                system.shutdown(timeout=5)
+            except Exception:
+                pass
+
+
+# =============================================================================
+# _dispatch_command helper (unit level)
+# =============================================================================
+
+
+class TestDispatchCommandHelper:
+    """Unit coverage of the _dispatch_command helper return contract."""
+
+    def test_dispatch_command_helper_emits_nothing_extra(self) -> None:
+        """_dispatch_command returns False on CommandNotRecognized (fallback signal)."""
+        agent = _make_minimal_agent()
+        agent._command_registry.dispatch.side_effect = CommandNotRecognized("x")  # type: ignore[attr-defined]
+
+        message = AgentMessage(content="/x", type="request")
+        message.sender = _make_mock_sender("@Human")
+
+        handled = agent._dispatch_command(message, _make_mock_sender("@Human"))
+
+        assert handled is False
+        agent.send.assert_not_called()
+
+    def test_dispatch_command_helper_sends_and_returns_true(self) -> None:
+        """_dispatch_command sends the result and returns True on success."""
+        agent = _make_minimal_agent()
+        agent._command_registry.dispatch.return_value = "ok"  # type: ignore[attr-defined]
+
+        message = AgentMessage(content="/roster", type="request")
+        message.sender = _make_mock_sender("@Human")
+        sender = _make_mock_sender("@Human")
+
+        handled = agent._dispatch_command(message, sender)
+
+        assert handled is True
+        agent.send.assert_called_once()
+        sent_msg = agent.send.call_args[0][1]
+        assert sent_msg.content == "ok"
+        assert sent_msg.type == "notification"
+
+
+# =============================================================================
+# Operator-action LLM-context delegation
+# =============================================================================
+
+
+class TestOperatorActionInjection:
+    """AC1/AC5: the agent delegates each operator action to the LLM context.
+
+    The agent no longer owns the buffer-vs-append decision or pydantic-ai's
+    first-run injection rule — it builds the canonical entry string and hands it
+    to ``context.record_operator_action``. The buffering itself is owned and
+    unit-tested in ``akgentic-llm``.
+    """
+
+    def test_inject_helper_delegates_canonical_entry_to_context(self) -> None:
+        """AC1: _inject_operator_action builds the canonical human-attributed
+        entry and delegates it to context.record_operator_action — nothing else."""
+        agent = _make_minimal_agent()
+
+        agent._inject_operator_action("/hire Developer", "hired @Developer42")
+
+        agent._react_agent.context.record_operator_action.assert_called_once_with(  # type: ignore[attr-defined]
+            '[Operator action] The human ran "/hire Developer". \nResult:\nhired @Developer42'
         )
 
-        result = agent.cmd_hire_member("Unknown")
-        assert isinstance(result, str)
-        assert "role not found" in result
-
-
-# =============================================================================
-# cmd_fire_member
-# =============================================================================
-
-
-class TestCmdFireMember:
-    """Test cmd_fire_member."""
-
-    def test_success_returns_confirmation(self) -> None:
+    def test_entry_is_human_subject_never_agent_first_person(self) -> None:
+        """AC1: 'The human ran' phrasing; no agent first-person framing."""
         agent = _make_minimal_agent()
-        agent._fire_member_command = MagicMock(return_value="Fired @Dev")  # type: ignore[attr-defined]
 
-        result = agent.cmd_fire_member("@Dev")
-        assert result == "Fired @Dev"
+        agent._inject_operator_action("/hire Developer", "hired @Dev9")
 
-    def test_raises_when_command_not_available(self) -> None:
+        entry = agent._react_agent.context.record_operator_action.call_args[0][0]  # type: ignore[attr-defined]
+        assert "The human ran" in entry
+        assert "I ran" not in entry
+        assert "I hired" not in entry
+
+    def test_dispatched_command_delegates_one_entry_and_sends_result(self) -> None:
+        """AC1/AC5: a dispatched command records exactly one operator action via
+        the context and sends the result back to the human (one send)."""
         agent = _make_minimal_agent()
-        agent._fire_member_command = None  # type: ignore[attr-defined]
+        agent._command_registry.dispatch.return_value = "hired @Developer42"  # type: ignore[attr-defined]
 
-        with pytest.raises(RuntimeError, match="fire_member command not available"):
-            agent.cmd_fire_member("@Dev")
+        message = AgentMessage(content="/hire Developer", type="request")
+        message.sender = _make_mock_sender("@Human")
 
-    def test_model_retry_returns_error_string(self) -> None:
-        agent = _make_minimal_agent()
-        agent._fire_member_command = MagicMock(  # type: ignore[attr-defined]
-            side_effect=ModelRetry("cannot fire")
+        handled = agent._dispatch_command(message, _make_mock_sender("@Human"))
+
+        assert handled is True
+        agent._react_agent.context.record_operator_action.assert_called_once_with(  # type: ignore[attr-defined]
+            '[Operator action] The human ran "/hire Developer". \nResult:\nhired @Developer42'
         )
+        agent.send.assert_called_once()
 
-        result = agent.cmd_fire_member("@Dev")
-        assert isinstance(result, str)
-        assert "cannot fire" in result
-
-
-# =============================================================================
-# cmd_get_planning
-# =============================================================================
-
-
-class TestCmdGetPlanning:
-    """Test cmd_get_planning."""
-
-    def test_success(self) -> None:
+    def test_command_not_recognized_delegates_nothing(self) -> None:
+        """AC5: CommandNotRecognized → no delegation, no send, returns False."""
         agent = _make_minimal_agent()
-        agent._get_planning_command = MagicMock(return_value="Sprint 1 tasks")  # type: ignore[attr-defined]
+        agent._command_registry.dispatch.side_effect = CommandNotRecognized("frob")  # type: ignore[attr-defined]
 
-        result = agent.cmd_get_planning()
-        assert result == "Sprint 1 tasks"
+        message = AgentMessage(content="/frobnicate", type="request")
+        message.sender = _make_mock_sender("@Human")
 
-    def test_raises_when_not_available(self) -> None:
+        handled = agent._dispatch_command(message, _make_mock_sender("@Human"))
+
+        assert handled is False
+        agent._react_agent.context.record_operator_action.assert_not_called()  # type: ignore[attr-defined]
+        agent.send.assert_not_called()
+
+    def test_post_identification_failure_delegates_error_result(self) -> None:
+        """AC5: bad-args dispatch returns a usage string → one delegated entry
+        carrying the error result, plus one send to the human."""
         agent = _make_minimal_agent()
-        with pytest.raises(RuntimeError, match="get_planning command not available"):
-            agent.cmd_get_planning()
+        agent._command_registry.dispatch.return_value = "usage: /hire <role>"  # type: ignore[attr-defined]
 
+        message = AgentMessage(content="/hire", type="request")
+        message.sender = _make_mock_sender("@Human")
 
-# =============================================================================
-# cmd_get_team_roster
-# =============================================================================
+        handled = agent._dispatch_command(message, _make_mock_sender("@Human"))
 
-
-class TestCmdGetTeamRoster:
-    """Test cmd_get_team_roster."""
-
-    def test_success(self) -> None:
-        agent = _make_minimal_agent()
-        agent._get_team_roster_command = MagicMock(return_value="@Manager, @Dev")  # type: ignore[attr-defined]
-
-        result = agent.cmd_get_team_roster()
-        assert result == "@Manager, @Dev"
-
-    def test_raises_when_not_available(self) -> None:
-        agent = _make_minimal_agent()
-        with pytest.raises(RuntimeError, match="get_team_roster command not available"):
-            agent.cmd_get_team_roster()
-
-
-# =============================================================================
-# cmd_get_role_profiles
-# =============================================================================
-
-
-class TestCmdGetRoleProfiles:
-    """Test cmd_get_role_profiles."""
-
-    def test_success(self) -> None:
-        agent = _make_minimal_agent()
-        agent._get_role_profiles_command = MagicMock(return_value="Developer: builds")  # type: ignore[attr-defined]
-
-        result = agent.cmd_get_role_profiles()
-        assert result == "Developer: builds"
-
-    def test_raises_when_not_available(self) -> None:
-        agent = _make_minimal_agent()
-        with pytest.raises(RuntimeError, match="get_role_profiles command not available"):
-            agent.cmd_get_role_profiles()
-
-
-# =============================================================================
-# cmd_get_planning_task
-# =============================================================================
-
-
-class TestCmdGetPlanningTask:
-    """Test cmd_get_planning_task."""
-
-    def test_success(self) -> None:
-        agent = _make_minimal_agent()
-        mock_task = MagicMock()
-        agent._get_planning_task_command = MagicMock(return_value=mock_task)  # type: ignore[attr-defined]
-
-        result = agent.cmd_get_planning_task(42)
-        agent._get_planning_task_command.assert_called_once_with(42)  # type: ignore[attr-defined]
-        assert result == mock_task
-
-    def test_raises_when_not_available(self) -> None:
-        agent = _make_minimal_agent()
-        with pytest.raises(RuntimeError, match="get_planning_task command not available"):
-            agent.cmd_get_planning_task(1)
+        assert handled is True
+        agent._react_agent.context.record_operator_action.assert_called_once_with(  # type: ignore[attr-defined]
+            '[Operator action] The human ran "/hire". \nResult:\nusage: /hire <role>'
+        )
+        agent.send.assert_called_once()  # exactly one send to sender
 
 
 # =============================================================================

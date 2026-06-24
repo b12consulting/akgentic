@@ -8,7 +8,8 @@ Architecture:
 - Composes ToolFactory (akgentic-tool) aggregating ToolCard[] into 3 channels:
   · TOOL_CALL — LLM-callable tools (hire_members, fire_members, + config.tools)
   · SYSTEM_PROMPT — dynamic prompts (team_roster, role_profiles, backstory)
-  · COMMAND — programmatic commands (cmd_hire_member, cmd_fire_member, etc.)
+  · COMMAND — programmatic commands exposed via a generic CommandRegistry
+    (built once in on_start; dispatched by name from /-prefixed messages)
 - TeamTool auto-injected if not already in config.tools
 - ReactAgent.run_sync(output_type=T) for both str and structured output
 - get_output_type() applied inside ReactAgent.run() — no leakage into BaseAgent
@@ -18,6 +19,7 @@ Architecture:
 """
 
 import logging
+import os
 import random
 from datetime import datetime, timezone
 from time import sleep
@@ -46,16 +48,10 @@ from akgentic.llm import (
     aggregate_usage,
 )
 from akgentic.llm import UsageLimitError as LLMUsageLimitError
-from akgentic.tool.core import ToolFactory
-from akgentic.tool.planning import GetPlanning, GetPlanningTask
-from akgentic.tool.team import (
-    FireTeamMember,
-    GetRoleProfiles,
-    GetTeamRoster,
-    HireTeamMember,
-    TeamTool,
-)
-from akgentic.tool.workspace import ExpandMediaRefs
+from akgentic.tool.core import CommandRegistry, ToolFactory
+from akgentic.tool.errors import CommandNotRecognized
+from akgentic.tool.event import CommandsAnnouncedEvent
+from akgentic.tool.team import TeamTool
 from akgentic.tool.workspace.readers import MediaContent
 
 logger = logging.getLogger(__name__)
@@ -106,16 +102,19 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
     - GetTeamRoster dynamic prompt (from TeamTool)
     - GetRoleProfiles dynamic prompt (from TeamTool)
 
-    Commands (programmatic, via ToolFactory.get_commands(), prefixed cmd_):
-    - cmd_hire_member(role) → tuple[str, ActorAddress] | str
-    - cmd_fire_member(name) → str
-    - cmd_get_planning() → str
-    - cmd_get_team_roster() → str
-    - cmd_get_role_profiles() → str
-    - cmd_get_planning_task(task_id) → Task | str
+    Commands (programmatic, via CommandRegistry built in on_start):
+    - A single generic CommandRegistry holds every COMMAND-channel callable keyed
+      by its canonical name (e.g. "hire_member", "fire_member", "_expand_media_refs").
+    - Humans reach commands through registry.dispatch("/<name> ...") (string surface);
+      /-prefixed messages are intercepted in receiveMsg_AgentMessage. Unknown leading
+      tokens raise CommandNotRecognized → fall back to the normal LLM path.
+    - In-agent code reaches commands through registry.callable("<name>")(...) (typed
+      surface, native return) — see hire_member() and act()'s media expansion.
+    - on_start emits exactly one CommandsAnnouncedEvent so services can discover the
+      command set without per-command coupling.
 
-    Internal method (used by request()):
-    - hire_member(role) → tuple[str, ActorAddress]  (raises ModelRetry on failure)
+    Internal method (used by process_message()):
+    - hire_member(role) → ActorAddress  (raises ModelRetry on failure)
     """
 
     def on_start(self) -> None:
@@ -132,7 +131,8 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
 
         Tools (hire_members, fire_members) are registered at construction time
         as bound methods — pydantic-ai treats them as plain tools without RunContext.
-        Commands (hire_member) are extracted from ToolFactory for programmatic use.
+        Commands are aggregated into a single generic CommandRegistry, held for the
+        agent's lifetime, and announced once via a CommandsAnnouncedEvent.
         """
         assert self._orchestrator is not None, "Orchestrator address must be provided in config"
         self.orchestrator_proxy_ask = self.proxy_ask(self._orchestrator, Orchestrator)
@@ -168,24 +168,16 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
         tools = tool_factory.get_tools()
         toolsets = tool_factory.get_toolsets()
 
-        # ── Extract commands for programmatic use ─────────────────────────
-        commands = tool_factory.get_commands()
-        self._hire_member_command = commands.get(HireTeamMember)
-        self._fire_member_command = commands.get(FireTeamMember)
-        self._get_planning_command = commands.get(GetPlanning)
-        self._get_planning_task_command = commands.get(GetPlanningTask)
-        self._get_team_roster_command = commands.get(GetTeamRoster)
-        self._get_role_profiles_command = commands.get(GetRoleProfiles)
-        self._expand_media_refs_command = commands.get(ExpandMediaRefs)
-
-        self._react_agent = ReactAgent(
-            config=react_agent_config,
-            deps_type=BaseAgent,
-            tools=tools,
-            toolsets=toolsets,
-            event_loop=self._event_loop,
-            observer=self,
+        # ── Build the generic command registry and announce it once ────────
+        self._command_registry: CommandRegistry = tool_factory.get_command_registry()
+        self.notify_event(
+            CommandsAnnouncedEvent(
+                agent=self.myAddress,
+                commands=self._command_registry.descriptors(),
+            )
         )
+
+        self._react_agent = self._build_react_agent(react_agent_config, tools, toolsets)
 
         # ── Additional dynamic system prompts ─────────────────────────────────
         # ReactAgent already registers: current_datetime_prompt + config.system_prompts
@@ -201,16 +193,67 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
         for system_prompt in tool_factory.get_system_prompts():
             self._react_agent.system_prompt(system_prompt)
 
-        @self._react_agent.system_prompt
-        def mailbox_notifications(ctx: RunContext[BaseAgent]) -> str | None:
-            if inbox := ctx.deps.get_mailbox():
-                senders = {msg.sender.name for msg in inbox if msg.sender}
-                return (
-                    f"NOTICE: {len(inbox)} new message(s) arrived in your mailbox "
-                    f"from team member(s): {', '.join(senders)}."
-                    "\nConsider wrapping up the current thread to process them."
-                )
-            return None
+        if inbox := self.get_mailbox():
+            @self._react_agent.system_prompt
+            def mailbox_notifications(ctx: RunContext[BaseAgent]) -> str | None:
+                    senders = {msg.sender.name for msg in inbox if msg.sender}
+                    return (
+                        f"NOTICE: {len(inbox)} new message(s) arrived in your mailbox "
+                        f"from team member(s): {', '.join(senders)}."
+                        "\nConsider wrapping up the current thread to process them."
+                    )
+
+    def on_stop(self) -> None:
+        """Release LLM resources on stop, then run the base teardown.
+
+        Delegates teardown to the ReactAgent's synchronous, idempotent
+        ``close()`` — the agent owns and closes its own loop now, so BaseAgent
+        no longer drives ``aclose()`` on an actor loop. ``super().on_stop()``
+        always runs last so the core StopMessage telemetry fires.
+        """
+        try:
+            self._react_agent.close()
+        except Exception:  # noqa: BLE001 - teardown must not raise
+            logger.exception("[%s] ReactAgent.close() failed on stop", self.config.name)
+        super().on_stop()
+
+    def _build_react_agent(
+        self, config: ReactAgentConfig, tools: list[Any], toolsets: list[Any]
+    ) -> ReactAgent:
+        """Build the LLM agent for this BaseAgent.
+
+        When ``AKGENTIC_MOCK_SCENARIO`` names a scenario YAML, swap in the
+        token-free ``MockReactAgent`` for load testing; otherwise build the
+        real ``ReactAgent``. The deferred import keeps the optional ``loadtest``
+        extra off the normal runtime path.
+        """
+        # Env var name mirrors akgentic.llm.loadtest.SCENARIO_ENV_VAR.
+        scenario = os.environ.get("AKGENTIC_MOCK_SCENARIO")
+        if scenario:
+            from akgentic.llm.loadtest import MockReactAgent  # noqa: PLC0415
+
+            # Carry the scenario path in a config copy's model field (the mock
+            # reads model_cfg.model first); self.config is left untouched.
+            mock_cfg = config.model_copy(
+                update={"model_cfg": config.model_cfg.model_copy(update={"model": scenario})}
+            )
+            return cast(
+                ReactAgent,
+                MockReactAgent(
+                    config=mock_cfg,
+                    deps_type=BaseAgent,
+                    tools=tools,
+                    toolsets=toolsets,
+                    observer=self,
+                ),
+            )
+        return ReactAgent(
+            config=config,
+            deps_type=BaseAgent,
+            tools=tools,
+            toolsets=toolsets,
+            observer=self,
+        )
 
     def init_llm_context(self, context: list[Message]) -> None:
         """Restore LLM conversation context from persisted events.
@@ -278,8 +321,9 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
         """
         # ── Media expansion (!!glob_pattern → BinaryContent) ────────────────────
         prompt: UserPrompt = user_content
-        if self._expand_media_refs_command is not None:
-            parts = self._expand_media_refs_command(user_content)
+        if self._command_registry.has("_expand_media_refs"):
+            expand = self._command_registry.callable("_expand_media_refs")
+            parts = expand(user_content)
             if parts != [user_content]:
                 prompt = [
                     BinaryContent(data=p.data, media_type=p.media_type)
@@ -417,6 +461,12 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
 
         try:
             sleep(random.uniform(0.25, 0.5))  # Simulate processing delay
+
+            # Slash-command interception runs on the RAW content (before the
+            # typed-protocol prefix) so dispatch sees the leading "/<command>".
+            if message.content.startswith("/") and self._dispatch_command(message, sender):
+                return
+
             sender_name = message.sender.name if message.sender else "unknown"
             article = "an" if message.type[0] in "aeiou" else "a"
             prefixed_content = (
@@ -430,6 +480,65 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
                 + "Please review the agent's activity and give your instruction."
             )
             raise WarningError(f"LLM usage limit exceeded: {e}")
+
+    def _dispatch_command(self, message: AgentMessage, sender: ActorAddress) -> bool:
+        """Dispatch a ``/``-prefixed message through the command registry.
+
+        Sends the dispatch result back to ``sender`` as a ``notification`` (a
+        non-``request`` type, so it does not trigger a reply loop) and returns
+        ``True`` to signal the message was handled as a command.
+
+        When the leading token is not a registered command, ``dispatch`` raises
+        :class:`CommandNotRecognized`; this method swallows that and returns
+        ``False`` so the caller falls back to the normal LLM path with the
+        original content. Post-identification failures (bad/missing args) are
+        caught inside ``dispatch`` and returned as a result string — they are
+        handled here exactly like a success and never fall back to the LLM.
+
+        On any dispatched (non-``CommandNotRecognized``) outcome, exactly one
+        synthetic, human-attributed operator-action entry is appended to the
+        ReactAgent context via :meth:`_inject_operator_action`, so the agent
+        reasons about the human's action (and its result) on its next turn
+        without mistaking it for its own tool call. The fallback branch performs
+        no injection — the command never ran.
+
+        Args:
+            message: The incoming AgentMessage whose raw content starts with ``/``.
+            sender: The ActorAddress to send the command result back to.
+
+        Returns:
+            ``True`` if the content was dispatched as a command (result sent),
+            ``False`` if the leading token was not a known command.
+        """
+        try:
+            result = self._command_registry.dispatch(message.content)
+        except CommandNotRecognized:
+            return False
+
+        self.send(
+            sender,
+            AgentMessage(content=result, type="notification", recipient=sender),
+        )
+        self._inject_operator_action(message.content, result)
+        return True
+
+    def _inject_operator_action(self, command_text: str, result: str) -> None:
+        """Record one human-attributed operator-action entry for the agent.
+
+        Builds a user-role entry framing the slash command as the human
+        operator's action (never the agent's own tool call) and hands it to the
+        LLM ``ContextManager``. The context owns the buffer-vs-append decision:
+        before the agent's first model run it buffers the entry (folded into the
+        next run's prompt by ``ReactAgent.run``); afterwards it appends the entry
+        directly. The agent stays ignorant of pydantic-ai's first-run injection
+        rule — that coupling lives entirely in ``akgentic-llm`` (ADR-007 §3).
+
+        Args:
+            command_text: The original ``/``-prefixed text the human sent.
+            result: The string ``dispatch`` returned for that command.
+        """
+        entry = f'[Operator action] The human ran "{command_text}". \nResult:\n{result}'
+        self._react_agent.context.record_operator_action(entry)
 
     def notify_human(self, message: str) -> None:
         # Sent request to the first Human agent
@@ -447,131 +556,26 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
         pass
 
     def hire_member(self, role: str) -> ActorAddress:
-        """Hire a single team member by role via the TeamTool's hire_member command.
+        """Hire a single team member by role via the registry's hire_member command.
 
-        Used internally by request() — raises ModelRetry on failure so the LLM
-        can retry with a different role.
+        Resolves the typed ``hire_member`` callable from the command registry and
+        invokes it with the native ``role`` (native ``ActorAddress`` return — no
+        ``/hire …`` string round-trip). Used internally by ``process_message`` —
+        raises ModelRetry on failure so the LLM can retry with a different role.
 
         Args:
             role: Role to hire (must exist in agent catalog)
 
         Returns:
-            tuple[str, ActorAddress]: (member_name, member_address) on success.
+            ActorAddress: Address of the newly hired member.
 
         Raises:
-            RuntimeError: If hire_member command is not available.
+            RuntimeError: If the hire_member command is not registered
+                (TeamTool not configured).
             ModelRetry: If role is invalid or hire fails (propagated for LLM retry).
         """
-        if self._hire_member_command is None:
+        if not self._command_registry.has("hire_member"):
             raise RuntimeError("hire_member command not available — TeamTool not configured")
 
-        return cast(ActorAddress, self._hire_member_command(role))
-
-    # ============================================================================
-    # CMD_ COMMANDS (for programmatic / slash-command use, e.g. agent_team.py)
-    # ============================================================================
-
-    def cmd_hire_member(self, role: str) -> ActorAddress | str:
-        """Hire a single team member by role (command version).
-
-        Catches ModelRetry and returns the error as a string instead of raising.
-        Used by agent_team.py slash commands.
-
-        Args:
-            role: Role to hire (must exist in agent catalog)
-
-        Returns:
-            tuple[str, ActorAddress]: (member_name, member_address) on success.
-            str: Error message on failure.
-
-        Raises:
-            RuntimeError: If hire_member command is not available.
-        """
-        try:
-            return self.hire_member(role)
-        except ModelRetry as e:
-            return str(e)
-
-    def cmd_fire_member(self, name: str) -> str:
-        """Fire a team member by name (command version).
-
-        Catches ModelRetry and returns the error as a string instead of raising.
-        Used by agent_team.py slash commands.
-
-        Args:
-            name: Name of the member to fire (e.g., '@Developer123')
-
-        Returns:
-            str: Confirmation message on success, error message on failure.
-
-        Raises:
-            RuntimeError: If fire_member command is not available.
-        """
-        if self._fire_member_command is None:
-            raise RuntimeError("fire_member command not available — TeamTool not configured")
-
-        try:
-            return cast(str, self._fire_member_command(name))
-        except ModelRetry as e:
-            return str(e)
-
-    def cmd_get_planning(self) -> str:
-        """Get the full team planning (command version).
-
-        Returns:
-            str: Formatted planning text.
-
-        Raises:
-            RuntimeError: If get_planning command is not available.
-        """
-        if self._get_planning_command is None:
-            raise RuntimeError("get_planning command not available — PlanningTool not configured")
-
-        return cast(str, self._get_planning_command())
-
-    def cmd_get_team_roster(self) -> str:
-        """Get the current team roster as a formatted string (command version).
-
-        Returns:
-            str: Formatted team roster.
-
-        Raises:
-            RuntimeError: If get_team_roster command is not available.
-        """
-        if self._get_team_roster_command is None:
-            raise RuntimeError("get_team_roster command not available — TeamTool not configured")
-
-        return cast(str, self._get_team_roster_command())
-
-    def cmd_get_role_profiles(self) -> str:
-        """Get available team roles and their descriptions (command version).
-
-        Returns:
-            str: Formatted role profiles.
-
-        Raises:
-            RuntimeError: If get_role_profiles command is not available.
-        """
-        if self._get_role_profiles_command is None:
-            raise RuntimeError("get_role_profiles command not available — TeamTool not configured")
-
-        return cast(str, self._get_role_profiles_command())
-
-    def cmd_get_planning_task(self, task_id: int) -> Any:
-        """Get a single planning task by ID (command version).
-
-        Args:
-            task_id: The task ID to retrieve.
-
-        Returns:
-            Task or str if not found.
-
-        Raises:
-            RuntimeError: If get_planning_task command is not available.
-        """
-        if self._get_planning_task_command is None:
-            raise RuntimeError(
-                "get_planning_task command not available — PlanningTool not configured"
-            )
-
-        return self._get_planning_task_command(task_id)
+        hire = self._command_registry.callable("hire_member")
+        return cast(ActorAddress, hire(role))
