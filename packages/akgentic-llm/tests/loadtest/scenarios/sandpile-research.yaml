@@ -1,0 +1,30 @@
+name: sandpile-research
+default_latency_ms: 0
+agents:
+  "@Manager":
+    states:
+      - id: route-research
+        when: { contains: "sandpile" }
+        tools:
+          - name: update_planning
+            args: '{"create_tasks":[{"id":1,"status":"started","description":"Ask @Assistant to websearch sandpile mode and share findings with @Expert","owner":"@Manager"}]}'
+            returns: "Done"
+        respond:
+          messages:
+            - { message_type: instruction,  recipient: "@Assistant", message: "Please perform a web search on what the sandpile model/mode is about, then inform @Expert of your findings with a concise summary." }
+            - { message_type: notification, recipient: "@Expert",    message: "Per @Human's request, @Assistant has been asked to research the sandpile model/mode and will share findings with you." }
+    default: { respond: { messages: [] } }
+  "@Assistant":
+    states:
+      - id: research-and-report
+        when: { contains: "sandpile" }
+        tools:
+          - name: web_search
+            args: '{"query":"what is the sandpile model about"}'
+            returns: "The Abelian sandpile model (Bak-Tang-Wiesenfeld, 1987) is the canonical example of self-organized criticality: a site that reaches the threshold topples to its neighbours, producing scale-free avalanches."
+        respond:
+          messages:
+            - { message_type: response, recipient: "@Expert", message: "Findings on the sandpile model: it is the canonical model of self-organized criticality (Bak-Tang-Wiesenfeld); sites topple at a threshold, producing scale-free avalanches." }
+    default: { respond: { messages: [] } }
+  "@Expert":
+    default: { respond: { messages: [] } }
