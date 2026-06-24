@@ -21,6 +21,7 @@ from akgentic.core.messages.orchestrator import (
     EventMessage,
     SentMessage,
     StartMessage,
+    StateChangedMessage,
     StopMessage,
 )
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
@@ -45,6 +46,16 @@ class StubAgent(Akgent[BaseConfig, BaseState]):
     """Minimal agent for restorer tests."""
 
     pass
+
+
+class _MarkerState(BaseState):
+    """BaseState carrying a distinguishing marker for snapshot-preference tests.
+
+    Used to tell two competing snapshots (UUID-keyed vs name-keyed legacy) apart
+    by the value the restorer applies via ``init_state``.
+    """
+
+    marker: str = ""
 
 
 class RecordingSubscriber(EventSubscriber):
@@ -317,6 +328,27 @@ def _populate_stopped_team(
     return team_id, process
 
 
+def _lead_agent_id_from_events(
+    event_store: InMemoryEventStore,
+    team_id: uuid.UUID,
+    name: str = "lead",
+) -> uuid.UUID:
+    """Read an agent's persisted UUID from its ``StartMessage`` sender.
+
+    Used to key UUID-based ``AgentStateSnapshot`` fixtures by the same UUID the
+    restorer re-injects when re-spawning the agent.
+    """
+    for pe in event_store.load_events(team_id):
+        if (
+            isinstance(pe.event, StartMessage)
+            and pe.event.sender is not None
+            and pe.event.sender.name == name
+        ):
+            return pe.event.sender.agent_id
+    msg = f"{name} agent_id not found in events"
+    raise AssertionError(msg)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -463,7 +495,12 @@ class TestTeamRestorerRestore:
         actor_system: ActorSystem,
         event_store: InMemoryEventStore,
     ) -> None:
-        """AC 11: Persisted AgentStateSnapshot is restored via init_state()."""
+        """AC #3: a UUID-keyed AgentStateSnapshot is restored via init_state().
+
+        The snapshot is keyed by the lead agent's actual UUID (read from its
+        persisted ``StartMessage`` sender), and the restorer matches it against
+        the live address UUID -- no name fallback.
+        """
         from unittest.mock import patch as mock_patch
 
         from akgentic.team.models import AgentStateSnapshot
@@ -471,10 +508,15 @@ class TestTeamRestorerRestore:
         tc = _make_team_card()
         team_id, process = _populate_stopped_team(event_store, tc)
 
-        # Inject a state snapshot for the "lead" agent
+        # The restorer now matches by str(addr.agent_id), so the snapshot MUST be
+        # keyed by the lead agent's real UUID -- read it from its StartMessage.
+        lead_agent_id = _lead_agent_id_from_events(event_store, team_id)
+
+        # Inject a state snapshot for the "lead" agent, keyed by UUID.
         snapshot = AgentStateSnapshot(
             team_id=team_id,
-            agent_id="lead",
+            agent_id=str(lead_agent_id),
+            name="lead",
             state=BaseState(),
             updated_at=datetime.now(UTC),
         )
@@ -493,9 +535,10 @@ class TestTeamRestorerRestore:
             proxy = original_proxy_ask(addr, cls)
             if cls is Akgent:
                 original_init = proxy.init_state
+                addr_name = addr.name
 
-                def tracked_init(state: Any) -> None:
-                    init_state_calls.append("lead")
+                def tracked_init(state: Any, _name: str = addr_name) -> None:
+                    init_state_calls.append(_name)
                     return original_init(state)
 
                 proxy.init_state = tracked_init
@@ -504,8 +547,202 @@ class TestTeamRestorerRestore:
         with mock_patch.object(actor_system, "proxy_ask", side_effect=tracking_proxy_ask):
             runtime = restorer.restore(process)
 
-        # Verify init_state was called for the agent with snapshot
+        # Verify init_state was applied to the lead agent's own address (matched
+        # by UUID), not merely that some agent received state.
         assert "lead" in init_state_calls
+        assert runtime.addrs["lead"].is_alive()
+
+    def test_restore_with_legacy_name_keyed_snapshot_loads_and_is_restored_via_name_fallback(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #2/#6: a legacy name-keyed snapshot loads (name=None) and is restored.
+
+        Migration-safety + name fallback: a snapshot persisted in the OLD shape --
+        ``agent_id`` holding the agent **name** and no ``name`` key -- (a) loads via
+        ``load_agent_states`` with ``name is None`` and (b) is now APPLIED on restore
+        via the name fallback (its stored ``agent_id`` equals the live agent's name),
+        without raising. This is the direct inverse of Story 23-1's "legacy skipped".
+        """
+        from unittest.mock import patch as mock_patch
+
+        from akgentic.team.models import AgentStateSnapshot
+
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+
+        # OLD shape: agent_id holds the name, no name field (default None applies).
+        legacy_snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id="lead",
+            state=BaseState(),
+            updated_at=datetime.now(UTC),
+        )
+        event_store.save_agent_state(legacy_snapshot)
+
+        # (a) The legacy snapshot loads with name=None and raises no error.
+        loaded = event_store.load_agent_states(team_id)
+        assert len(loaded) == 1
+        assert loaded[0].agent_id == "lead"
+        assert loaded[0].name is None
+
+        # (a') A serialized payload that literally OMITS the ``name`` key (the true
+        # on-disk legacy shape) validates cleanly with name=None -- this is the
+        # deserialization boundary the no-migration design rests on.
+        legacy_payload = legacy_snapshot.model_dump()
+        legacy_payload.pop("name", None)
+        revalidated = AgentStateSnapshot.model_validate(legacy_payload)
+        assert revalidated.name is None
+        assert revalidated.agent_id == "lead"
+
+        restorer = TeamRestorer(actor_system, event_store)
+
+        # Spy init_state to prove the legacy snapshot IS applied on restore.
+        init_state_calls: list[str] = []
+        original_proxy_ask = actor_system.proxy_ask
+
+        def tracking_proxy_ask(addr: ActorAddress, cls: type[Any]) -> Any:
+            proxy = original_proxy_ask(addr, cls)
+            if cls is Akgent:
+                original_init = proxy.init_state
+                addr_name = addr.name
+
+                def tracked_init(state: Any, _name: str = addr_name) -> None:
+                    init_state_calls.append(_name)
+                    return original_init(state)
+
+                proxy.init_state = tracked_init
+            return proxy
+
+        with mock_patch.object(actor_system, "proxy_ask", side_effect=tracking_proxy_ask):
+            runtime = restorer.restore(process)
+
+        # (b) Applied on restore via the name fallback -- the UUID lookup misses, but
+        # the stored agent_id ("lead") matches the live agent's name.
+        assert init_state_calls == ["lead"]
+        assert runtime.addrs["lead"].is_alive()
+
+    def test_restore_prefers_uuid_keyed_over_same_name_legacy_snapshot(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #3: UUID-keyed snapshot wins over a same-name legacy snapshot.
+
+        Both a UUID-keyed snapshot (agent_id=str(lead UUID)) and a name-keyed legacy
+        snapshot (agent_id="lead") exist for the SAME live lead agent, carrying
+        distinguishable states. The restorer tries the UUID lookup first, so the
+        UUID-keyed snapshot's state is the one applied -- the legacy one is shadowed.
+        """
+        from unittest.mock import patch as mock_patch
+
+        from akgentic.team.models import AgentStateSnapshot
+
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+
+        lead_agent_id = _lead_agent_id_from_events(event_store, team_id)
+
+        # UUID-keyed (current) snapshot -- this one must win.
+        uuid_snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id=str(lead_agent_id),
+            name="lead",
+            state=_MarkerState(marker="uuid"),
+            updated_at=datetime.now(UTC),
+        )
+        # Name-keyed legacy snapshot -- same live agent, must be shadowed.
+        legacy_snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id="lead",
+            state=_MarkerState(marker="legacy"),
+            updated_at=datetime.now(UTC),
+        )
+        # Different agent_id keys -> both coexist in load_agent_states.
+        event_store.save_agent_state(uuid_snapshot)
+        event_store.save_agent_state(legacy_snapshot)
+
+        restorer = TeamRestorer(actor_system, event_store)
+
+        # Spy init_state capturing BOTH the agent name and the applied state, so we
+        # can assert WHICH snapshot's state won.
+        init_state_records: list[tuple[str, Any]] = []
+        original_proxy_ask = actor_system.proxy_ask
+
+        def tracking_proxy_ask(addr: ActorAddress, cls: type[Any]) -> Any:
+            proxy = original_proxy_ask(addr, cls)
+            if cls is Akgent:
+                original_init = proxy.init_state
+                addr_name = addr.name
+
+                def tracked_init(state: Any, _name: str = addr_name) -> None:
+                    init_state_records.append((_name, state))
+                    return original_init(state)
+
+                proxy.init_state = tracked_init
+            return proxy
+
+        with mock_patch.object(actor_system, "proxy_ask", side_effect=tracking_proxy_ask):
+            runtime = restorer.restore(process)
+
+        # Exactly one init_state for the lead agent, carrying the UUID-keyed state.
+        lead_records = [(name, st) for name, st in init_state_records if name == "lead"]
+        assert len(lead_records) == 1
+        applied_state = lead_records[0][1]
+        assert isinstance(applied_state, _MarkerState)
+        assert applied_state.marker == "uuid"
+        assert runtime.addrs["lead"].is_alive()
+
+    def test_restore_legacy_snapshot_no_false_match(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #4: a legacy snapshot whose name matches no live agent is a no-op.
+
+        A name-keyed snapshot (agent_id="ghost") matches neither a live UUID nor a
+        live agent name, so no agent receives init_state and restore does not raise;
+        the live agents stay alive.
+        """
+        from unittest.mock import patch as mock_patch
+
+        from akgentic.team.models import AgentStateSnapshot
+
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+
+        ghost_snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id="ghost",
+            state=BaseState(),
+            updated_at=datetime.now(UTC),
+        )
+        event_store.save_agent_state(ghost_snapshot)
+
+        restorer = TeamRestorer(actor_system, event_store)
+
+        init_state_calls: list[str] = []
+        original_proxy_ask = actor_system.proxy_ask
+
+        def tracking_proxy_ask(addr: ActorAddress, cls: type[Any]) -> Any:
+            proxy = original_proxy_ask(addr, cls)
+            if cls is Akgent:
+                original_init = proxy.init_state
+                addr_name = addr.name
+
+                def tracked_init(state: Any, _name: str = addr_name) -> None:
+                    init_state_calls.append(_name)
+                    return original_init(state)
+
+                proxy.init_state = tracked_init
+            return proxy
+
+        with mock_patch.object(actor_system, "proxy_ask", side_effect=tracking_proxy_ask):
+            runtime = restorer.restore(process)
+
+        # No agent matched -> no init_state applied, restore did not raise.
+        assert init_state_calls == []
         assert runtime.addrs["lead"].is_alive()
 
     def test_restore_agent_profiles_registered(
@@ -1688,3 +1925,238 @@ class TestRestorerToolActorSpawnOrder:
         team = runtime.orchestrator_proxy.get_team()
         agent_ids = [addr.agent_id for addr in team]
         assert len(agent_ids) == len(set(agent_ids)), "Duplicate agents in roster"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Re-emit agent state onto the event stream on restore (Story 23-3)
+# ---------------------------------------------------------------------------
+
+
+class TestRestorerReemitStateOnRestore:
+    """AC #1-#6: Phase 3 re-emits each restored agent's state after its StartMessage.
+
+    Uses a ``RecordingSubscriber`` as the stand-in for the live event stream:
+    it is the subscriber attached at phase 2g, so it observes exactly the
+    messages a fresh team's stream would. ``notify_state_change`` is an ask-mode
+    proxy call, so the agent's ``StateChangedMessage`` is enqueued on the
+    orchestrator mailbox before the next replayed event -- ordering is
+    deterministic.
+    """
+
+    def test_state_reaches_restored_stream_after_start_message(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #1, #5: a snapshot's state is re-emitted right after its StartMessage.
+
+        The restored stream carries exactly one ``StateChangedMessage`` for the
+        agent-with-snapshot, positioned after that agent's ``StartMessage`` and
+        carrying the snapshot state -- the parity a fresh team's live stream has.
+        """
+        from akgentic.team.models import AgentStateSnapshot
+
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+        lead_agent_id = _lead_agent_id_from_events(event_store, team_id)
+
+        snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id=str(lead_agent_id),
+            name="lead",
+            state=_MarkerState(marker="restored"),
+            updated_at=datetime.now(UTC),
+        )
+        event_store.save_agent_state(snapshot)
+
+        recording = RecordingSubscriber()
+        restorer = TeamRestorer(actor_system, event_store)
+        restorer.restore(process, subscribers=[recording])
+
+        state_msgs = [m for m in recording.messages if isinstance(m, StateChangedMessage)]
+        # Exactly one re-emit for the single agent-with-snapshot (AC #5).
+        assert len(state_msgs) == 1
+        applied = state_msgs[0].state
+        assert isinstance(applied, _MarkerState)
+        assert applied.marker == "restored"
+
+        # Positioned after the lead's StartMessage in the replay order (AC #1).
+        lead_start_idx = next(
+            i
+            for i, m in enumerate(recording.messages)
+            if isinstance(m, StartMessage) and m.sender is not None and m.sender.name == "lead"
+        )
+        state_idx = recording.messages.index(state_msgs[0])
+        assert state_idx > lead_start_idx
+
+    def test_reemitted_state_message_is_keyed_by_uuid(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #2: the re-emitted StateChangedMessage's sender.agent_id is the UUID."""
+        from akgentic.team.models import AgentStateSnapshot
+
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+        lead_agent_id = _lead_agent_id_from_events(event_store, team_id)
+
+        snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id=str(lead_agent_id),
+            name="lead",
+            state=BaseState(),
+            updated_at=datetime.now(UTC),
+        )
+        event_store.save_agent_state(snapshot)
+
+        recording = RecordingSubscriber()
+        restorer = TeamRestorer(actor_system, event_store)
+        runtime = restorer.restore(process, subscribers=[recording])
+
+        state_msgs = [m for m in recording.messages if isinstance(m, StateChangedMessage)]
+        assert len(state_msgs) == 1
+        sender = state_msgs[0].sender
+        assert sender is not None
+        # Emitted via the live agent -> sender carries the agent UUID, matching
+        # the live lead address (so a UUID-keyed consumer folds it correctly).
+        assert sender.agent_id == lead_agent_id
+        assert sender.agent_id == runtime.addrs["lead"].agent_id
+
+    def test_legacy_name_keyed_snapshot_is_reemitted_via_name_fallback(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #3: a legacy (name-keyed) snapshot is also re-emitted via name fallback.
+
+        The UUID lookup misses, but the stored ``agent_id`` ("lead") matches the
+        live agent's name, so the snapshot state still reaches the stream.
+        """
+        from akgentic.team.models import AgentStateSnapshot
+
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+
+        legacy_snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id="lead",  # OLD shape: agent_id holds the name
+            state=_MarkerState(marker="legacy"),
+            updated_at=datetime.now(UTC),
+        )
+        event_store.save_agent_state(legacy_snapshot)
+
+        recording = RecordingSubscriber()
+        restorer = TeamRestorer(actor_system, event_store)
+        restorer.restore(process, subscribers=[recording])
+
+        state_msgs = [m for m in recording.messages if isinstance(m, StateChangedMessage)]
+        assert len(state_msgs) == 1
+        applied = state_msgs[0].state
+        assert isinstance(applied, _MarkerState)
+        assert applied.marker == "legacy"
+
+    def test_no_reemit_for_sender_without_snapshot(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #3, #5: senders without a snapshot (orchestrator, plain agents) no-op.
+
+        With no snapshots persisted at all, restore replays every StartMessage
+        (orchestrator + lead) but emits zero StateChangedMessages and does not
+        raise.
+        """
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+
+        recording = RecordingSubscriber()
+        restorer = TeamRestorer(actor_system, event_store)
+        runtime = restorer.restore(process, subscribers=[recording])
+
+        state_msgs = [m for m in recording.messages if isinstance(m, StateChangedMessage)]
+        assert state_msgs == []
+        assert runtime.addrs["lead"].is_alive()
+
+    def test_one_reemit_per_agent_with_snapshot(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #5: exactly one StateChangedMessage per agent-with-snapshot.
+
+        Two agents have snapshots and one (the orchestrator) does not; the
+        stream carries exactly two re-emits, one per snapshotted agent.
+        """
+        from akgentic.team.models import AgentStateSnapshot
+
+        worker = _make_member("worker", "Worker")
+        tc = _make_team_card(members=[worker])
+        team_id, process = _populate_stopped_team(event_store, tc)
+
+        lead_id = _lead_agent_id_from_events(event_store, team_id, name="lead")
+        worker_id = _lead_agent_id_from_events(event_store, team_id, name="worker")
+
+        for agent_id, name in ((lead_id, "lead"), (worker_id, "worker")):
+            event_store.save_agent_state(
+                AgentStateSnapshot(
+                    team_id=team_id,
+                    agent_id=str(agent_id),
+                    name=name,
+                    state=BaseState(),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+
+        recording = RecordingSubscriber()
+        restorer = TeamRestorer(actor_system, event_store)
+        restorer.restore(process, subscribers=[recording])
+
+        state_msgs = [m for m in recording.messages if isinstance(m, StateChangedMessage)]
+        emitted_ids = {m.sender.agent_id for m in state_msgs if m.sender is not None}
+        assert len(state_msgs) == 2
+        assert emitted_ids == {lead_id, worker_id}
+
+    def test_reemit_does_not_repersist_events_or_states(
+        self,
+        actor_system: ActorSystem,
+        event_store: InMemoryEventStore,
+    ) -> None:
+        """AC #4: load_events and load_agent_states are unchanged across a restore.
+
+        Phase 3 runs with PersistenceSubscriber.set_restoring(True), so the
+        re-emitted StateChangedMessage is neither appended to the event log nor
+        written to the snapshot store -- the ADR-013 invariant holds.
+        """
+        from akgentic.team.models import AgentStateSnapshot
+        from akgentic.team.subscriber import PersistenceSubscriber
+
+        tc = _make_team_card()
+        team_id, process = _populate_stopped_team(event_store, tc)
+        lead_agent_id = _lead_agent_id_from_events(event_store, team_id)
+
+        snapshot = AgentStateSnapshot(
+            team_id=team_id,
+            agent_id=str(lead_agent_id),
+            name="lead",
+            state=BaseState(),
+            updated_at=datetime.now(UTC),
+        )
+        event_store.save_agent_state(snapshot)
+
+        events_before = [pe.model_dump() for pe in event_store.load_events(team_id)]
+        states_before = [s.model_dump() for s in event_store.load_agent_states(team_id)]
+
+        persistence_sub = PersistenceSubscriber(team_id, event_store)
+        persistence_sub.set_restoring(team_id, True)
+
+        restorer = TeamRestorer(actor_system, event_store)
+        restorer.restore(process, subscribers=[persistence_sub])
+
+        persistence_sub.set_restoring(team_id, False)
+
+        events_after = [pe.model_dump() for pe in event_store.load_events(team_id)]
+        states_after = [s.model_dump() for s in event_store.load_agent_states(team_id)]
+
+        assert events_after == events_before, "Re-emit must not append to the event log"
+        assert states_after == states_before, "Re-emit must not write the snapshot store"

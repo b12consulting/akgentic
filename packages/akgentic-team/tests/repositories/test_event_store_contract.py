@@ -193,6 +193,24 @@ class TestEventStoreContract:
         assert loaded[0].agent_id == "round-trip-agent"
         assert isinstance(loaded[0].state, SampleAgentState)
 
+    def test_save_and_load_agent_state_uuid_and_name_round_trip(
+        self, event_store: EventStore
+    ) -> None:
+        """AC #5: a UUID ``agent_id`` and a non-None ``name`` survive the round-trip.
+
+        Runs once per backend (yaml/mongo/postgres) via the parametrized
+        ``event_store`` fixture -- the per-backend round-trip coverage.
+        """
+        agent_uuid = str(uuid.uuid4())
+        snap = make_agent_state_snapshot(agent_id=agent_uuid, name="@SomeAgent")
+        event_store.save_agent_state(snap)
+
+        loaded = event_store.load_agent_states(snap.team_id)
+        assert len(loaded) == 1
+        assert loaded[0].agent_id == agent_uuid
+        assert loaded[0].name == "@SomeAgent"
+        assert isinstance(loaded[0].state, SampleAgentState)
+
     def test_save_agent_state_is_upsert(self, event_store: EventStore) -> None:
         """``save_agent_state`` is upsert on ``(team_id, agent_id)``."""
         team_id = uuid.uuid4()
