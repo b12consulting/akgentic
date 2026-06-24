@@ -287,6 +287,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     @override
     def on_stop(self) -> None:
+        self._timer.cancel()
         self._cancel_stop_backstop()
         self._notify_subscribers_lifecycle("on_stop", self.team_id)
         super().on_stop()

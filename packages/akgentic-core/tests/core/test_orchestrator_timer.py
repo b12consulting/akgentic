@@ -461,6 +461,42 @@ class TestOrchestratorStop:
         # Timer should have been cancelled by the Orchestrator.stop() override
         assert timer._timer is None
 
+    def test_orchestrator_timer_cancelled_after_stop(self) -> None:
+        """on_stop() cancels the inactivity timer on the forced/native path.
+
+        The native ``ActorRef.stop()`` runs ``on_stop()`` directly, bypassing the
+        ``Orchestrator.stop()`` override that cancels the timer on the graceful
+        path. ``on_stop()`` must cancel the timer unconditionally so the daemon
+        Timer thread is released and no longer references the orchestrator.
+        """
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        timer = orch.get_timer().get()
+        assert timer._timer is not None
+        assert timer._timer.is_alive()
+
+        # Native Pykka stop — runs on_stop() WITHOUT Orchestrator.stop().
+        orch_ref.stop(block=True)
+
+        # on_stop() cancelled the timer: no live threading.Timer remains.
+        assert timer._timer is None
+
+    def test_on_stop_timer_cancel_is_idempotent(self) -> None:
+        """An already-cancelled timer (graceful path) is a no-op in on_stop()."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        timer = orch.get_timer().get()
+        # Graceful stop() cancels the timer first; on_stop() then cancels again.
+        orch.stop().get()
+        time.sleep(0.1)
+
+        # Double cancellation did not raise and left the timer cleared.
+        assert timer._timer is None
+
 
 class _RecordingStopSubscriber:
     """Subscriber that records on_stop_request / on_stop / on_message invocations."""

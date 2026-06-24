@@ -427,8 +427,8 @@ class TestIntegration:
             manager_proxy = system.proxy_ask(manager_addr, module.ManagerAgent)
             results = manager_proxy.results
             assert len(results) == 2, f"Expected 2 results, got {len(results)}"
-            assert results[0] == "HELLO"
-            assert results[1] == "WORLD"
+            # Order may vary due to async processing — assert on the set.
+            assert set(results) == {"HELLO", "WORLD"}
 
             # If we got here, the full flow worked
             assert True
