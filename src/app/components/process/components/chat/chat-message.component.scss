@@ -145,3 +145,68 @@
 .markdown-content {
   margin-top: 4px;
 }
+
+/* Context-management markers (Epic 29 / ADR-010) — inert, centered system rows.
+   Visually distinct from chat bubbles: muted, full-width, no alignment. */
+.system-marker {
+  width: 100%;
+}
+
+.system-marker-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 4px 10px;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-style: italic;
+  border-radius: 6px;
+  border: 1px dashed rgba(100, 116, 139, 0.4);
+  background-color: rgba(100, 116, 139, 0.04);
+
+  &.expandable {
+    cursor: pointer;
+
+    &:hover {
+      background-color: rgba(100, 116, 139, 0.08);
+    }
+  }
+}
+
+.system-marker-icon {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.system-marker-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.system-marker-caret {
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.system-marker-timestamp {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* The expanded compaction summary can be long (~2k tokens) — bound the height
+   and scroll rather than letting it blow the trace height (story Open Q). */
+.system-marker-summary {
+  margin-top: 4px;
+  padding: 8px 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #334155;
+  border-left: 2px solid rgba(100, 116, 139, 0.3);
+  background-color: rgba(100, 116, 139, 0.03);
+}

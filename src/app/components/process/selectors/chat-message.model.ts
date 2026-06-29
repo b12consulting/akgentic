@@ -1,6 +1,9 @@
 import {
   ActorAddress,
+  EventMessage,
   isWelcomeAnnouncement,
+  LlmContextClearedEvent,
+  LlmContextCompactedEvent,
   SentMessage,
 } from '../../../protocol/message.types';
 import { makeAgentNameUserFriendly } from '../../../shared/util/util';
@@ -12,7 +15,17 @@ export const ENTRY_POINT_NAME = '@Human';
  *  (ADR-011 Decision 3, AC6). */
 export const SYSTEM_MESSAGE_LABEL = 'System message';
 
-export type MessageRule = 1 | 2 | 3 | 4 | 5;
+/** Rules 1-5 are conversational chat bubbles classified from a `SentMessage`. */
+export type ChatBubbleRule = 1 | 2 | 3 | 4 | 5;
+/** Rules 6-7 are synthetic, inert context-management markers (Epic 29 /
+ *  ADR-010): 6 = compaction (a collapsible "Summarized N" fold), 7 = clear
+ *  (a non-collapsible "Conversation cleared" line). Markers carry no real
+ *  sender/recipient and are not aligned bubbles. */
+export type MarkerRule = 6 | 7;
+export type MessageRule = ChatBubbleRule | MarkerRule;
+
+export const COMPACTION_MARKER_RULE: MarkerRule = 6;
+export const CLEAR_MARKER_RULE: MarkerRule = 7;
 
 export interface ChatMessage {
   /** Outer `SentMessage` envelope id — used to route human replies back to
@@ -48,7 +61,7 @@ export interface ChatMessage {
  * `recipient` is `@Human`, so without the first-match it would classify as
  * Rule 2 and expose the `@ActorSystem` transport envelope.
  */
-export function classifyRule(msg: SentMessage): MessageRule {
+export function classifyRule(msg: SentMessage): ChatBubbleRule {
   if (isWelcomeAnnouncement(msg)) return 5;
   if (msg.sender.name === ENTRY_POINT_NAME) return 1;
   if (msg.recipient.name === ENTRY_POINT_NAME) return 2;
@@ -64,7 +77,7 @@ export function classifyRule(msg: SentMessage): MessageRule {
  *   Rule 4: "@{sender} ⇒ @{recipient}"
  *   Rule 5: fixed `SYSTEM_MESSAGE_LABEL` (ADR-011 Decision 3) — not conversational
  */
-export function buildLabel(msg: SentMessage, rule: MessageRule): string {
+export function buildLabel(msg: SentMessage, rule: ChatBubbleRule): string {
   const senderName = makeAgentNameUserFriendly(msg.sender.name);
   const recipientName = makeAgentNameUserFriendly(msg.recipient.name);
 
@@ -81,7 +94,7 @@ export function buildLabel(msg: SentMessage, rule: MessageRule): string {
   }
 }
 
-const RULE_COLORS: Record<MessageRule, string> = {
+const RULE_COLORS: Record<ChatBubbleRule, string> = {
   1: '#efeeee',
   2: '#9ebbcb',
   3: '#9ebbcb',
@@ -165,5 +178,69 @@ export function classifyMessage(msg: SentMessage): ChatMessage {
     color: RULE_COLORS[rule],
     collapsed: rule === 3 || rule === 4,
     label: buildLabel(msg, rule),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Context-management markers (Epic 29 / ADR-010). Synthetic, inert ChatMessages
+// folded from native EventMessage payloads — no real sender/recipient bubble.
+// ---------------------------------------------------------------------------
+
+/** "N message" / "N messages" fragment for marker labels (1 is singular). */
+function messageCountLabel(n: number): string {
+  return `${n} message${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * Build the compaction marker `ChatMessage` (Rule 6) from a native
+ * `EventMessage(LlmContextCompactedEvent)` (ADR-010 §3). Collapsed by default;
+ * `content` holds the summary revealed on expand, `label` the "Summarized N
+ * message(s)" headline. `sender`/`recipient` are set to the emitting agent only
+ * to satisfy the type — the marker render reads neither (no alignment, no pill).
+ */
+export function buildCompactionMarker(
+  evt: EventMessage,
+  inner: LlmContextCompactedEvent,
+): ChatMessage {
+  const agent = evt.sender;
+  return {
+    id: evt.id,
+    message_id: evt.id,
+    parent_id: null,
+    content: inner.summary ?? '',
+    sender: agent,
+    recipient: agent,
+    timestamp: new Date(evt.timestamp),
+    rule: COMPACTION_MARKER_RULE,
+    alignment: 'left',
+    color: '',
+    collapsed: true,
+    label: `Summarized ${messageCountLabel(inner.replaced_message_count)}`,
+  };
+}
+
+/**
+ * Build the clear marker `ChatMessage` (Rule 7) from a native
+ * `EventMessage(LlmContextClearedEvent)` (ADR-010 §8). Non-collapsible (no
+ * summary); the label is the "Conversation cleared (N message(s))" line.
+ */
+export function buildClearMarker(
+  evt: EventMessage,
+  inner: LlmContextClearedEvent,
+): ChatMessage {
+  const agent = evt.sender;
+  return {
+    id: evt.id,
+    message_id: evt.id,
+    parent_id: null,
+    content: '',
+    sender: agent,
+    recipient: agent,
+    timestamp: new Date(evt.timestamp),
+    rule: CLEAR_MARKER_RULE,
+    alignment: 'left',
+    color: '',
+    collapsed: false,
+    label: `Conversation cleared (${messageCountLabel(inner.cleared_message_count)})`,
   };
 }

@@ -203,10 +203,12 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
     const grew = classified.length > this.prevCount;
     this.prevCount = classified.length;
 
-    // Preserve per-user expand state across re-emissions (Rule 3 / Rule 4).
+    // Preserve per-user expand state across re-emissions (Rule 3 / Rule 4, plus
+    // the Rule 6 compaction marker — Epic 29). The pure fold rebuilds each
+    // ChatMessage collapsed-by-default, so the toggled-open set is re-applied.
     for (const chatMsg of classified) {
       if (
-        (chatMsg.rule === 3 || chatMsg.rule === 4) &&
+        (chatMsg.rule === 3 || chatMsg.rule === 4 || chatMsg.rule === 6) &&
         this.expandedMessageIds.has(chatMsg.id)
       ) {
         chatMsg.collapsed = false;
@@ -447,7 +449,8 @@ export class ChatPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
   // ---------------------------------------------------------------------------
 
   onToggleCollapse(chatMsg: ChatMessage): void {
-    if (chatMsg.rule !== 3 && chatMsg.rule !== 4) return;
+    // Rule 6 = the compaction marker fold (Epic 29); rules 3/4 = chat bubbles.
+    if (chatMsg.rule !== 3 && chatMsg.rule !== 4 && chatMsg.rule !== 6) return;
     chatMsg.collapsed = !chatMsg.collapsed;
     if (chatMsg.collapsed) {
       this.expandedMessageIds.delete(chatMsg.id);

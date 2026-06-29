@@ -1,13 +1,24 @@
 import {
+  buildClearMarker,
+  buildCompactionMarker,
   buildPreview,
   classifyRule,
   buildLabel,
   classifyMessage,
+  CLEAR_MARKER_RULE,
+  COMPACTION_MARKER_RULE,
   ENTRY_POINT_NAME,
   ChatMessage,
   SYSTEM_MESSAGE_LABEL,
 } from './chat-message.model';
-import { ActorAddress, SentMessage, BaseMessage } from '../../../protocol/message.types';
+import {
+  ActorAddress,
+  BaseMessage,
+  EventMessage,
+  LlmContextClearedEvent,
+  LlmContextCompactedEvent,
+  SentMessage,
+} from '../../../protocol/message.types';
 
 function makeAddress(overrides: Partial<ActorAddress> = {}): ActorAddress {
   return {
@@ -478,5 +489,121 @@ describe('classifyMessage', () => {
       }),
     );
     expect(result.sender.name).toBe('@Manager');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Context-management marker builders (Epic 29 / ADR-010)
+// ---------------------------------------------------------------------------
+
+function makeEventMessage(inner: unknown): EventMessage {
+  return {
+    id: 'evt-1',
+    parent_id: null,
+    team_id: 'team-1',
+    timestamp: '2026-06-28T10:15:00Z',
+    sender: makeAddress({ name: '@Researcher', role: 'Worker', agent_id: 'agent-7' }),
+    display_type: 'other',
+    content: null,
+    __model__: 'akgentic.core.messages.orchestrator.EventMessage',
+    event: inner,
+  };
+}
+
+function makeCompacted(
+  overrides: Partial<LlmContextCompactedEvent> = {},
+): LlmContextCompactedEvent {
+  return {
+    __model__: 'akgentic.llm.event.LlmContextCompactedEvent',
+    run_id: 'run-1',
+    strategy_id: 'summarize',
+    summary: 'The team agreed on the API contract and split the work.',
+    replaced_message_count: 8,
+    summarizer_prompt_version: 'v1',
+    tokens_before: 12000,
+    tokens_after: 3000,
+    ...overrides,
+  };
+}
+
+function makeCleared(
+  overrides: Partial<LlmContextClearedEvent> = {},
+): LlmContextClearedEvent {
+  return {
+    __model__: 'akgentic.llm.event.LlmContextClearedEvent',
+    run_id: 'run-2',
+    cleared_message_count: 5,
+    ...overrides,
+  };
+}
+
+describe('buildCompactionMarker (Rule 6)', () => {
+  it('produces a collapsed marker carrying the count headline and summary body', () => {
+    const inner = makeCompacted();
+    const marker = buildCompactionMarker(makeEventMessage(inner), inner);
+
+    expect(marker.rule).toBe(COMPACTION_MARKER_RULE);
+    expect(marker.collapsed).toBe(true);
+    expect(marker.label).toBe('Summarized 8 messages');
+    // The expandable body holds the summary text.
+    expect(marker.content).toBe(inner.summary);
+    expect(marker.alignment).toBe('left');
+  });
+
+  it('pluralises the count: 1 → singular "message"', () => {
+    const inner = makeCompacted({ replaced_message_count: 1 });
+    const marker = buildCompactionMarker(makeEventMessage(inner), inner);
+    expect(marker.label).toBe('Summarized 1 message');
+  });
+
+  it('carries the event envelope id and timestamp (chronological identity)', () => {
+    const inner = makeCompacted();
+    const evt = makeEventMessage(inner);
+    const marker = buildCompactionMarker(evt, inner);
+    expect(marker.id).toBe('evt-1');
+    expect(marker.message_id).toBe('evt-1');
+    expect(marker.timestamp.getTime()).toBe(new Date(evt.timestamp).getTime());
+  });
+
+  it('is inert: parent_id null and sender/recipient are non-Human (no notification)', () => {
+    const inner = makeCompacted();
+    const marker = buildCompactionMarker(makeEventMessage(inner), inner);
+    expect(marker.parent_id).toBeNull();
+    expect(marker.recipient.role).not.toBe('Human');
+    expect(marker.sender.role).not.toBe('Human');
+  });
+
+  it('tolerates an empty summary string', () => {
+    const inner = makeCompacted({ summary: '' });
+    const marker = buildCompactionMarker(makeEventMessage(inner), inner);
+    expect(marker.content).toBe('');
+    expect(marker.label).toBe('Summarized 8 messages');
+  });
+});
+
+describe('buildClearMarker (Rule 7)', () => {
+  it('produces a non-collapsible marker with the cleared headline and no summary', () => {
+    const inner = makeCleared();
+    const marker = buildClearMarker(makeEventMessage(inner), inner);
+
+    expect(marker.rule).toBe(CLEAR_MARKER_RULE);
+    expect(marker.collapsed).toBe(false);
+    expect(marker.label).toBe('Conversation cleared (5 messages)');
+    expect(marker.content).toBe('');
+  });
+
+  it('pluralises the cleared count: 1 → singular "message"', () => {
+    const inner = makeCleared({ cleared_message_count: 1 });
+    const marker = buildClearMarker(makeEventMessage(inner), inner);
+    expect(marker.label).toBe('Conversation cleared (1 message)');
+  });
+
+  it('carries the event envelope id/timestamp and is inert (parent_id null)', () => {
+    const inner = makeCleared();
+    const evt = makeEventMessage(inner);
+    const marker = buildClearMarker(evt, inner);
+    expect(marker.id).toBe('evt-1');
+    expect(marker.parent_id).toBeNull();
+    expect(marker.timestamp.getTime()).toBe(new Date(evt.timestamp).getTime());
   });
 });

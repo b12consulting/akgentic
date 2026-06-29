@@ -867,6 +867,54 @@ describe('ChatPanelComponent', () => {
     expect(component.chatMessages[0].collapsed).toBe(false);
   });
 
+  describe('Rule 6/7 marker collapse (Epic 29 / ADR-010)', () => {
+    function makeMarker(overrides: Partial<ChatMessage>): ChatMessage {
+      return {
+        id: 'evt-1',
+        message_id: 'evt-1',
+        parent_id: null,
+        content: 'summary body',
+        sender: makeAddress({ name: '@Researcher', role: 'Worker' }),
+        recipient: makeAddress({ name: '@Researcher', role: 'Worker' }),
+        timestamp: new Date('2026-06-28T10:00:00Z'),
+        rule: 6,
+        alignment: 'left',
+        color: '',
+        collapsed: true,
+        label: 'Summarized 8 messages',
+        ...overrides,
+      };
+    }
+
+    it('onToggleCollapse expands a Rule 6 marker and persists it across re-emission', () => {
+      const marker = makeMarker({});
+      component.onToggleCollapse(marker);
+      expect(marker.collapsed).toBe(false);
+
+      // The pure fold rebuilds the marker collapsed-by-default; onMessages must
+      // re-apply the expanded override (same expandedMessageIds mechanism as
+      // Rule 3/4).
+      const rebuilt = makeMarker({ collapsed: true });
+      (component as unknown as {
+        onMessages: (c: ChatMessage[], t: ThinkingState[]) => void;
+      }).onMessages([rebuilt], []);
+      expect(rebuilt.collapsed).toBe(false);
+    });
+
+    it('onToggleCollapse ignores the Rule 7 clear marker (inert — no flip)', () => {
+      const clear = makeMarker({
+        id: 'evt-2',
+        message_id: 'evt-2',
+        rule: 7,
+        collapsed: true,
+        content: '',
+        label: 'Conversation cleared (5 messages)',
+      });
+      component.onToggleCollapse(clear);
+      expect(clear.collapsed).toBe(true);
+    });
+  });
+
   describe('displayItems merge (Story 4-8)', () => {
     function getThinkingSubj(): BehaviorSubject<ThinkingState[]> {
       const svc = TestBed.inject(ChatService) as any;

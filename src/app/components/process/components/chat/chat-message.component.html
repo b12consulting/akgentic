@@ -26,9 +26,37 @@
   }}</span>
 </div>
 
+<!-- Context-management markers (Epic 29 / ADR-010): rule 6 = collapsible
+     "Summarized N" compaction fold; rule 7 = inert "Conversation cleared" line.
+     No sender/recipient, no left/right alignment — not a chat bubble. -->
+<div *ngIf="isMarker()" class="system-marker">
+  <div
+    class="system-marker-line"
+    [class.expandable]="message().rule === 6"
+    (click)="onToggleMarker()"
+  >
+    <i class="pi system-marker-icon" [ngClass]="markerIcon()"></i>
+    <span class="system-marker-label">{{ message().label }}</span>
+    <i
+      *ngIf="message().rule === 6"
+      class="pi system-marker-caret"
+      [ngClass]="message().collapsed ? 'pi-chevron-right' : 'pi-chevron-down'"
+    ></i>
+    <span class="system-marker-timestamp">{{
+      message().timestamp | date : "HH:mm"
+    }}</span>
+  </div>
+  <div
+    *ngIf="message().rule === 6 && !message().collapsed"
+    class="system-marker-summary"
+  >
+    <markdown [data]="message().content"></markdown>
+  </div>
+</div>
+
 <!-- Expanded bubble (Rules 1/2, or Rule 3/4 expanded) -->
 <div
-  *ngIf="(message().rule !== 3 && message().rule !== 4) || !message().collapsed"
+  *ngIf="!isMarker() && ((message().rule !== 3 && message().rule !== 4) || !message().collapsed)"
   class="message"
   [class.right]="message().alignment === 'right'"
   [class.left]="message().alignment === 'left'"

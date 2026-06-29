@@ -8,6 +8,8 @@ import {
 } from 'rxjs';
 
 import {
+  buildClearMarker,
+  buildCompactionMarker,
   buildPreview,
   ChatMessage,
   classifyMessage,
@@ -17,6 +19,8 @@ import {
   AkgenticMessage,
   EventMessage,
   isEventMessage,
+  isLlmContextClearedEvent,
+  isLlmContextCompactedEvent,
   isProcessedMessage,
   isReceivedMessage,
   isSentMessage,
@@ -270,6 +274,12 @@ function applyMessageFromSent(state: ChatState, msg: SentMessage): ChatState {
   return { ...state, messages: [...state.messages, chatMsg] };
 }
 
+/** Append a synthetic context-management marker (Epic 29 / ADR-010) at the
+ *  event's log position. A passthrough branch only — no new state service. */
+function applyMarker(state: ChatState, marker: ChatMessage): ChatState {
+  return { ...state, messages: [...state.messages, marker] };
+}
+
 /** Pure per-message transition (Task 3.4). Returns `state` unchanged for
  *  unhandled discriminants (FR11 passthrough — AC6). */
 export function chatStep(state: ChatState, msg: AkgenticMessage): ChatState {
@@ -286,6 +296,15 @@ export function chatStep(state: ChatState, msg: AkgenticMessage): ChatState {
   }
   if (isEventMessage(msg)) {
     const inner = (msg as EventMessage).event;
+    // Epic 29 / ADR-010: fold context-management events into synthetic markers,
+    // positioned chronologically at the event's log index. Guards are mutually
+    // exclusive, so the order relative to the tool branches below is immaterial.
+    if (isLlmContextCompactedEvent(inner)) {
+      return applyMarker(state, buildCompactionMarker(msg as EventMessage, inner));
+    }
+    if (isLlmContextClearedEvent(inner)) {
+      return applyMarker(state, buildClearMarker(msg as EventMessage, inner));
+    }
     const kind: string | undefined = inner?.__model__;
     if (kind?.includes('ToolCallEvent')) {
       return applyToolCallToThinking(state, msg as EventMessage);

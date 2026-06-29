@@ -801,4 +801,105 @@ describe('ChatMessageComponent', () => {
       expect(header.lastElementChild.classList.contains('bubble-timestamp')).toBe(true);
     });
   });
+
+  describe('Rule 6/7 context-management markers (Epic 29 / ADR-010)', () => {
+    function makeCompactionMarker(collapsed = true): ChatMessage {
+      return makeChatMessage({
+        id: 'evt-1',
+        rule: 6,
+        alignment: 'left',
+        color: '',
+        collapsed,
+        label: 'Summarized 8 messages',
+        content: 'the summary text body',
+      });
+    }
+
+    function makeClearMarker(): ChatMessage {
+      return makeChatMessage({
+        id: 'evt-2',
+        rule: 7,
+        alignment: 'left',
+        color: '',
+        collapsed: false,
+        label: 'Conversation cleared (5 messages)',
+        content: '',
+      });
+    }
+
+    it('compaction marker renders a .system-marker row with the count label + icon, not a bubble', () => {
+      fixture.componentRef.setInput('message', makeCompactionMarker());
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement;
+      expect(el.querySelector('.system-marker')).toBeTruthy();
+      expect(el.querySelector('.system-marker-icon')).toBeTruthy();
+      expect(el.querySelector('.system-marker-label').textContent).toContain(
+        'Summarized 8 messages',
+      );
+      // A marker is NOT a chat bubble or a Rule 3/4 collapsed line.
+      expect(el.querySelector('.message-bubble')).toBeNull();
+      expect(el.querySelector('.collapsed-line')).toBeNull();
+    });
+
+    it('collapsed compaction marker hides the summary body but shows a caret', () => {
+      fixture.componentRef.setInput('message', makeCompactionMarker(true));
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement;
+      expect(el.querySelector('.system-marker-summary')).toBeNull();
+      expect(el.querySelector('.system-marker-caret')).toBeTruthy();
+    });
+
+    it('expanded compaction marker reveals the summary body (markdown)', () => {
+      fixture.componentRef.setInput('message', makeCompactionMarker(false));
+      fixture.detectChanges();
+
+      const summary = fixture.nativeElement.querySelector('.system-marker-summary');
+      expect(summary).toBeTruthy();
+      expect(summary.querySelector('markdown')).toBeTruthy();
+    });
+
+    it('clicking the compaction line emits toggleCollapse', () => {
+      const msg = makeCompactionMarker(true);
+      fixture.componentRef.setInput('message', msg);
+      fixture.detectChanges();
+
+      spyOn(component.toggleCollapse, 'emit');
+      fixture.nativeElement.querySelector('.system-marker-line').click();
+      expect(component.toggleCollapse.emit).toHaveBeenCalledWith(msg);
+    });
+
+    it('clear marker renders the cleared line — no caret, no summary, no bubble', () => {
+      fixture.componentRef.setInput('message', makeClearMarker());
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement;
+      expect(el.querySelector('.system-marker')).toBeTruthy();
+      expect(el.querySelector('.system-marker-label').textContent).toContain(
+        'Conversation cleared (5 messages)',
+      );
+      expect(el.querySelector('.system-marker-caret')).toBeNull();
+      expect(el.querySelector('.system-marker-summary')).toBeNull();
+      expect(el.querySelector('.message-bubble')).toBeNull();
+    });
+
+    it('clicking the clear marker line is inert — does NOT emit toggleCollapse', () => {
+      fixture.componentRef.setInput('message', makeClearMarker());
+      fixture.detectChanges();
+
+      spyOn(component.toggleCollapse, 'emit');
+      fixture.nativeElement.querySelector('.system-marker-line').click();
+      expect(component.toggleCollapse.emit).not.toHaveBeenCalled();
+    });
+
+    it('markers render no label-pill and no Reply button', () => {
+      fixture.componentRef.setInput('message', makeCompactionMarker());
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement;
+      expect(el.querySelector('.label-pill')).toBeNull();
+      expect(el.querySelector('.open-button')).toBeNull();
+    });
+  });
 });

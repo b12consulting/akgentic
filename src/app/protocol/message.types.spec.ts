@@ -1,6 +1,8 @@
 import {
   ActorAddress,
   BaseMessage,
+  isLlmContextClearedEvent,
+  isLlmContextCompactedEvent,
   isLlmMessageEvent,
   isLlmSystemPromptEvent,
   isLlmUsageEvent,
@@ -179,6 +181,110 @@ describe('Llm*Event guard mutual exclusion (AC #3)', () => {
         isLlmSystemPromptEvent(evt),
         isLlmMessageEvent(evt),
       ].filter(Boolean);
+      expect(fired.length).toBe(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isLlmContextCompactedEvent — inner-event check (ADR-010 §3, AC #2)
+// ---------------------------------------------------------------------------
+
+describe('isLlmContextCompactedEvent', () => {
+  it('returns true for an inner event whose __model__ includes "LlmContextCompactedEvent"', () => {
+    expect(
+      isLlmContextCompactedEvent({
+        __model__: 'akgentic.llm.event.LlmContextCompactedEvent',
+      }),
+    ).toBe(true);
+  });
+
+  it('returns false for null / undefined / missing __model__', () => {
+    expect(isLlmContextCompactedEvent(null)).toBe(false);
+    expect(isLlmContextCompactedEvent(undefined)).toBe(false);
+    expect(isLlmContextCompactedEvent({})).toBe(false);
+  });
+
+  it('returns false for the sibling clear event (no substring collision)', () => {
+    expect(
+      isLlmContextCompactedEvent({
+        __model__: 'akgentic.llm.event.LlmContextClearedEvent',
+      }),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isLlmContextClearedEvent — inner-event check (ADR-010 §8, AC #2)
+// ---------------------------------------------------------------------------
+
+describe('isLlmContextClearedEvent', () => {
+  it('returns true for an inner event whose __model__ includes "LlmContextClearedEvent"', () => {
+    expect(
+      isLlmContextClearedEvent({
+        __model__: 'akgentic.llm.event.LlmContextClearedEvent',
+      }),
+    ).toBe(true);
+  });
+
+  it('returns false for null / undefined / missing __model__', () => {
+    expect(isLlmContextClearedEvent(null)).toBe(false);
+    expect(isLlmContextClearedEvent(undefined)).toBe(false);
+    expect(isLlmContextClearedEvent({})).toBe(false);
+  });
+
+  it('returns false for the sibling compaction event (no substring collision)', () => {
+    expect(
+      isLlmContextClearedEvent({
+        __model__: 'akgentic.llm.event.LlmContextCompactedEvent',
+      }),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC #2 — the FIVE Llm*Event / context guards are mutually exclusive.
+// For any single inner event exactly ONE of the five guards fires. Crucially
+// this protects the two new substrings against collision IN EITHER DIRECTION:
+// 'LlmContextCompactedEvent' vs 'LlmContextClearedEvent' (shared 'LlmContext'
+// prefix) and against 'LlmMessageEvent' / 'LlmUsageEvent' /
+// 'LlmSystemPromptEvent'.
+// ---------------------------------------------------------------------------
+
+describe('Llm*Event five-guard mutual exclusion (AC #2)', () => {
+  const compacted = { __model__: 'akgentic.llm.event.LlmContextCompactedEvent' };
+  const cleared = { __model__: 'akgentic.llm.event.LlmContextClearedEvent' };
+  const usage = { __model__: 'akgentic.llm.event.LlmUsageEvent' };
+  const systemPrompt = { __model__: 'akgentic.llm.event.LlmSystemPromptEvent' };
+  const message = { __model__: 'akgentic.llm.event.LlmMessageEvent' };
+
+  const guards = [
+    isLlmContextCompactedEvent,
+    isLlmContextClearedEvent,
+    isLlmUsageEvent,
+    isLlmSystemPromptEvent,
+    isLlmMessageEvent,
+  ] as const;
+
+  it('for a compaction event, ONLY isLlmContextCompactedEvent fires', () => {
+    expect(isLlmContextCompactedEvent(compacted)).toBe(true);
+    expect(isLlmContextClearedEvent(compacted)).toBe(false);
+    expect(isLlmUsageEvent(compacted)).toBe(false);
+    expect(isLlmSystemPromptEvent(compacted)).toBe(false);
+    expect(isLlmMessageEvent(compacted)).toBe(false);
+  });
+
+  it('for a clear event, ONLY isLlmContextClearedEvent fires', () => {
+    expect(isLlmContextClearedEvent(cleared)).toBe(true);
+    expect(isLlmContextCompactedEvent(cleared)).toBe(false);
+    expect(isLlmUsageEvent(cleared)).toBe(false);
+    expect(isLlmSystemPromptEvent(cleared)).toBe(false);
+    expect(isLlmMessageEvent(cleared)).toBe(false);
+  });
+
+  it('the five guards never co-fire for the same event', () => {
+    for (const evt of [compacted, cleared, usage, systemPrompt, message]) {
+      const fired = guards.map((g) => g(evt)).filter(Boolean);
       expect(fired.length).toBe(1);
     }
   });

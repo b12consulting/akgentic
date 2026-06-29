@@ -5,15 +5,17 @@ import {
   EventMessage,
   isCommandsAnnouncedEvent,
   isEventMessage,
+  isLlmContextClearedEvent,
+  isLlmContextCompactedEvent,
   isLlmSystemPromptEvent,
   isLlmUsageEvent,
   isStateChangedMessage,
+  LlmContextCompactedEvent,
   LlmUsageEvent,
   StateChangedMessage,
   SystemPromptPartSnapshot,
 } from '../../../protocol/message.types';
 import {
-  appendWith,
   PerAgentSpec,
   replaceWith,
 } from './per-agent-store';
@@ -260,16 +262,145 @@ export const stateSpec: PerAgentSpec<AgentStateValue> = {
 };
 
 /**
- * Epic 17 (ADR-014 §5): per-agent ordered conversation array derived by
- * appending each `LlmMessageEvent` envelope's inner `message`. Replaces the
- * bespoke `contextDict$`. Default key `sender.agent_id`; the append is
- * O(Δ)/frame (the registry walks only `log.slice(processedCount)` and
- * `appendWith` concats once per new message). Read via `context.forAgent(id)`.
+ * Marker prefix the backend's synthetic compaction summary carries on its single
+ * `UserPromptPart` (`ContextManager.fold_compaction`, ADR-010 §4). The member
+ * trace prepends the same prefix so `AkgentChatComponent` can label the
+ * folded-in row as a summary rather than a plain user turn.
+ */
+export const CONVERSATION_SUMMARY_PREFIX = '[Conversation summary] ';
+
+/**
+ * True when a context entry is a "system" message — one whose `parts` include a
+ * `part_kind === 'system-prompt'` part. Mirrors the backend `_is_system_message`
+ * exemption (and `llmMessageSystemParts` above): system entries are NEVER folded
+ * by a compaction, exactly like the sliding window. Defensive: a missing or
+ * non-array `parts` is treated as non-system.
+ */
+function isContextSystemEntry(entry: unknown): boolean {
+  const parts = (entry as { parts?: unknown } | null | undefined)?.parts;
+  return (
+    Array.isArray(parts) &&
+    parts.some(
+      (p) => (p as { part_kind?: string } | null)?.part_kind === 'system-prompt',
+    )
+  );
+}
+
+/**
+ * Build the synthetic summary entry inserted at a compaction's fold point: a
+ * `ModelRequest`-shaped object with one `user-prompt` part prefixed
+ * `CONVERSATION_SUMMARY_PREFIX`, mirroring the backend synthetic `ModelRequest` /
+ * `UserPromptPart`. The shape matches what `AkgentChatComponent.updateContext`
+ * already renders for a user-prompt part.
+ */
+function buildSummaryEntry(summary: string): unknown {
+  return {
+    kind: 'request',
+    parts: [
+      {
+        part_kind: 'user-prompt',
+        content: `${CONVERSATION_SUMMARY_PREFIX}${summary}`,
+      },
+    ],
+  };
+}
+
+/**
+ * Fold `messages` per a compaction event, mirroring `ContextManager.fold_compaction`
+ * (ADR-010 §4): drop the first `replaced_message_count` NON-system entries and
+ * insert ONE synthetic summary entry at the fold point; system entries are never
+ * dropped. Returns a FRESH array on a real fold (OnPush); a non-positive
+ * `replaced_message_count` is a no-op (returns the input unchanged). The backend's
+ * trailing `_drop_orphan_tool_results` (an OpenAI role=tool adjacency guard for
+ * the NEXT provider request) is intentionally not mirrored — it does not affect
+ * what the member trace displays.
+ */
+export function foldContextCompaction(
+  messages: unknown[],
+  event: LlmContextCompactedEvent,
+): unknown[] {
+  if (event.replaced_message_count <= 0) return messages;
+  const summary = buildSummaryEntry(event.summary ?? '');
+  const folded: unknown[] = [];
+  let remaining = event.replaced_message_count;
+  let inserted = false;
+  for (const entry of messages) {
+    if (isContextSystemEntry(entry)) {
+      folded.push(entry);
+      continue;
+    }
+    if (remaining > 0) {
+      remaining -= 1;
+      if (!inserted) {
+        folded.push(summary);
+        inserted = true;
+      }
+      continue;
+    }
+    folded.push(entry);
+  }
+  return folded;
+}
+
+/**
+ * `match` for the `context` spec: admit an `EventMessage` whose inner is a
+ * `LlmMessageEvent` (the append source) OR a `LlmContextCompactedEvent` (fold)
+ * OR a `LlmContextClearedEvent` (reset). The reducer — not `match` — decides
+ * which transition applies; anything else passes through.
+ */
+export function contextMatch(msg: AkgenticMessage): boolean {
+  if (!isEventMessage(msg)) return false;
+  const inner = (msg as EventMessage).event as
+    | { __model__?: string }
+    | undefined;
+  return (
+    innerLlmMessage(msg) !== undefined ||
+    isLlmContextCompactedEvent(inner) ||
+    isLlmContextClearedEvent(inner)
+  );
+}
+
+/**
+ * Incremental per-message reducer for the `context` store — the client-side
+ * ordered fold of the same event log the backend folds (`ContextManager`):
+ *   - `LlmMessageEvent`          → append the inner `message` (fresh array).
+ *   - `LlmContextCompactedEvent` → `foldContextCompaction` (drop prefix + insert
+ *                                  summary), mirroring `compact` (ADR-010 §4).
+ *   - `LlmContextClearedEvent`   → reset to `[]`, mirroring `clear_context` (§8).
+ *   - anything else              → passthrough `prev`.
+ * The synthetic summary is derivable from the event (the backend emits no
+ * `LlmMessageEvent` for it), so folding the event never double-applies (§4).
+ */
+export function contextReduce(
+  prev: unknown[] | undefined,
+  msg: AkgenticMessage,
+): unknown[] | undefined {
+  if (!isEventMessage(msg)) return prev;
+  const inner = (msg as EventMessage).event as
+    | { __model__?: string }
+    | undefined;
+  if (isLlmContextClearedEvent(inner)) return [];
+  if (isLlmContextCompactedEvent(inner)) {
+    return foldContextCompaction(prev ?? [], inner);
+  }
+  const message = innerLlmMessage(msg);
+  if (message !== undefined) return [...(prev ?? []), message];
+  return prev;
+}
+
+/**
+ * Epic 17 (ADR-014 §5) + Epic 29 (ADR-010 §4/§8): per-agent ordered conversation
+ * array. Appends each `LlmMessageEvent`'s inner `message`, FOLDS on
+ * `LlmContextCompactedEvent`, and RESETS on `LlmContextClearedEvent` — so the
+ * Member trace reflects the agent's actual post-compaction state, not the stale
+ * pre-compaction history. Custom `contextMatch`/`contextReduce` (no stock factory
+ * fits the three-way fold). Default key `sender.agent_id`; O(Δ)/frame; fresh
+ * value on real change. Read via `context.forAgent(id)`.
  */
 export const contextSpec: PerAgentSpec<unknown[]> = {
   name: 'context',
-  match: (m) => isEventMessage(m) && innerLlmMessage(m) !== undefined,
-  reduce: appendWith((m) => innerLlmMessage(m)),
+  match: contextMatch,
+  reduce: contextReduce,
 };
 
 /**
@@ -346,43 +477,92 @@ function innerLlmUsage(msg: AkgenticMessage): LlmUsageEvent | undefined {
   return isLlmUsageEvent(inner) ? inner : undefined;
 }
 
+/** Zero seed for an agent's token-usage value, used when a compaction/clear
+ *  event re-points the context window before any `LlmUsageEvent` has been folded
+ *  (ADR-022 §Decision 2). Only ever spread, never mutated — a shared constant is
+ *  safe. */
+const ZERO_TOKEN_USAGE: AgentTokenUsage = {
+  lastContextWindow: 0,
+  lastRunId: '',
+  lastModelName: '',
+  totalSent: 0,
+  totalReceived: 0,
+};
+
 /**
  * Incremental per-message reducer (the store's `(prev, msg) => next` contract,
- * ADR-022 §Decision 2). NOT a stock factory: it BOTH accumulates (sums
- * sent/received) AND overwrites (context window + labels) per event. The first
- * event seeds from `prev ?? zero`; every event returns a FRESH object (OnPush
- * safety). A non-usage message passes `prev` through unchanged (the spec's
- * `match` already gates these out, but the reducer stays defensive). Numeric
- * reads coalesce a missing/malformed field to `0` so a partial event never
- * yields `NaN` totals.
+ * ADR-022 §Decision 2). NOT a stock factory:
+ *   - `LlmUsageEvent` → accumulate (sum sent/received) AND overwrite (context
+ *     window + labels); numeric reads coalesce a missing field to `0` (no NaN).
+ *   - `LlmContextCompactedEvent` (Epic 29 / ADR-010 §4) → re-point
+ *     `lastContextWindow` to `event.tokens_after` when it is a number; leave it
+ *     unchanged when `tokens_after` is null/absent (defensive — no NaN, no reset).
+ *   - `LlmContextClearedEvent` (§8) → reset `lastContextWindow` to `0`.
+ * The two context events leave the cumulative I/O totals and run labels untouched
+ * (neither is a model run) and seed from `prev ?? zero`. Every change returns a
+ * FRESH object (OnPush safety); any other message passes `prev` through.
  */
 export function tokenUsageReduce(
   prev: AgentTokenUsage | undefined,
   msg: AkgenticMessage,
 ): AgentTokenUsage | undefined {
   const ev = innerLlmUsage(msg);
-  if (ev === undefined) return prev;
-  const input = ev.input_tokens ?? 0;
-  const output = ev.output_tokens ?? 0;
-  return {
-    lastContextWindow: input,
-    lastRunId: ev.run_id,
-    lastModelName: ev.model_name,
-    totalSent: (prev?.totalSent ?? 0) + input,
-    totalReceived: (prev?.totalReceived ?? 0) + output,
-  };
+  if (ev !== undefined) {
+    const input = ev.input_tokens ?? 0;
+    const output = ev.output_tokens ?? 0;
+    return {
+      lastContextWindow: input,
+      lastRunId: ev.run_id,
+      lastModelName: ev.model_name,
+      totalSent: (prev?.totalSent ?? 0) + input,
+      totalReceived: (prev?.totalReceived ?? 0) + output,
+    };
+  }
+  if (!isEventMessage(msg)) return prev;
+  const inner = (msg as EventMessage).event as
+    | { __model__?: string }
+    | undefined;
+  if (isLlmContextCompactedEvent(inner)) {
+    return typeof inner.tokens_after === 'number'
+      ? { ...(prev ?? ZERO_TOKEN_USAGE), lastContextWindow: inner.tokens_after }
+      : prev;
+  }
+  if (isLlmContextClearedEvent(inner)) {
+    return { ...(prev ?? ZERO_TOKEN_USAGE), lastContextWindow: 0 };
+  }
+  return prev;
 }
 
 /**
- * Epic 26 (ADR-022 §Decision 2): per-agent token-usage store derived from
- * `LlmUsageEvent` riding the `EventMessage` passthrough. Default key
- * `sender.agent_id` (the agent that ran the model). The custom
- * `tokenUsageReduce` both accumulates and overwrites, so no stock factory fits.
- * Read via `tokenUsage.forAgent(id)` / `tokenUsage.all$`; the team total is a
- * pure derivation over `all$` (TokenUsageSelector), never a separate aggregate.
+ * `match` for the `tokenUsage` spec: admit an `EventMessage` whose inner is a
+ * `LlmUsageEvent` (accumulate + overwrite) OR a `LlmContextCompactedEvent` /
+ * `LlmContextClearedEvent` (Epic 29 — re-point the live context-window estimate).
+ * The reducer decides the transition; any other message passes through.
+ */
+export function tokenUsageMatch(msg: AkgenticMessage): boolean {
+  if (!isEventMessage(msg)) return false;
+  const inner = (msg as EventMessage).event as
+    | { __model__?: string }
+    | undefined;
+  return (
+    isLlmUsageEvent(inner) ||
+    isLlmContextCompactedEvent(inner) ||
+    isLlmContextClearedEvent(inner)
+  );
+}
+
+/**
+ * Epic 26 (ADR-022 §Decision 2) + Epic 29 (ADR-010 §4/§8): per-agent token-usage
+ * store derived from `LlmUsageEvent` (accumulate + overwrite) plus the two
+ * context events (`tokenUsageMatch`), which re-point the live context-window
+ * estimate after a `/compact` or `/clear`. Default key `sender.agent_id` (the
+ * agent that ran the model). The custom `tokenUsageReduce` both accumulates and
+ * overwrites, so no stock factory fits. Read via `tokenUsage.forAgent(id)` /
+ * `tokenUsage.all$`; the team total is a pure derivation over `all$`
+ * (TokenUsageSelector), never a separate aggregate.
  */
 export const tokenUsageSpec: PerAgentSpec<AgentTokenUsage> = {
   name: 'tokenUsage',
-  match: (m) => isEventMessage(m) && isLlmUsageEvent((m as EventMessage).event),
+  match: tokenUsageMatch,
   reduce: tokenUsageReduce,
 };

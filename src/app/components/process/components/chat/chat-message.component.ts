@@ -22,6 +22,27 @@ export class ChatMessageComponent {
 
   readonly preview = computed(() => buildPreview(this.message().content));
 
+  /** True for the synthetic context-management markers (Epic 29 / ADR-010):
+   *  rule 6 = compaction fold, rule 7 = clear line. */
+  readonly isMarker = computed(
+    () => this.message().rule === 6 || this.message().rule === 7,
+  );
+
+  /** Leading glyph for a marker row — stacked bars for a compaction fold, a
+   *  trash glyph for a conversation clear. */
+  readonly markerIcon = computed(() =>
+    this.message().rule === 6 ? 'pi-bars' : 'pi-trash',
+  );
+
+  /** Toggle the compaction summary fold. Only rule 6 collapses; the clear
+   *  marker (rule 7) is inert. Reuses the panel's `toggleCollapse` channel so
+   *  the expand state persists across the pure fold's re-emissions. */
+  onToggleMarker(): void {
+    if (this.message().rule === 6) {
+      this.toggleCollapse.emit(this.message());
+    }
+  }
+
   onToggleCollapse(): void {
     const msg = this.message();
     // Rule 5 (welcome) is behaviourally inert (ADR-011 Decision 3).
