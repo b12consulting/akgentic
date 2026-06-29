@@ -9,9 +9,9 @@ payload:
   vector_store: false
   update_planning:
     instructions: |
-      CRITICAL: Always keep the plan updated.
-      Create tasks when your task involves other team members
-      or requires complex multiple steps.
-      Update task status when you make progress.
-      Record outputs when you complete work.
-      Do not finish your turn if the plan is stale.
+      Use the planning tool for:
+      - Create tasks for delegated work to other members (requests).
+      - Create tasks for multi-step work that benefits from explicit tracking.
+      - Update task status as work progresses.
+      - Record outputs when tasks are completed.
+      - Ensure the plan stays accurate when a tracked task exists.
