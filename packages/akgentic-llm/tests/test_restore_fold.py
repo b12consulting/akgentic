@@ -40,9 +40,10 @@ def _user(text: str) -> ModelRequest:
 
 
 def _compacted(summary: str, replaced: int) -> LlmContextCompactedEvent:
+    # Count-based fold belongs to ``sliding_window`` after 12-7; ``summarize`` full-folds.
     return LlmContextCompactedEvent(
         run_id=None,
-        strategy_id="summarize",
+        strategy_id="sliding_window",
         summary=summary,
         replaced_message_count=replaced,
         summarizer_prompt_version="v1",

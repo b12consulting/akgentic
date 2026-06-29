@@ -48,9 +48,12 @@ class CompactionResult:
 
     Attributes:
         summary: The produced summary text (empty when nothing was folded).
-        replaced_message_count: Leading non-system messages this summary stands in for.
+        replaced_message_count: Observability count of folded non-system messages. On the
+            ``summarize`` path it is *not* the fold boundary (that path folds everything
+            non-system); it still doubles as the no-op signal (``0`` ⇒ nothing to compact).
         tokens_after: Optional post-compaction token estimate over the retained context
-            (system + summary + tail). ``None`` when nothing was folded (NoOp / empty middle).
+            (``summarize`` ⇒ system + summary, no tail; sliding ⇒ system + summary + tail).
+            ``None`` when nothing was folded (NoOp / no foldable content).
     """
 
     summary: str
@@ -93,11 +96,18 @@ def _extract_text_from_part(part: Any) -> str:
     return str(part)
 
 
-def _is_system_prompt_message(msg: ModelMessage) -> bool:
-    """Return True if the message is a pure system-prompt injection."""
+def _is_system_message(msg: ModelMessage) -> bool:
+    """Return True if *msg* is a ``ModelRequest`` with **any** ``SystemPromptPart``.
+
+    The single canonical "a compaction must never fold this" predicate, shared by
+    ``_split_messages`` (strategy split) and ``context.fold_compaction`` /
+    ``context._apply_window`` (mechanical fold). The ``any``-part rule classifies a
+    mixed system+user ``ModelRequest`` (the /clear-then-operator-action shape) as
+    system on both sides, so the count and the fold cover identical messages.
+    """
     if not isinstance(msg, ModelRequest):
         return False
-    return all(isinstance(p, SystemPromptPart) for p in msg.parts)
+    return any(isinstance(p, SystemPromptPart) for p in msg.parts)
 
 
 def _is_tool_result_part(part: Any) -> TypeGuard[ToolReturnPart | RetryPromptPart]:
@@ -145,8 +155,9 @@ def _split_messages(
 ) -> tuple[list[ModelMessage], list[ModelMessage], list[ModelMessage]]:
     """Split messages into (system_prompts, summarizable_middle, recent_tail).
 
-    * ``system_prompts`` — ALL system-prompt-only ``ModelRequest``s from anywhere in
-      the conversation (durable context that must never be summarized away).
+    * ``system_prompts`` — every ``ModelRequest`` carrying any ``SystemPromptPart``
+      from anywhere in the conversation (durable context that must never be
+      summarized away), classified with the shared ``_is_system_message`` predicate.
     * ``summarizable_middle`` — the bulk of the conversation that can be summarized.
     * ``recent_tail`` — the last *keep_recent* non-system messages (kept verbatim).
 
@@ -156,12 +167,12 @@ def _split_messages(
     symmetric guard pulls a trailing ``ModelResponse`` from middle when its issued ids
     are answered by tool-results already in tail.
     """
-    # 1. Extract ALL system-prompt-only messages from anywhere in the list so injected
+    # 1. Extract every system-bearing message from anywhere in the list so injected
     #    context (memory notes, anchors, restart markers) is never summarized away.
     system_prompts: list[ModelMessage] = []
     rest: list[ModelMessage] = []
     for msg in messages:
-        if _is_system_prompt_message(msg):
+        if _is_system_message(msg):
             system_prompts.append(msg)
         else:
             rest.append(msg)
@@ -430,40 +441,45 @@ class SummarizingCompaction:
         return self._summarizer
 
     async def compact(self, messages: list[ModelMessage]) -> CompactionResult:
-        system, middle, tail = _split_messages(messages, self._cfg.keep_recent_messages)
-        if not middle:
+        """Full-fold the conversation into one summary (ADR-010 §9).
+
+        Summarizes **every non-system part across the whole history** (part-level —
+        ``_format_messages_for_summary`` skips ``SystemPromptPart``s), so the post-fold
+        context is ``[system parts] + [summary]`` with no ``keep_recent`` tail.
+        ``keep_recent_messages`` is ignored here (a ``SlidingWindowCompaction`` knob);
+        ``replaced_message_count`` is an observability count, not the fold boundary.
+        """
+        system = [m for m in messages if _is_system_message(m)]
+        replaced = sum(1 for m in messages if not _is_system_message(m))
+        if replaced == 0:
             return CompactionResult(summary="", replaced_message_count=0, tokens_after=None)
         prompt = (
             f"Summarize the following conversation in at most "
             f"~{self._cfg.summary_target_tokens} tokens.\n\n"
-            f"---\n{_format_messages_for_summary(middle)}\n---"
+            f"---\n{_format_messages_for_summary(messages)}\n---"
         )
         try:
             output = (await self._build_summarizer().run(prompt)).output
         except Exception:
-            return self._truncation_fallback(system, middle, tail)
+            return self._truncation_fallback(system, replaced)
         return CompactionResult(
             summary=output,
-            replaced_message_count=len(middle),
-            tokens_after=_estimate_retained(system, output, tail),
+            replaced_message_count=replaced,
+            tokens_after=_estimate_retained(system, output, []),
         )
 
     def _truncation_fallback(
-        self,
-        system: list[ModelMessage],
-        middle: list[ModelMessage],
-        tail: list[ModelMessage],
+        self, system: list[ModelMessage], replaced: int
     ) -> CompactionResult:
-        """Count-based degrade-to-truncation (no tiktoken): fold the whole middle."""
-        count = len(middle)
+        """Count-based degrade-to-truncation (no tiktoken): fold all non-system content."""
         summary = (
-            f"[NOTE: {count} earlier conversation message(s) were "
+            f"[NOTE: {replaced} earlier conversation message(s) were "
             f"truncated to fit the context window.]"
         )
         return CompactionResult(
             summary=summary,
-            replaced_message_count=count,
-            tokens_after=_estimate_retained(system, summary, tail),
+            replaced_message_count=replaced,
+            tokens_after=_estimate_retained(system, summary, []),
         )
 
 

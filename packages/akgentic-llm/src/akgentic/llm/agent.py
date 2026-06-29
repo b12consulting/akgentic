@@ -161,7 +161,7 @@ class ReactAgent:
             deps_type=deps_type,
             end_strategy=config.runtime_cfg.end_strategy,
             output_type=wrapped_result_type,
-            instrument=False,
+            instrument=None,
         )
 
     async def run(

@@ -9,7 +9,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from akgentic.llm.compaction import _drop_orphan_tool_results
+from akgentic.llm.compaction import _drop_orphan_tool_results, _is_system_message
 from akgentic.llm.event import (
     ContextObserver,
     LlmContextClearedEvent,
@@ -21,23 +21,6 @@ from akgentic.llm.event import (
     ToolCallEvent,
     ToolReturnEvent,
 )
-
-
-def _is_system_message(msg: ModelMessage) -> bool:
-    """Check if a message is a system message.
-
-    System messages contain SystemPromptPart and should be preserved
-    during sliding window operations.
-
-    Args:
-        msg: Message to check
-
-    Returns:
-        True if message is a system message
-    """
-    return isinstance(msg, ModelRequest) and any(
-        isinstance(part, SystemPromptPart) for part in msg.parts
-    )
 
 
 class ContextManager:
@@ -370,26 +353,73 @@ class ContextManager:
     def fold_compaction(
         messages: list[ModelMessage], event: LlmContextCompactedEvent
     ) -> list[ModelMessage]:
-        """Fold ``messages`` per ``event``: drop a leading prefix, insert a summary.
+        """Fold ``messages`` per ``event``; the mode is chosen by ``event.strategy_id``.
 
-        Removes the first ``event.replaced_message_count`` **non-system** messages
-        (counting from the first non-system message) and inserts exactly one
-        synthetic ``ModelRequest`` carrying a ``UserPromptPart`` prefixed
-        ``"[Conversation summary] "`` at the fold point. System messages are never
-        folded (same exemption as the sliding window). Pure and notify-free so the
-        live ``compact`` path and replay fold byte-identically; a final
-        ``_drop_orphan_tool_results`` guards OpenAI's ``role=tool`` adjacency. A
-        ``replaced_message_count <= 0`` event removes and inserts nothing.
+        ``"summarize"`` ⇒ a **part-level full-fold**: rebuild each system-bearing
+        ``ModelRequest`` as system-parts-only, drop every non-system message, and insert
+        the single ``"[Conversation summary] "`` request — post-fold context is
+        ``[system parts] + [one summary]`` (ADR-010 §9). Any other strategy ⇒ the
+        **count-based fold**: remove the first ``event.replaced_message_count``
+        non-system messages (message-level system exemption — a mixed head keeps its
+        fused ``UserPromptPart``) and insert the summary at the fold point. Both are
+        pure and notify-free so the live ``compact`` path and replay fold
+        byte-identically. A ``replaced_message_count <= 0`` event folds nothing.
 
         Args:
             messages: The history to fold.
-            event: The compaction event carrying the summary and fold count.
+            event: The compaction event carrying the summary, strategy id, and fold count.
 
         Returns:
             The folded history (a new list; the input is not mutated).
         """
         if event.replaced_message_count <= 0:
             return list(messages)
+        if event.strategy_id == "summarize":
+            return ContextManager._full_fold(messages, event.summary)
+        return ContextManager._count_fold(messages, event)
+
+    @staticmethod
+    def _full_fold(messages: list[ModelMessage], summary: str) -> list[ModelMessage]:
+        """Summarize fold: ``[system-parts-only head] + [one summary]`` (ADR-010 §9).
+
+        Rebuilds every system-bearing request as system-parts-only (part-level
+        exemption — strips a fused ``UserPromptPart``), drops all non-system content,
+        and appends the single synthetic summary request. Nothing non-system survives,
+        so no orphan-tool-result guard is needed.
+        """
+        folded: list[ModelMessage] = [
+            ContextManager._system_parts_only(m) for m in messages if _is_system_message(m)
+        ]
+        folded.append(
+            ModelRequest(parts=[UserPromptPart(content=f"[Conversation summary] {summary}")])
+        )
+        return folded
+
+    @staticmethod
+    def _system_parts_only(msg: ModelMessage) -> ModelMessage:
+        """Rebuild a system-bearing ``ModelRequest`` keeping only its ``SystemPromptPart``s.
+
+        Returns the original object when it is already system-only (identity preserved
+        for replay-parity identity checks); otherwise a fresh ``ModelRequest`` with the
+        fused non-system parts stripped.
+        """
+        if not isinstance(msg, ModelRequest):
+            return msg
+        system_parts = [p for p in msg.parts if isinstance(p, SystemPromptPart)]
+        if len(system_parts) == len(msg.parts):
+            return msg
+        return ModelRequest(parts=system_parts)
+
+    @staticmethod
+    def _count_fold(
+        messages: list[ModelMessage], event: LlmContextCompactedEvent
+    ) -> list[ModelMessage]:
+        """Count-based fold (sliding-window + custom count strategies).
+
+        Removes the first ``event.replaced_message_count`` non-system messages, inserts
+        one summary at the fold point, then drops any tool-result orphaned by the fold
+        (message-level system exemption guards OpenAI's ``role=tool`` adjacency).
+        """
         summary_msg = ModelRequest(
             parts=[UserPromptPart(content=f"[Conversation summary] {event.summary}")]
         )
