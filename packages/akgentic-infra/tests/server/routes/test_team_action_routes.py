@@ -5,7 +5,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from akgentic.infra.server.auth import RequestUser, get_request_user
 
 
 def test_send_message_success(client: TestClient) -> None:
@@ -245,3 +248,89 @@ def test_get_events_running_team(client: TestClient) -> None:
     resp = client.get(f"/teams/{team_id}/events")
     assert resp.status_code == 200
     assert isinstance(resp.json()["events"], list)
+
+
+# --- Route-level authorization: per-team gate on the action routes (Story 40.5) ---
+
+
+def _identity(app: FastAPI, user: RequestUser) -> TestClient:
+    """A TestClient whose request-user seam resolves to ``user``."""
+    app.dependency_overrides[get_request_user] = lambda: user
+    return TestClient(app)
+
+
+def _owned_team(owner: TestClient) -> str:
+    """Create a running team under the owner's identity; return its id."""
+    resp = owner.post("/teams/", json={"catalog_namespace": "test-team"})
+    assert resp.status_code == 201
+    return resp.json()["team_id"]
+
+
+def test_action_routes_deny_non_owner_404(app: FastAPI) -> None:
+    """A non-owner non-admin gets 404 on every action route (no existence leak) — AC2."""
+    owner = _identity(app, RequestUser(user_id="alice"))
+    team_id = _owned_team(owner)
+
+    intruder = _identity(app, RequestUser(user_id="bob"))
+    assert (
+        intruder.post(f"/teams/{team_id}/message/@Manager", json={"content": "x"}).status_code
+        == 404
+    )
+    assert (
+        intruder.post(
+            f"/teams/{team_id}/message/from/@Human/to/@Manager", json={"content": "x"}
+        ).status_code
+        == 404
+    )
+    human = intruder.post(
+        f"/teams/{team_id}/human-input", json={"content": "y", "message_id": "m"}
+    )
+    assert human.status_code == 404
+    # The gate denied (before the handler) — its detail, not the route's own error.
+    assert human.json()["detail"] == "Team not found"
+    assert intruder.post(f"/teams/{team_id}/stop").status_code == 404
+    assert intruder.post(f"/teams/{team_id}/restore").status_code == 404
+    assert intruder.get(f"/teams/{team_id}/agent-states").status_code == 404
+    app.dependency_overrides.clear()
+
+
+def test_action_routes_owner_reaches_handler(app: FastAPI) -> None:
+    """The owner passes the gate and reaches each route's normal outcome — AC3."""
+    owner = _identity(app, RequestUser(user_id="alice"))
+    team_id = _owned_team(owner)
+
+    assert (
+        owner.post(f"/teams/{team_id}/message/@Manager", json={"content": "x"}).status_code == 204
+    )
+    assert (
+        owner.post(
+            f"/teams/{team_id}/message/from/@Human/to/@Manager", json={"content": "x"}
+        ).status_code
+        == 204
+    )
+    assert owner.get(f"/teams/{team_id}/agent-states").status_code == 200
+    # Reaches the handler: an unknown message_id is the route's own 404, NOT the
+    # gate's "Team not found" — proving the gate let the owner through.
+    human = owner.post(
+        f"/teams/{team_id}/human-input", json={"content": "y", "message_id": "missing"}
+    )
+    assert human.status_code == 404
+    assert human.json()["detail"] != "Team not found"
+    assert owner.post(f"/teams/{team_id}/stop").status_code == 204
+    assert owner.post(f"/teams/{team_id}/restore").status_code == 200
+    app.dependency_overrides.clear()
+
+
+def test_action_routes_admin_non_owner_allowed(app: FastAPI) -> None:
+    """An ``admin`` bypasses ownership on the action routes — AC3."""
+    owner = _identity(app, RequestUser(user_id="alice"))
+    team_id = _owned_team(owner)
+
+    admin = _identity(app, RequestUser(user_id="root", roles=["admin"]))
+    assert admin.get(f"/teams/{team_id}/agent-states").status_code == 200
+    assert (
+        admin.post(f"/teams/{team_id}/message/@Manager", json={"content": "x"}).status_code == 204
+    )
+    assert admin.post(f"/teams/{team_id}/stop").status_code == 204
+    assert admin.post(f"/teams/{team_id}/restore").status_code == 200
+    app.dependency_overrides.clear()

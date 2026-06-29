@@ -28,7 +28,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.params import File, Form
 
 from akgentic.infra.server.models import (
@@ -36,8 +36,12 @@ from akgentic.infra.server.models import (
     WorkspaceFileUploadResponse,
     WorkspaceTreeResponse,
 )
+from akgentic.infra.server.routes._team_access import (
+    require_team_access,
+    require_workspace_access,
+)
 from akgentic.infra.server.settings import ServerSettings
-from akgentic.infra.server.state_keys import SETTINGS, TEAM_SERVICE
+from akgentic.infra.server.state_keys import SETTINGS
 from akgentic.tool.workspace import Filesystem
 
 logger = logging.getLogger(__name__)
@@ -91,14 +95,11 @@ def _get_workspace(
     return Filesystem(base_path=str(workspaces_root), workspace_name=name)
 
 
-def _validate_team(team_id: uuid.UUID, request: Request) -> None:
-    """Raise 404 if the team does not exist."""
-    service = TEAM_SERVICE.require(request)
-    if service.get_team(team_id) is None:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-
-@router.get("/{team_id}/tree", response_model=WorkspaceTreeResponse)
+@router.get(
+    "/{team_id}/tree",
+    response_model=WorkspaceTreeResponse,
+    dependencies=[Depends(require_team_access), Depends(require_workspace_access)],
+)
 def list_workspace_tree(
     team_id: uuid.UUID,
     request: Request,
@@ -107,7 +108,6 @@ def list_workspace_tree(
 ) -> WorkspaceTreeResponse:
     """List files in a team's workspace directory."""
     logger.debug("GET /workspace/%s/tree path=%s", team_id, path)
-    _validate_team(team_id, request)
     settings = SETTINGS.require(request)
     ws = _get_workspace(team_id, settings, workspace_id)
     try:
@@ -121,7 +121,10 @@ def list_workspace_tree(
     )
 
 
-@router.get("/{team_id}/file")
+@router.get(
+    "/{team_id}/file",
+    dependencies=[Depends(require_team_access), Depends(require_workspace_access)],
+)
 def read_workspace_file(
     team_id: uuid.UUID,
     request: Request,
@@ -130,7 +133,6 @@ def read_workspace_file(
 ) -> Response:
     """Read a file from a team's workspace."""
     logger.debug("GET /workspace/%s/file path=%s", team_id, path)
-    _validate_team(team_id, request)
     settings = SETTINGS.require(request)
     ws = _get_workspace(team_id, settings, workspace_id)
     try:
@@ -149,7 +151,12 @@ def read_workspace_file(
     )
 
 
-@router.post("/{team_id}/file", status_code=201, response_model=WorkspaceFileUploadResponse)
+@router.post(
+    "/{team_id}/file",
+    status_code=201,
+    response_model=WorkspaceFileUploadResponse,
+    dependencies=[Depends(require_team_access), Depends(require_workspace_access)],
+)
 async def upload_workspace_file(
     team_id: uuid.UUID,
     request: Request,
@@ -158,7 +165,6 @@ async def upload_workspace_file(
     workspace_id: str | None = None,
 ) -> WorkspaceFileUploadResponse:
     """Upload a file to a team's workspace."""
-    await asyncio.to_thread(_validate_team, team_id, request)
     settings = SETTINGS.require(request)
     ws = _get_workspace(team_id, settings, workspace_id)
     data = await file.read()

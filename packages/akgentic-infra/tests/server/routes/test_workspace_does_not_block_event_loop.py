@@ -1,20 +1,19 @@
 """Regression test: ``upload_workspace_file`` must not stall the event loop.
 
-The ``POST /workspace/{team_id}/file`` route invokes the synchronous
-``_validate_team`` and ``Filesystem.write`` calls via ``asyncio.to_thread``
-(per ADR-026 / Story 29.1). This module pins that offload behaviour in
-place with an executable regression guard: while the upload coroutine is
-suspended on a deliberately slow stub of one of those two sync calls, a
-concurrent ``GET /readiness`` request MUST return in under 100 ms,
-demonstrating the FastAPI event loop is not blocked.
+The ``POST /workspace/{team_id}/file`` route does its blocking work off the
+event loop in two ways: the synchronous ``require_team_access`` authorization
+dependency is offloaded to the threadpool by FastAPI itself, and
+``Filesystem.write`` is offloaded via ``asyncio.to_thread`` (ADR-026 / Story
+29.1). This module pins both in place: while the upload is suspended on a
+deliberately slow stub of one of those two sync calls, a concurrent
+``GET /readiness`` request MUST return in under 100 ms, demonstrating the
+event loop is not blocked.
 
-The two cases (slow ``_validate_team`` and slow ``Filesystem.write``)
-provide symmetric coverage of both ``to_thread`` call sites. If a future
-refactor reverts either wrapping back to a direct sync call, the
-corresponding case in this test fails with a ``< 0.1s`` latency
-assertion well outside any reasonable CI-scheduler / container-startup
-timing jitter (the slow stub sleeps for 2 s — a 20x margin from the
-100 ms ceiling).
+The two cases (slow team-access gate and slow ``Filesystem.write``) give
+symmetric coverage of both offloads. If a future refactor makes either run
+inline on the loop, the corresponding case fails with a ``< 0.1s`` latency
+assertion well outside any reasonable CI-scheduler / container-startup timing
+jitter (the slow stub sleeps for 2 s — a 20x margin from the 100 ms ceiling).
 
 See also the sibling pattern in ``akgentic-infra-department`` Epic 13 /
 Story 13.2 (same bug class, different submodule).
@@ -31,7 +30,7 @@ import pytest
 from akgentic.tool.workspace import Filesystem
 from fastapi.testclient import TestClient
 
-import akgentic.infra.server.routes.workspace as workspace_module
+from akgentic.infra.server.services.team_service import TeamService
 from akgentic.infra.server.settings import ServerSettings
 
 
@@ -51,18 +50,22 @@ def team_for_upload(client: TestClient, seeded_settings: ServerSettings) -> uuid
     return team_id
 
 
-def _patch_slow_validate_team(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch the module-level ``_validate_team`` to sleep for 2 s.
+def _patch_slow_team_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the ``require_team_access`` gate slow by stalling its team lookup.
 
-    ``asyncio.to_thread(_validate_team, ...)`` reads the module-level
-    name at call time, so patching the attribute on the module object
-    intercepts every dispatch for the test's lifetime.
+    The gate is a synchronous FastAPI dependency that calls
+    ``TeamService.get_team``. Wrapping that lookup with a 2 s sleep (then
+    delegating to the original, so the owner check still passes and the
+    upload returns 201) proves FastAPI offloads the sync gate to the
+    threadpool instead of running it on the event loop.
     """
+    original = TeamService.get_team
 
-    def slow_validate(team_id: uuid.UUID, request: object) -> None:
+    def slow_get_team(self: TeamService, team_id: uuid.UUID) -> object:
         time.sleep(2.0)
+        return original(self, team_id)
 
-    monkeypatch.setattr(workspace_module, "_validate_team", slow_validate)
+    monkeypatch.setattr(TeamService, "get_team", slow_get_team)
 
 
 def _patch_slow_filesystem_write(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,7 +87,7 @@ def _patch_slow_filesystem_write(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("case_name", "patch_fn"),
     [
-        ("slow _validate_team", _patch_slow_validate_team),
+        ("slow require_team_access gate", _patch_slow_team_access),
         ("slow Filesystem.write", _patch_slow_filesystem_write),
     ],
 )
@@ -98,11 +101,11 @@ def test_upload_does_not_block_event_loop(
     """A concurrent ``/readiness`` probe must return in <100 ms while a
     slow ``upload_workspace_file`` request is in flight.
 
-    The two parametrised cases stub each of the two ``asyncio.to_thread``
-    call sites independently. Both must satisfy the latency ceiling — if
-    either ``to_thread`` wrapping is ever reverted, the corresponding
-    case fails with the AC #4 message identifying which call site
-    regressed.
+    The two parametrised cases stub each off-loop hand-off independently —
+    the synchronous ``require_team_access`` gate (offloaded by FastAPI) and
+    the ``asyncio.to_thread(Filesystem.write)`` call. Both must satisfy the
+    latency ceiling — if either runs inline on the loop, the corresponding
+    case fails with a message identifying which hand-off regressed.
     """
     patch_fn(monkeypatch)
 

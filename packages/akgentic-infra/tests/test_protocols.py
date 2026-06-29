@@ -31,13 +31,21 @@ def test_auth_strategy_is_protocol() -> None:
     assert Protocol in inspect.getmro(AuthStrategy)
 
 
-def test_auth_strategy_has_authenticate() -> None:
-    """AuthStrategy defines authenticate with request parameter."""
+def test_auth_strategy_declares_async_contract() -> None:
+    """AuthStrategy declares the async resolver contract; the sync member stays gone.
+
+    The contract is ``async resolve_request_user`` + ``get_auth_routes``; there
+    is no synchronous ``authenticate`` entry point (removed in Story 40.1).
+    """
+    import inspect
+
     from akgentic.infra.protocols import AuthStrategy
 
-    assert hasattr(AuthStrategy, "authenticate")
-    sig = inspect.signature(AuthStrategy.authenticate)
-    assert "request" in sig.parameters
+    assert not hasattr(AuthStrategy, "authenticate")
+    assert hasattr(AuthStrategy, "resolve_request_user")
+    assert inspect.iscoroutinefunction(AuthStrategy.resolve_request_user)
+    assert "connection" in inspect.signature(AuthStrategy.resolve_request_user).parameters
+    assert hasattr(AuthStrategy, "get_auth_routes")
 
 
 def test_recovery_policy_is_protocol() -> None:
@@ -666,14 +674,6 @@ def test_placement_strategy_return_type() -> None:
         localns={"TeamCard": TeamCard, "TeamHandle": TeamHandle},
     )
     assert hints["return"] is TeamHandle
-
-
-def test_auth_strategy_return_type() -> None:
-    """AuthStrategy.authenticate returns str | None."""
-    from akgentic.infra.protocols import AuthStrategy
-
-    hints = get_type_hints(AuthStrategy.authenticate)
-    assert hints["return"] == str | None
 
 
 def test_recovery_policy_return_type() -> None:

@@ -7,8 +7,10 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from akgentic.infra.server.auth import RequestUser, get_request_user
 from akgentic.infra.server.routes.ws import ConnectionManager
 
 
@@ -359,6 +361,77 @@ class TestFastDisconnectDetection:
 
         # Generous bound for shared CI runners; observed locally well under 100 ms.
         assert elapsed < 0.5, f"disconnect detection took {elapsed:.3f}s, expected < 0.5s"
+
+
+class TestWebSocketAuthorization:
+    """Owner-or-admin gate on WS /ws/{team_id} (Story 40.5, AC4/AC5)."""
+
+    def test_ws_foreign_owner_closed_1008(self, app: FastAPI) -> None:
+        """A principal who is not the owner is closed 1008 before accept — AC4/AC5.
+
+        The team is owned by ``alice``; a fresh connection resolves its principal
+        off the WS ``.state`` stash (absent in community → anonymous), which is not
+        the owner, so the handler closes with policy-violation 1008 and never
+        accepts (the caller receives no event data).
+        """
+        from starlette.websockets import WebSocketDisconnect
+
+        app.dependency_overrides[get_request_user] = lambda: RequestUser(user_id="alice")
+        owner_client = TestClient(app)
+        team_id = owner_client.post(
+            "/teams/", json={"catalog_namespace": "test-team"}
+        ).json()["team_id"]
+        app.dependency_overrides.clear()
+
+        client = TestClient(app)
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/ws/{team_id}"):
+                pass
+        assert exc_info.value.code == 1008
+
+    def test_ws_named_non_owner_closed_1008(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A named non-owner non-admin principal is closed 1008 — AC4."""
+        from starlette.websockets import WebSocketDisconnect
+
+        team_id = client.post(
+            "/teams/", json={"catalog_namespace": "test-team"}
+        ).json()["team_id"]
+        monkeypatch.setattr(
+            "akgentic.infra.server.routes.ws.get_request_user",
+            lambda conn: RequestUser(user_id="mallory"),
+        )
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/ws/{team_id}"):
+                pass
+        assert exc_info.value.code == 1008
+
+    def test_ws_owner_accepted_and_streams(self, client: TestClient) -> None:
+        """The owner (community anonymous) is accepted and streams events — AC4."""
+        team_id = client.post(
+            "/teams/", json={"catalog_namespace": "test-team"}
+        ).json()["team_id"]
+        with client.websocket_connect(f"/ws/{team_id}") as ws:
+            _trigger_subscriber_event(client, team_id)
+            data = ws.receive_json(mode="text")
+            assert "__model__" in data
+
+    def test_ws_admin_non_owner_accepted_and_streams(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An ``admin`` who does not own the team is accepted and streams — AC4."""
+        team_id = client.post(
+            "/teams/", json={"catalog_namespace": "test-team"}
+        ).json()["team_id"]
+        monkeypatch.setattr(
+            "akgentic.infra.server.routes.ws.get_request_user",
+            lambda conn: RequestUser(user_id="root", roles=["admin"]),
+        )
+        with client.websocket_connect(f"/ws/{team_id}") as ws:
+            _trigger_subscriber_event(client, team_id)
+            data = ws.receive_json(mode="text")
+            assert "__model__" in data
 
 
 def _trigger_subscriber_event(client: TestClient, team_id: str) -> None:
