@@ -203,13 +203,30 @@ dry_run_package() {
     echo "📦 $pkg  (framework=$vendored_version  remote=$remote_version)  [$manifest]"
 
     # Authoritative boundary: the last-synced remote SHA from the subtree bookmark.
-    local last_synced
-    last_synced="$(git log --all --grep="Squashed '$prefix/' changes from" --format="%s" \
-        | head -1 | sed -nE "s/.*\.\.([0-9a-f]+).*/\1/p")"
+    # Scan only bookmarks reachable from HEAD (the current framework branch) — NOT
+    # --all — so a sibling framework branch that tracks a different package branch
+    # (e.g. version-1.x ⟷ package version-1.x) cannot leak its bookmark in here. The
+    # framework branch ⟷ package branch mapping means each framework line vendors a
+    # distinct package branch; mixing them picks a boundary off the wrong lineage.
+    # Walk newest→oldest and take the first <new> that is an ancestor of the remote
+    # branch being synced — a belt-and-suspenders guard so a bookmark from a diverged
+    # line (whose <new> is not on remote $BRANCH) is skipped rather than mistaken for
+    # the boundary, which would report already-vendored commits as pending.
+    local last_synced=""
+    while read -r candidate; do
+        [ -z "$candidate" ] && continue
+        git cat-file -e "${candidate}^{commit}" 2>/dev/null || continue
+        if git merge-base --is-ancestor "$candidate" "$remote_tip" 2>/dev/null; then
+            last_synced="$candidate"
+            break
+        fi
+    done < <(git log HEAD --grep="Squashed '$prefix/' changes from" --format="%s" \
+        | sed -nE "s/.*\.\.([0-9a-f]+).*/\1/p")
 
-    if [ -z "$last_synced" ] || ! git cat-file -e "${last_synced}^{commit}" 2>/dev/null; then
-        echo "  ⚠️  no subtree-sync bookmark found (or its SHA is unreachable);"
-        echo "      cannot pin what was last synced. Last 10 remote commits:"
+    if [ -z "$last_synced" ]; then
+        echo "  ⚠️  no subtree-sync bookmark found on this branch (or none whose synced"
+        echo "      SHA is an ancestor of remote $BRANCH); cannot pin what was last"
+        echo "      synced. Last 10 remote commits:"
         git log -10 --format='    %h %s' "$remote_tip"
         echo ""
         return
