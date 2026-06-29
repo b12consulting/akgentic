@@ -56,10 +56,14 @@ def create_tool_return(tool_name: str, call_id: str) -> ModelRequest:
 
 
 def make_compacted_event(summary: str, replaced: int) -> LlmContextCompactedEvent:
-    """Build an LlmContextCompactedEvent with the count-based fold fields."""
+    """Build a count-based (sliding-window) compaction event.
+
+    The count-based mechanical fold belongs to the ``sliding_window`` strategy after
+    12-7 (``summarize`` switched to part-level full-fold, see test_compaction.py).
+    """
     return LlmContextCompactedEvent(
         run_id=None,
-        strategy_id="summarize",
+        strategy_id="sliding_window",
         summary=summary,
         replaced_message_count=replaced,
         summarizer_prompt_version="v1",

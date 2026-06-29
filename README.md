@@ -478,8 +478,9 @@ class SystemPromptTracer:
 ## Context Compaction
 
 Long-running agents accumulate conversation history that eventually approaches the model's
-context window. **Compaction** folds older messages into a summary (preserving system
-prompts and the most recent turns); **clear** drops the history outright so the system
+context window. **Compaction** folds the conversation into a summary, preserving only the
+system prompt — the default `summarize` strategy replaces the **entire** non-system history
+with one summary (no verbatim tail); **clear** drops the history outright so the system
 prompt regenerates on the next run. Both are event-sourced: the `ContextManager` emits a
 single **primitive** event describing *what changed* (counts + summary text), never the
 replaced `ModelMessage` objects — so the log round-trips through the generic serializer and
@@ -498,7 +499,7 @@ agent's `compact` / `clear` commands.
 | `run_id` | `str \| None` | ReactAgent run the compaction belongs to; `None` if outside a run |
 | `strategy_id` | `str` | Resolved strategy id (registry id or FQCN) that produced the summary |
 | `summary` | `str` | Summary text that replaced the folded messages |
-| `replaced_message_count` | `int` | Number of (non-system) messages folded into the summary |
+| `replaced_message_count` | `int` | Non-system messages folded — **observability only**; the `summarize` fold drops *all* non-system content regardless of this count |
 | `summarizer_prompt_version` | `str` | Version id selecting the summarizer instructions — see [Overriding the Summarizer Prompt](#overriding-the-summarizer-prompt) |
 | `tokens_before` | `int \| None` | Input-token estimate before compaction; `None` if unknown |
 | `tokens_after` | `int \| None` | Post-compaction context-size estimate; `None` if the strategy doesn't report one |
@@ -510,9 +511,12 @@ agent's `compact` / `clear` commands.
 | `run_id` | `str \| None` | ReactAgent run the clear belongs to; `None` if outside a run |
 | `cleared_message_count` | `int` | Number of messages dropped from context |
 
-Both are append-only and **count-based**: a subscriber reconstructs the resulting context by
-folding the event over its own message log — drop the first `replaced_message_count`
-non-system messages and insert the `summary` (compaction), or reset to empty (clear).
+Both are append-only: a subscriber reconstructs the resulting context by folding the event
+over its own message log. For `summarize` the fold is **full + part-level** — keep only the
+system-prompt *parts* (the first request is rebuilt system-parts-only, so a user prompt fused
+into it by pydantic-ai is folded away too) and insert the single `summary`; `sliding_window`
+keeps the last `keep_recent_messages`; `clear` resets to empty. The fold no longer depends on
+`replaced_message_count` (it is observability-only).
 
 **Usage — observe compaction/clear alongside the other LLM events:**
 
@@ -541,8 +545,8 @@ Built-ins:
 
 | `strategy` | Behaviour | Calls an LLM? |
 |---|---|---|
-| `"summarize"` (default) | Summarizes the middle of the history via an awaited LLM call; degrades to a count-based truncation marker if the summarizer errors. Preserves system prompts + the most recent `keep_recent_messages`. | Yes |
-| `"sliding_window"` | Deterministic head-drop: folds the summarizable middle with a marker, no LLM. | No |
+| `"summarize"` (default) | Replaces the **entire** non-system history with one summary via an awaited LLM call (system prompts kept, part-level — a user prompt fused into the first system request is folded away); **no verbatim tail**. Degrades to a truncation marker if the summarizer errors. Ignores `keep_recent_messages`. | Yes |
+| `"sliding_window"` | Deterministic head-drop: keeps the last `keep_recent_messages` verbatim and folds the rest behind a marker, no LLM. | No |
 | `"none"` | No-op: never folds a message. | No |
 
 Configure via `CompactionConfig` (nested in `ReactAgentConfig`):
@@ -554,7 +558,7 @@ cfg = CompactionConfig(
     strategy="summarize",        # or "sliding_window", "none", or "my.module.MyStrategy"
     auto_trigger=True,           # usage-based auto-compaction
     trigger_ratio=0.85,          # fire when input tokens ≥ 0.85 × context_length
-    keep_recent_messages=4,      # trailing messages preserved verbatim
+    keep_recent_messages=4,      # trailing messages kept verbatim — sliding_window only (summarize ignores it)
     summary_target_tokens=2000,  # token budget the summarizer aims for
     summarizer_prompt_version="v1",
 )

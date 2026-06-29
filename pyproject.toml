@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-llm"
-version = "1.5.0"
+version = "1.5.1"
 description = "LLM integration layer for Akgentic agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -41,6 +41,14 @@ artifacts = ["src/akgentic/llm/pricing.yaml"]
 
 # Tool configurations inherit from root workspace pyproject.toml
 # Only override when package-specific behavior is needed
+
+# Standalone-package CI does not check out the workspace, so the root's pytest
+# config is not inherited; asyncio_mode='auto' must be set here or bare async
+# tests fail collection (pytest-asyncio defaults to 'strict').
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
 
 [tool.mypy]
 python_version = "3.12"
