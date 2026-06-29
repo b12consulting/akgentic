@@ -443,6 +443,102 @@ describe('chatFold / chatStep (pure)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// chatStep — context-management markers (Epic 29 / ADR-010 §3/§8)
+// ---------------------------------------------------------------------------
+
+describe('chatStep — context-management markers (Epic 29 / ADR-010)', () => {
+  function makeCompactionEvent(
+    overrides: Record<string, unknown> = {},
+    msgOverrides: Partial<EventMessage> = {},
+  ): EventMessage {
+    return makeEvent(
+      {
+        __model__: 'akgentic.llm.event.LlmContextCompactedEvent',
+        run_id: 'run-1',
+        strategy_id: 'summarize',
+        summary: 'condensed earlier history',
+        replaced_message_count: 6,
+        summarizer_prompt_version: 'v1',
+        tokens_before: 9000,
+        tokens_after: 1200,
+        ...overrides,
+      },
+      msgOverrides,
+    );
+  }
+
+  function makeClearEvent(
+    overrides: Record<string, unknown> = {},
+    msgOverrides: Partial<EventMessage> = {},
+  ): EventMessage {
+    return makeEvent(
+      {
+        __model__: 'akgentic.llm.event.LlmContextClearedEvent',
+        run_id: 'run-2',
+        cleared_message_count: 3,
+        ...overrides,
+      },
+      msgOverrides,
+    );
+  }
+
+  it('compaction EventMessage → a Rule 6 marker carrying count + expandable summary', () => {
+    const state = chatFold([makeCompactionEvent()]);
+    expect(state.messages.length).toBe(1);
+    expect(state.messages[0].rule).toBe(6);
+    expect(state.messages[0].label).toBe('Summarized 6 messages');
+    expect(state.messages[0].content).toBe('condensed earlier history');
+    expect(state.messages[0].collapsed).toBe(true);
+  });
+
+  it('clear EventMessage → a Rule 7 marker (non-collapsible, no summary)', () => {
+    const state = chatFold([makeClearEvent()]);
+    expect(state.messages.length).toBe(1);
+    expect(state.messages[0].rule).toBe(7);
+    expect(state.messages[0].label).toBe('Conversation cleared (3 messages)');
+    expect(state.messages[0].collapsed).toBe(false);
+  });
+
+  it('marker sits CHRONOLOGICALLY at the event log index, between surrounding messages', () => {
+    const before = makeSent({
+      id: 'before-1',
+      sender: makeAddress({ name: '@Worker', role: 'Worker', agent_id: 'w-1' }),
+      message: makeInnerBase({ content: 'first' }),
+    });
+    const after = makeSent({
+      id: 'after-1',
+      sender: makeAddress({ name: '@Worker', role: 'Worker', agent_id: 'w-1' }),
+      message: makeInnerBase({ content: 'second' }),
+    });
+    const state = chatFold([before, makeCompactionEvent(), after]);
+    expect(state.messages.map((m) => m.id)).toEqual(['before-1', 'evt-1', 'after-1']);
+    expect(state.messages[1].rule).toBe(6);
+  });
+
+  it('two sequential context events emit two markers in order (guard exclusivity)', () => {
+    const state = chatFold([
+      makeCompactionEvent(),
+      makeClearEvent({}, { id: 'evt-2' }),
+    ]);
+    expect(state.messages.map((m) => m.rule)).toEqual([6, 7]);
+    expect(state.messages.map((m) => m.id)).toEqual(['evt-1', 'evt-2']);
+  });
+
+  it('a marker does NOT spawn or finalise a thinking bubble', () => {
+    const rcv = makeReceived();
+    const state = chatFold([rcv, makeCompactionEvent()]);
+    expect(state.thinkingAgents.length).toBe(1);
+    expect(state.thinkingAgents[0].final).toBe(false);
+  });
+
+  it('(AC5) markers are pure/incremental — a log shrink yields no stale marker', () => {
+    expect(chatFold([makeCompactionEvent()]).messages.length).toBe(1);
+    // Fold-from-scratch over a shorter log (the event gone) → no marker.
+    expect(chatFold([]).messages.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // ChatService (selector over MessageLogService.log$)
 // ---------------------------------------------------------------------------
 
@@ -555,6 +651,25 @@ describe('ChatService (selector over log$)', () => {
     const msgs = await firstValueFrom(service.messages$);
     expect(msgs.length).toBe(1);
     expect(msgs[0].rule).toBe(5);
+  });
+
+  it('(Epic 29) a compaction EventMessage reaches messages$ as a Rule 6 marker', async () => {
+    log.append(
+      makeEvent({
+        __model__: 'akgentic.llm.event.LlmContextCompactedEvent',
+        run_id: 'run-1',
+        strategy_id: 'summarize',
+        summary: 'condensed',
+        replaced_message_count: 4,
+        summarizer_prompt_version: 'v1',
+        tokens_before: 8000,
+        tokens_after: 1000,
+      }),
+    );
+    const msgs = await firstValueFrom(service.messages$);
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].rule).toBe(6);
+    expect(msgs[0].label).toBe('Summarized 4 messages');
   });
 
   it('pendingNotifications$ reacts to Rule 3 messages via the derived messages$', async () => {

@@ -38,7 +38,10 @@ import {
   systemPromptLabel,
 } from '../../../selectors/system-prompt.selector';
 import { TokenUsageSelector } from '../../../selectors/token-usage.selector';
-import { AgentTokenUsage } from '../../../event/per-agent-specs';
+import {
+  AgentTokenUsage,
+  CONVERSATION_SUMMARY_PREFIX,
+} from '../../../event/per-agent-specs';
 import { CommandDescriptor } from '../../../../../protocol/message.types';
 
 import { CopyButtonComponent } from '../../../../../shared/components/copy-button/copy-button.component';
@@ -323,10 +326,20 @@ export class AkgentChatComponent implements OnInit, OnChanges {
           // the run-1 double-carry renders once. Only `user-prompt` is handled
           // here now; the system label/`dynamic_ref` logic moved to the selector.
           if (part.part_kind === 'user-prompt') {
+            // Epic 29 (ADR-010 §4): the per-agent `context` store folds a
+            // compaction by inserting a synthetic user-prompt prefixed
+            // `CONVERSATION_SUMMARY_PREFIX`. Surface it as a clearly-labelled
+            // "Summary" row (prefix stripped); every other user-prompt renders
+            // unchanged.
+            const isSummary =
+              typeof part.content === 'string' &&
+              part.content.startsWith(CONVERSATION_SUMMARY_PREFIX);
             msg.push({
               type: 'human',
-              name: 'User',
-              content: part.content,
+              name: isSummary ? 'Summary' : 'User',
+              content: isSummary
+                ? part.content.slice(CONVERSATION_SUMMARY_PREFIX.length)
+                : part.content,
               timestamp: part.timestamp,
             });
           } else if (part.part_kind === 'tool-call') {

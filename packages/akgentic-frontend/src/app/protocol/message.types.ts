@@ -227,6 +227,43 @@ export interface LlmUsageEvent {
   requests: number;
 }
 
+/**
+ * Inner event payload announcing that a summary replaced a leading prefix of an
+ * agent's conversation, mirroring the akgentic-llm `LlmContextCompactedEvent`
+ * frozen dataclass (ADR-010 §3). It rides the standard `EventMessage` envelope
+ * (outer `sender.agent_id` identifies the agent that compacted) and is
+ * discriminated frontend-side by the inner `__model__` — exactly like
+ * `LlmUsageEvent` / `LlmSystemPromptEvent`. The serializer tags the dataclass
+ * with the fully-qualified `__model__` and preserves the primitive field values
+ * (integer counts, string summary — no `repr` stringification). `run_id` is
+ * `null` for a manual `/compact` between runs; `tokens_before` / `tokens_after`
+ * are observability-only and may be `null`.
+ */
+export interface LlmContextCompactedEvent {
+  __model__: string; // contains 'LlmContextCompactedEvent'
+  run_id: string | null;
+  strategy_id: string;
+  summary: string;
+  replaced_message_count: number;
+  summarizer_prompt_version: string;
+  tokens_before: number | null;
+  tokens_after: number | null;
+}
+
+/**
+ * Inner event payload announcing that an agent's conversation was wiped to empty
+ * (system prompt re-injects on the next run), mirroring the akgentic-llm
+ * `LlmContextClearedEvent` frozen dataclass (ADR-010 §8). Same native
+ * `EventMessage` passthrough + inner `__model__` discrimination as
+ * `LlmContextCompactedEvent`. `run_id` is `null` for a manual `/clear` between
+ * runs; `cleared_message_count` is the number of messages removed.
+ */
+export interface LlmContextClearedEvent {
+  __model__: string; // contains 'LlmContextClearedEvent'
+  run_id: string | null;
+  cleared_message_count: number;
+}
+
 // Union type for all possible messages
 export type AkgenticMessage =
   | SentMessage
@@ -342,6 +379,33 @@ export function isLlmUsageEvent(
   event: { __model__?: string } | null | undefined,
 ): event is LlmUsageEvent {
   return !!event?.__model__?.includes('LlmUsageEvent');
+}
+
+/**
+ * Inner-event check (ADR-010 §3): true when the inner event carried by an
+ * `EventMessage` is a `LlmContextCompactedEvent`. Matches on the inner
+ * `__model__`, the same discrimination used for `LlmUsageEvent` /
+ * `LlmSystemPromptEvent`. Mutually exclusive with every other `Llm*Event` guard:
+ * `'LlmContextCompactedEvent'` neither contains nor is contained by
+ * `'LlmContextClearedEvent'`, `'LlmUsageEvent'`, `'LlmSystemPromptEvent'`, or
+ * `'LlmMessageEvent'` (no substring collision in either direction).
+ */
+export function isLlmContextCompactedEvent(
+  event: { __model__?: string } | null | undefined,
+): event is LlmContextCompactedEvent {
+  return !!event?.__model__?.includes('LlmContextCompactedEvent');
+}
+
+/**
+ * Inner-event check (ADR-010 §8): true when the inner event carried by an
+ * `EventMessage` is a `LlmContextClearedEvent`. Matches on the inner
+ * `__model__`; mutually exclusive with `isLlmContextCompactedEvent` and the
+ * other `Llm*Event` guards (no substring collision in either direction).
+ */
+export function isLlmContextClearedEvent(
+  event: { __model__?: string } | null | undefined,
+): event is LlmContextClearedEvent {
+  return !!event?.__model__?.includes('LlmContextClearedEvent');
 }
 
 /**

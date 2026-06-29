@@ -18,10 +18,15 @@ import {
   systemPromptReduce,
 } from '../../../selectors/system-prompt.selector';
 import { TokenUsageSelector } from '../../../selectors/token-usage.selector';
-import { AgentTokenUsage } from '../../../event/per-agent-specs';
+import {
+  AgentTokenUsage,
+  CONVERSATION_SUMMARY_PREFIX,
+  foldContextCompaction,
+} from '../../../event/per-agent-specs';
 import {
   AkgenticMessage,
   CommandDescriptor,
+  LlmContextCompactedEvent,
 } from '../../../../../protocol/message.types';
 
 /**
@@ -1235,5 +1240,136 @@ describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
     component.userInput = 'hello';
     fixture.detectChanges();
     expect(submit.disabled).toBeFalse();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 29-2 (Epic 29 / ADR-010 §4) — the per-agent `context` store folds a
+// compaction by dropping the replaced prefix and inserting a synthetic summary
+// entry (prefixed CONVERSATION_SUMMARY_PREFIX). The member trace must render the
+// summary as a clearly-labelled row and NOT show the replaced prefix. Driven by
+// pushing the SAME folded array the store produces (foldContextCompaction) into
+// context$ and asserting the rendered conversation rows.
+// ---------------------------------------------------------------------------
+describe('AkgentChatComponent — folded compaction summary (Story 29-2)', () => {
+  const AGENT = 'a-mgr';
+
+  function setup(): {
+    fixture: ComponentFixture<AkgentChatComponent>;
+    component: AkgentChatComponent;
+  } {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AkgentChatComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            sendMessage: jasmine.createSpy('sendMessage').and.resolveTo(undefined),
+          },
+        },
+        {
+          provide: UtilService,
+          useValue: { copyToClipboard: () => {}, formatJSON: (v: any) => v },
+        },
+        {
+          provide: ContextService,
+          useValue: {
+            currentTeamRunning$: new BehaviorSubject<boolean>(true),
+            currentProcessId$: new BehaviorSubject<string>('proc-1'),
+          },
+        },
+        MessageLogService,
+        PerAgentStoreRegistry,
+        {
+          provide: IngestionService,
+          useFactory: (registry: PerAgentStoreRegistry) => ({
+            commands: { snapshot: (_id: string) => undefined },
+            systemPrompt: registry.register<SystemPromptValue>({
+              name: 'systemPrompt',
+              match: systemPromptMatch,
+              reduce: systemPromptReduce,
+            }),
+          }),
+          deps: [PerAgentStoreRegistry],
+        },
+        SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
+        provideNoopAnimations(),
+      ],
+    });
+
+    const fixture = TestBed.createComponent(AkgentChatComponent);
+    const component = fixture.componentInstance;
+    component.context$ = new BehaviorSubject<any[]>([]);
+    component.agentId = AGENT;
+    component.agentName = '@' + AGENT;
+    return { fixture, component };
+  }
+
+  /** Conversation-table card headers (excludes the head system block), whitespace
+   *  normalised. */
+  function convHeaders(fixture: ComponentFixture<AkgentChatComponent>): string[] {
+    const el: HTMLElement = fixture.nativeElement;
+    return Array.from(
+      el.querySelectorAll('.collapsible-container .card-header'),
+    ).map((n) => (n.textContent ?? '').replace(/\s+/g, ' ').trim());
+  }
+
+  /** Conversation-table content bodies. */
+  function convBodies(fixture: ComponentFixture<AkgentChatComponent>): string[] {
+    const el: HTMLElement = fixture.nativeElement;
+    return Array.from(
+      el.querySelectorAll('.collapsible-container .text-container'),
+    ).map((n) => (n.textContent ?? '').trim());
+  }
+
+  function userEntry(text: string): unknown {
+    return { kind: 'request', parts: [{ part_kind: 'user-prompt', content: text }] };
+  }
+  function systemEntry(text: string): unknown {
+    return {
+      kind: 'request',
+      parts: [{ part_kind: 'system-prompt', dynamic_ref: null, content: text }],
+    };
+  }
+
+  it('AC4 renders the inserted summary row (clearly labelled, prefix stripped) and NOT the replaced prefix', () => {
+    const { fixture, component } = setup();
+
+    // Pre-compaction history, then fold it with the SAME helper the store uses.
+    const preFold = [
+      systemEntry('SYSTEM'),
+      userEntry('dropped earlier turn one'),
+      userEntry('dropped earlier turn two'),
+      userEntry('kept latest turn'),
+    ];
+    const folded = foldContextCompaction(preFold, {
+      __model__: 'akgentic.llm.event.LlmContextCompactedEvent',
+      run_id: null,
+      strategy_id: 'sliding-window',
+      summary: 'the running recap',
+      replaced_message_count: 2,
+      summarizer_prompt_version: 'v1',
+      tokens_before: null,
+      tokens_after: 1234,
+    } as LlmContextCompactedEvent);
+
+    component.context$.next(folded as any[]);
+    fixture.detectChanges();
+
+    // The summary row renders, clearly labelled, with the prefix stripped.
+    expect(convHeaders(fixture)).toContain('Human : Summary');
+    expect(convBodies(fixture)).toContain('the running recap');
+    // The kept turn still renders as a normal user row.
+    expect(convHeaders(fixture)).toContain('Human : User');
+    expect(convBodies(fixture)).toContain('kept latest turn');
+
+    // The replaced prefix is GONE — neither dropped turn appears anywhere, and the
+    // raw summary marker is not shown to the user (stripped by the render touch).
+    const allText = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(allText).not.toContain('dropped earlier turn one');
+    expect(allText).not.toContain('dropped earlier turn two');
+    expect(allText).not.toContain(CONVERSATION_SUMMARY_PREFIX);
   });
 });
