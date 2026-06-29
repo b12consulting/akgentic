@@ -656,7 +656,9 @@ class ToolFactory:
             commands = {k: self._wrap_with_retry(v) for k, v in commands.items()}
         return commands
 
-    def get_command_registry(self) -> CommandRegistry:
+    def get_command_registry(
+        self, extra_commands: list[Callable[..., Any]] | None = None
+    ) -> CommandRegistry:
         """Build a name-keyed :class:`CommandRegistry` from every wired tool card.
 
         Iterates ``self.tool_cards`` in dependency order, calls each card's
@@ -667,11 +669,18 @@ class ToolFactory:
         wrapped via :meth:`_wrap_with_retry` (``functools.wraps`` preserves
         ``__name__``/``__doc__``), matching :meth:`get_commands` behavior.
 
+        Args:
+            extra_commands: Optional agent-owned plain callables (e.g. ``/compact``,
+                ``/clear``) that join the same collision-checked, signature-derived
+                table under the ``"BaseAgent"`` owner label. ``None`` (the default)
+                ⇒ tool-card commands only, byte-identical to the no-arg call.
+
         Raises:
-            ValueError: If two tool cards expose commands with the same canonical
-                name (collision is a wiring-time error, never a silent overwrite),
-                or if a command has an un-derivable signature. The message names
-                the offending command.
+            ValueError: If two commands resolve to the same canonical name —
+                whether two tool cards, a tool card and an extra callable, or two
+                extra callables (collision is a wiring-time error, never a silent
+                overwrite) — or if a command has an un-derivable signature. The
+                message names the offending command.
         """
         entries: dict[str, _CommandEntry] = {}
         for card in self.tool_cards:
@@ -685,7 +694,33 @@ class ToolFactory:
                         f"'{entries[name].tool_card}' and '{tool_card_name}'."
                     )
                 entries[name] = _build_command_entry(wrapped, tool_card_name)
+        self._register_extra_commands(entries, extra_commands)
         return CommandRegistry(entries)
+
+    def _register_extra_commands(
+        self,
+        entries: dict[str, _CommandEntry],
+        extra_commands: list[Callable[..., Any]] | None,
+    ) -> None:
+        """Fold agent-owned ``extra_commands`` into *entries* in place.
+
+        Each callable joins the same collision-checked, signature-derived table as
+        tool-card commands, under the ``"BaseAgent"`` owner label. When a
+        ``retry_exception`` is configured, the callable is retry-wrapped first;
+        ``functools.wraps`` preserves ``__name__``/``__wrapped__`` so a wrapped
+        ``compact`` still registers as ``/compact`` with its original signature.
+
+        Raises:
+            ValueError: If an extra callable's name collides with an already
+                registered command (a tool-card command OR an earlier extra
+                callable). The message names the colliding command.
+        """
+        for fn in extra_commands or []:
+            wrapped = self._wrap_with_retry(fn) if self._retry_exception is not None else fn
+            name = wrapped.__name__
+            if name in entries:
+                raise ValueError(f"Command name collision: '{name}'.")
+            entries[name] = _build_command_entry(wrapped, "BaseAgent")
 
     def get_toolsets(self) -> list[Any]:
         """Return toolset instances aggregated from all tool cards."""
