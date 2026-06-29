@@ -11,7 +11,7 @@ dynamically during agent creation.
 from pydantic import Field
 
 from akgentic.core import BaseConfig, BaseState
-from akgentic.llm.config import ModelConfig, RuntimeConfig, UsageLimits
+from akgentic.llm.config import CompactionConfig, ModelConfig, RuntimeConfig, UsageLimits
 from akgentic.llm.prompts import PromptTemplate
 from akgentic.tool.core import ToolCard
 
@@ -24,6 +24,7 @@ class AgentConfig(BaseConfig):
     - model_cfg: LLM model provider and settings
     - runtime_cfg: Execution parameters (temperature, max tokens, etc.)
     - usage_limits: Token and request usage constraints
+    - compaction_cfg: Context-compaction strategy and auto-trigger settings
     - max_help_requests: Recursion depth limit for delegation chains
 
     Team-level config for hiring members is provided by Orchestrator,
@@ -34,6 +35,8 @@ class AgentConfig(BaseConfig):
         model_cfg: LLM model configuration (provider, model name, API settings).
         runtime_cfg: Runtime execution settings (temperature, max tokens, retries).
         usage_limits: Usage constraints (max tokens, max requests, time limits).
+        compaction_cfg: Context-compaction strategy and auto-trigger config (opt-in;
+            off unless model_cfg.context_length is set).
         max_help_requests: Maximum delegation depth (default: 5).
 
     Example:
@@ -62,6 +65,10 @@ class AgentConfig(BaseConfig):
     usage_limits: UsageLimits = Field(
         default_factory=UsageLimits,
         description="Usage constraints for token and request limits to prevent runaway costs",
+    )
+    compaction_cfg: CompactionConfig = Field(
+        default_factory=CompactionConfig,
+        description="Context-compaction strategy and auto-trigger config (opt-in, off by default)",
     )
     max_help_requests: int = Field(
         default=5,

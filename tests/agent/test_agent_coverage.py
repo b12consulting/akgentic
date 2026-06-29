@@ -6,18 +6,18 @@ All tests use _make_minimal_agent pattern — no live actors or LLM calls. The
 command surface is exercised through a mocked CommandRegistry.
 """
 
+import uuid
 from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
-from akgentic.core import ActorAddress
-from akgentic.tool.errors import CommandNotRecognized
-from pydantic_ai import ModelRetry
-
 from akgentic.agent.agent import BaseAgent
 from akgentic.agent.config import AgentConfig
 from akgentic.agent.messages import AgentMessage
 from akgentic.agent.output_models import Request, StructuredOutput
+from akgentic.core import ActorAddress
+from akgentic.tool.errors import CommandNotRecognized
+from pydantic_ai import ModelRetry
 
 # =============================================================================
 # HELPERS (same pattern as test_agent.py)
@@ -69,6 +69,7 @@ def _make_minimal_agent(
     agent._command_registry = _make_registry(callables)  # type: ignore[attr-defined]
     agent._react_agent = MagicMock()  # type: ignore[attr-defined]
     agent._current_message = _make_mock_message()  # type: ignore[attr-defined]
+    agent.team_id = uuid.uuid4()  # normally injected by Akgent.__init__ / createActor
 
     mock_config = MagicMock(spec=AgentConfig)
     mock_config.name = name
