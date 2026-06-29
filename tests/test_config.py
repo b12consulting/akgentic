@@ -3,7 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from akgentic.llm.config import ModelConfig, ReactAgentConfig, RuntimeConfig, UsageLimits
+from akgentic.llm.config import (
+    CompactionConfig,
+    ModelConfig,
+    ReactAgentConfig,
+    RuntimeConfig,
+    UsageLimits,
+)
 
 
 class TestModelConfig:
@@ -80,6 +86,41 @@ class TestModelConfig:
         json_str = config.model_dump_json()
         assert "anthropic" in json_str
         assert "claude-3-5-sonnet-20241022" in json_str
+
+    def test_context_length_default_none(self):
+        """context_length defaults to None (compaction off) — AC 1."""
+        config = ModelConfig(provider="openai", model="gpt-4o")
+        assert config.context_length is None
+
+    def test_context_length_positive_accepted(self):
+        """A positive context_length is accepted — AC 1."""
+        config = ModelConfig(provider="openai", model="gpt-4o", context_length=128000)
+        assert config.context_length == 128000
+
+    def test_context_length_zero_invalid(self):
+        """context_length=0 violates gt=0 — AC 1."""
+        with pytest.raises(ValidationError):
+            ModelConfig(provider="openai", model="gpt-4o", context_length=0)
+
+    def test_context_length_negative_invalid(self):
+        """A negative context_length violates gt=0 — AC 1."""
+        with pytest.raises(ValidationError):
+            ModelConfig(provider="openai", model="gpt-4o", context_length=-1)
+
+    def test_context_length_independent_of_max_tokens(self):
+        """context_length and max_tokens are independent — AC 1."""
+        config = ModelConfig(
+            provider="openai", model="gpt-4o", max_tokens=1000, context_length=200000
+        )
+        assert config.max_tokens == 1000
+        assert config.context_length == 200000
+
+    def test_context_length_round_trip(self):
+        """context_length survives model_dump() -> model_validate() — AC 1."""
+        config = ModelConfig(provider="openai", model="gpt-4o", context_length=64000)
+        restored = ModelConfig.model_validate(config.model_dump())
+        assert restored.context_length == 64000
+        assert restored == config
 
 
 class TestUsageLimits:
@@ -265,3 +306,182 @@ class TestReactAgentConfig:
             ReactAgentConfig(
                 model_cfg=ModelConfig(provider="openai", model="gpt-4o", temperature=3.0)
             )
+
+
+class TestCompactionConfig:
+    """Test CompactionConfig model — AC 2, 3."""
+
+    def test_defaults(self):
+        """Default field values match the FR2 spec — AC 2."""
+        cfg = CompactionConfig()
+        assert cfg.strategy == "summarize"
+        assert cfg.auto_trigger is True
+        assert cfg.trigger_ratio == 0.85
+        assert cfg.keep_recent_messages == 4
+        assert cfg.summary_target_tokens == 2000
+        assert cfg.summarizer_prompt_version == "v1"
+        assert cfg.summary_model_cfg is None
+
+    def test_summary_instructions_not_a_config_field(self):
+        """The summarizer prompt is NOT stored on the config — only the small version id is,
+        keeping the prompt text out of the serialized config / start events. The text is
+        resolved via the SUMMARY_INSTRUCTIONS registry, keyed by summarizer_prompt_version."""
+        assert "summary_instructions" not in CompactionConfig.model_fields
+        assert CompactionConfig().summarizer_prompt_version == "v1"
+
+    def test_strategy_accepts_arbitrary_fqcn(self):
+        """strategy is a plain str — an arbitrary dotted FQCN round-trips unchanged — AC 2."""
+        fqcn = "mypkg.compaction.HeadlineCompaction"
+        cfg = CompactionConfig(strategy=fqcn)
+        assert cfg.strategy == fqcn
+        assert CompactionConfig.model_validate(cfg.model_dump()).strategy == fqcn
+
+    def test_trigger_ratio_one_accepted(self):
+        """trigger_ratio=1.0 is at the le=1.0 boundary — AC 2."""
+        assert CompactionConfig(trigger_ratio=1.0).trigger_ratio == 1.0
+
+    def test_trigger_ratio_zero_invalid(self):
+        """trigger_ratio=0.0 violates gt=0 — AC 2."""
+        with pytest.raises(ValidationError):
+            CompactionConfig(trigger_ratio=0.0)
+
+    def test_trigger_ratio_above_one_invalid(self):
+        """trigger_ratio>1.0 violates le=1.0 — AC 2."""
+        with pytest.raises(ValidationError):
+            CompactionConfig(trigger_ratio=1.0001)
+
+    def test_keep_recent_messages_zero_accepted(self):
+        """keep_recent_messages=0 is at the ge=0 boundary — AC 2."""
+        assert CompactionConfig(keep_recent_messages=0).keep_recent_messages == 0
+
+    def test_keep_recent_messages_negative_invalid(self):
+        """keep_recent_messages=-1 violates ge=0 — AC 2."""
+        with pytest.raises(ValidationError):
+            CompactionConfig(keep_recent_messages=-1)
+
+    def test_summary_target_tokens_zero_invalid(self):
+        """summary_target_tokens=0 violates gt=0 — AC 2."""
+        with pytest.raises(ValidationError):
+            CompactionConfig(summary_target_tokens=0)
+
+    def test_summary_model_cfg_nesting(self):
+        """summary_model_cfg accepts a nested ModelConfig — AC 2."""
+        nested = ModelConfig(provider="anthropic", model="claude-haiku-4-5-20251001")
+        cfg = CompactionConfig(summary_model_cfg=nested)
+        assert cfg.summary_model_cfg == nested
+
+    def test_default_round_trip(self):
+        """A default CompactionConfig round-trips equal to itself — AC 2."""
+        cfg = CompactionConfig()
+        assert CompactionConfig.model_validate(cfg.model_dump()) == cfg
+
+    def test_no_arbitrary_types_allowed(self):
+        """CompactionConfig declares no arbitrary_types_allowed — AC 3."""
+        assert not CompactionConfig.model_config.get("arbitrary_types_allowed")
+
+    def test_rejects_non_serializable_summary_model_cfg(self):
+        """A non-serializable object is rejected by the typed summary_model_cfg field — AC 3."""
+        with pytest.raises(ValidationError):
+            CompactionConfig(summary_model_cfg=object())  # type: ignore[arg-type]
+
+
+class TestReactAgentCompactionConfig:
+    """Test ReactAgentConfig compaction_cfg / max_messages fields + validators — AC 4, 8, 9."""
+
+    def test_default_exposes_compaction_config(self):
+        """A default ReactAgentConfig exposes a default CompactionConfig — AC 4."""
+        config = ReactAgentConfig()
+        assert isinstance(config.compaction_cfg, CompactionConfig)
+        assert config.compaction_cfg.strategy == "summarize"
+
+    def test_max_messages_default_none(self):
+        """max_messages defaults to None (unlimited) — AC 4."""
+        assert ReactAgentConfig().max_messages is None
+
+    def test_max_messages_zero_accepted(self):
+        """max_messages=0 is at the ge=0 boundary (auto_trigger off so window allowed) — AC 4."""
+        config = ReactAgentConfig(
+            max_messages=0, compaction_cfg=CompactionConfig(auto_trigger=False)
+        )
+        assert config.max_messages == 0
+
+    def test_max_messages_negative_invalid(self):
+        """max_messages=-1 violates ge=0 — AC 4."""
+        with pytest.raises(ValidationError):
+            ReactAgentConfig(
+                max_messages=-1, compaction_cfg=CompactionConfig(auto_trigger=False)
+            )
+
+    def test_compaction_fields_round_trip(self):
+        """compaction_cfg and max_messages survive a dump -> validate round-trip — AC 4."""
+        config = ReactAgentConfig(
+            max_messages=10, compaction_cfg=CompactionConfig(auto_trigger=False, strategy="noop")
+        )
+        restored = ReactAgentConfig.model_validate(config.model_dump())
+        assert restored.max_messages == 10
+        assert restored.compaction_cfg.strategy == "noop"
+        assert restored == config
+
+    # --- AC 8: window-exclusivity validator ---
+
+    def test_window_with_auto_trigger_rejected(self):
+        """auto_trigger=True + a configured window raises — AC 8."""
+        with pytest.raises(ValidationError):
+            ReactAgentConfig(compaction_cfg=CompactionConfig(auto_trigger=True), max_messages=10)
+
+    def test_window_without_auto_trigger_accepted(self):
+        """auto_trigger=False + max_messages=10 constructs — AC 8."""
+        config = ReactAgentConfig(
+            compaction_cfg=CompactionConfig(auto_trigger=False), max_messages=10
+        )
+        assert config.max_messages == 10
+
+    def test_auto_trigger_without_window_accepted(self):
+        """auto_trigger=True + max_messages=None constructs — AC 8."""
+        config = ReactAgentConfig(compaction_cfg=CompactionConfig(auto_trigger=True))
+        assert config.max_messages is None
+
+    # --- AC 9: threshold-vs-usage-limit validator ---
+
+    def test_threshold_at_or_above_input_limit_rejected(self):
+        """threshold >= input_tokens_limit raises — AC 9."""
+        with pytest.raises(ValidationError):
+            ReactAgentConfig(
+                model_cfg=ModelConfig(context_length=1000),
+                usage_limits=UsageLimits(input_tokens_limit=850),
+            )
+
+    def test_threshold_at_or_above_total_limit_rejected(self):
+        """threshold >= total_tokens_limit raises — AC 9."""
+        with pytest.raises(ValidationError):
+            ReactAgentConfig(
+                model_cfg=ModelConfig(context_length=1000),
+                usage_limits=UsageLimits(total_tokens_limit=800),
+            )
+
+    def test_threshold_strictly_below_both_accepted(self):
+        """threshold strictly below both limits constructs — AC 9."""
+        config = ReactAgentConfig(
+            model_cfg=ModelConfig(context_length=1000),
+            usage_limits=UsageLimits(input_tokens_limit=2000, total_tokens_limit=3000),
+        )
+        assert config.model_cfg.context_length == 1000
+
+    def test_threshold_with_both_limits_none_accepted(self):
+        """No token limits set -> threshold check passes — AC 9."""
+        config = ReactAgentConfig(model_cfg=ModelConfig(context_length=1000))
+        assert config.model_cfg.context_length == 1000
+
+    def test_threshold_skipped_when_context_length_none(self):
+        """context_length=None skips the threshold check regardless of limits — AC 9."""
+        config = ReactAgentConfig(usage_limits=UsageLimits(input_tokens_limit=1))
+        assert config.usage_limits.input_tokens_limit == 1
+
+    def test_threshold_skipped_when_auto_trigger_false(self):
+        """auto_trigger=False skips the threshold check regardless of limits — AC 9."""
+        config = ReactAgentConfig(
+            model_cfg=ModelConfig(context_length=1000),
+            compaction_cfg=CompactionConfig(auto_trigger=False),
+            usage_limits=UsageLimits(input_tokens_limit=1),
+        )
+        assert config.compaction_cfg.auto_trigger is False

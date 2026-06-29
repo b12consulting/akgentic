@@ -9,6 +9,8 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 
 from akgentic.llm import (
+    CompactionConfig,
+    CompactionResult,
     ModelConfig,
     ReactAgent,
     ReactAgentConfig,
@@ -16,12 +18,35 @@ from akgentic.llm import (
     UsageLimits,
     UserPrompt,
 )
+from akgentic.llm.compaction import SummarizingCompaction
 from akgentic.llm.event import (
+    LlmContextClearedEvent,
+    LlmContextCompactedEvent,
     LlmMessageEvent,
     LlmSystemPromptEvent,
     SystemPromptPartSnapshot,
     ToolCallEvent,
 )
+
+
+class _RecordingCompaction:
+    """Fake async CompactionStrategy that records calls and returns a fixed result."""
+
+    def __init__(self, result: CompactionResult) -> None:
+        self._result = result
+        self.calls = 0
+
+    async def compact(self, messages: list) -> CompactionResult:
+        self.calls += 1
+        return self._result
+
+
+def _over_budget_config() -> ReactAgentConfig:
+    """Config whose auto-trigger threshold is 850 (context_length 1000 * 0.85)."""
+    return ReactAgentConfig(
+        model_cfg=ModelConfig(provider="openai", model="gpt-4o", context_length=1000),
+        compaction_cfg=CompactionConfig(auto_trigger=True, trigger_ratio=0.85),
+    )
 
 
 class MockObserver:
@@ -242,7 +267,6 @@ class TestReactAgentProperties:
         context = agent.context
         assert context is not None
         assert hasattr(context, "messages")
-        assert hasattr(context, "checkpoint")
 
     def test_pydantic_agent_property(self, minimal_config):
         """Test pydantic_agent property returns pydantic-ai Agent."""
@@ -295,29 +319,11 @@ class TestReactAgentContextMethods:
             # Observer should have been notified
             assert len(observer.events) == 1
 
-    def test_checkpoint_creates_snapshot(self, minimal_config):
-        """Test checkpoint() creates snapshot."""
+    def test_checkpoint_and_rewind_wrappers_removed(self, minimal_config):
+        """ReactAgent no longer exposes checkpoint/rewind wrappers (AC 4)."""
         agent = ReactAgent(config=minimal_config)
-        snapshot = agent.checkpoint("test-checkpoint")
-        assert snapshot is not None
-        assert snapshot.checkpoint_id == "test-checkpoint"
-
-    def test_rewind_restores_context(self, minimal_config):
-        """Test rewind() restores context."""
-        agent = ReactAgent(config=minimal_config)
-
-        # Create checkpoint
-        snapshot = agent.checkpoint("before")
-        assert snapshot.checkpoint_id == "before"
-
-        # Modify context (add a message)
-        test_message = ModelRequest(parts=[UserPromptPart(content="test")])
-        agent.context.add_message(test_message)
-        assert len(agent.context.messages) == 1
-
-        # Rewind
-        agent.rewind("before")
-        assert len(agent.context.messages) == 0
+        assert not hasattr(agent, "checkpoint")
+        assert not hasattr(agent, "rewind")
 
 
 class TestReactAgentSyncMethod:
@@ -1060,3 +1066,247 @@ class TestReactAgentRestoreSeedsSystemPromptHash:
         assert agent.context.messages[0] is msg1
         assert agent.context.messages[1] is msg2
         assert agent.context._last_system_prompt_hash == "abc"
+
+
+# --- Epic 12 / Story 12-3: compaction wiring ---
+
+
+class TestReactAgentResolvesCompaction:
+    """__init__ resolves the strategy as runtime state on the shared client (AC 4, 10)."""
+
+    def test_init_sets_compaction_attr(self, minimal_config):
+        """The agent holds a resolved strategy as a plain attribute, not a config field."""
+        agent = ReactAgent(config=minimal_config)
+        assert agent._compaction is not None
+        assert "_compaction" not in type(agent._config).model_fields
+
+    def test_summarizer_reuses_shared_http_client(self, minimal_config):
+        """The default 'summarize' strategy reuses the agent's shared httpx client (no 2nd pool)."""
+        agent = ReactAgent(config=minimal_config)
+        assert isinstance(agent._compaction, SummarizingCompaction)
+        assert agent._compaction._http_client is agent._http_client
+
+    def test_summary_model_cfg_overrides_primary(self):
+        """When summary_model_cfg is set, the summarizer is built from it, not model_cfg."""
+        summary_cfg = ModelConfig(provider="openai", model="gpt-4o-mini")
+        config = ReactAgentConfig(
+            model_cfg=ModelConfig(provider="openai", model="gpt-4o"),
+            compaction_cfg=CompactionConfig(summary_model_cfg=summary_cfg),
+        )
+        agent = ReactAgent(config=config)
+        assert isinstance(agent._compaction, SummarizingCompaction)
+        assert agent._compaction._model_cfg is summary_cfg
+
+    @pytest.mark.asyncio
+    async def test_aclose_closes_the_single_shared_client_once(self, minimal_config):
+        """aclose() releases the one client the summarizer shares; a 2nd call is a no-op."""
+        agent = ReactAgent(config=minimal_config)
+        assert agent._compaction._http_client is agent._http_client  # type: ignore[attr-defined]
+        assert not agent._http_client.is_closed
+
+        await agent.aclose()
+        assert agent._http_client.is_closed
+        await agent.aclose()  # idempotent
+        assert agent._http_client.is_closed
+
+
+class TestReactAgentMaybeCompact:
+    """Auto-trigger arithmetic and once-per-turn firing (AC 5)."""
+
+    def test_threshold_arithmetic(self):
+        """_compaction_threshold == int(context_length * trigger_ratio)."""
+        agent = ReactAgent(config=_over_budget_config())
+        assert agent._compaction_threshold() == 850
+
+    def test_threshold_none_when_context_length_unset(self, minimal_config):
+        """No context_length ⇒ threshold None (compaction disabled)."""
+        agent = ReactAgent(config=minimal_config)
+        assert agent._compaction_threshold() is None
+
+    @pytest.mark.asyncio
+    async def test_compacts_when_usage_over_threshold(self):
+        """Usage above the threshold compacts via the strategy."""
+        agent = ReactAgent(config=_over_budget_config())
+        fake = _RecordingCompaction(CompactionResult("S", 1))
+        agent._compaction = fake
+        agent._context._last_input_tokens = 900  # > 850
+        await agent._maybe_compact()
+        assert fake.calls == 1
+
+    @pytest.mark.asyncio
+    async def test_noop_when_usage_at_or_below_threshold(self):
+        """Usage at/below the threshold no-ops."""
+        agent = ReactAgent(config=_over_budget_config())
+        fake = _RecordingCompaction(CompactionResult("S", 1))
+        agent._compaction = fake
+        agent._context._last_input_tokens = 850  # == threshold, not strictly above
+        await agent._maybe_compact()
+        assert fake.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_noop_when_no_usage_reported(self):
+        """last_input_tokens is None (no-usage provider) ⇒ never mis-fires."""
+        agent = ReactAgent(config=_over_budget_config())
+        fake = _RecordingCompaction(CompactionResult("S", 1))
+        agent._compaction = fake
+        assert agent._context.last_input_tokens is None
+        await agent._maybe_compact()
+        assert fake.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_noop_when_context_length_none(self, minimal_config):
+        """context_length None (threshold None) ⇒ no-op even with huge usage."""
+        agent = ReactAgent(config=minimal_config)
+        fake = _RecordingCompaction(CompactionResult("S", 1))
+        agent._compaction = fake
+        agent._context._last_input_tokens = 10_000_000
+        await agent._maybe_compact()
+        assert fake.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_noop_when_auto_trigger_disabled(self):
+        """auto_trigger=False ⇒ no-op regardless of usage."""
+        config = ReactAgentConfig(
+            model_cfg=ModelConfig(provider="openai", model="gpt-4o", context_length=1000),
+            compaction_cfg=CompactionConfig(auto_trigger=False, trigger_ratio=0.85),
+        )
+        agent = ReactAgent(config=config)
+        fake = _RecordingCompaction(CompactionResult("S", 1))
+        agent._compaction = fake
+        agent._context._last_input_tokens = 999
+        await agent._maybe_compact()
+        assert fake.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_run_auto_compacts_at_most_once_per_turn(self):
+        """run() invokes the auto-trigger exactly once before iter()."""
+        agent = ReactAgent(config=_over_budget_config())
+        fake = _RecordingCompaction(CompactionResult("S", 1))
+        agent._compaction = fake
+        agent._context._last_input_tokens = 900  # over threshold
+
+        with patch.object(agent._pydantic_agent, "iter", return_value=_make_mock_run([])):
+            await agent.run("q")
+
+        assert fake.calls == 1
+
+
+class TestReactAgentManualCompact:
+    """Manual compact() forces, bypassing the budget gate (AC 6)."""
+
+    def test_compact_forces_even_with_compaction_disabled_budget(self, minimal_config):
+        """compact() folds even when context_length is None (auto path would no-op)."""
+        agent = ReactAgent(config=minimal_config)  # auto_trigger True, context_length None
+        fake = _RecordingCompaction(CompactionResult("S", 1))
+        agent._compaction = fake
+        agent._context.add_message(ModelRequest(parts=[UserPromptPart(content="u1")]))
+
+        status = agent.compact()
+
+        assert fake.calls == 1
+        assert "Compacted" in status
+        assert agent.context.messages[0].parts[0].content == "[Conversation summary] S"
+
+    def test_compact_raises_after_close(self, minimal_config):
+        """compact() raises RuntimeError once the agent is closed."""
+        agent = ReactAgent(config=minimal_config)
+        agent.close()
+        with pytest.raises(RuntimeError, match="ReactAgent is closed"):
+            agent.compact()
+
+    @pytest.mark.asyncio
+    async def test_compact_now_zero_replacement_emits_no_event(self, minimal_config):
+        """A zero-replacement result no-ops: no event, no synthetic message, history untouched."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+        agent._compaction = _RecordingCompaction(CompactionResult("", 0))
+        agent._context.add_message(ModelRequest(parts=[UserPromptPart(content="u1")]))
+
+        status = await agent._compact_now()
+
+        assert status == "Nothing to compact."
+        assert [e for e in observer.events if isinstance(e, LlmContextCompactedEvent)] == []
+        assert len(agent.context.messages) == 1
+
+    @pytest.mark.asyncio
+    async def test_emitted_event_carries_strategy_tokens_after(self, minimal_config):
+        """Story 12-4: the strategy's tokens_after is forwarded onto the emitted event."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+        agent._compaction = _RecordingCompaction(CompactionResult("S", 1, tokens_after=123))
+        agent._context.add_message(ModelRequest(parts=[UserPromptPart(content="u1")]))
+
+        await agent._compact_now()
+
+        events = [e for e in observer.events if isinstance(e, LlmContextCompactedEvent)]
+        assert len(events) == 1
+        assert events[0].tokens_after == 123
+
+
+class TestReactAgentClearContextWrapper:
+    """Sync clear_context() wrapper (AC 7)."""
+
+    def test_returns_status_string_and_wipes_history(self, minimal_config):
+        """clear_context() returns a status string and empties the history."""
+        agent = ReactAgent(config=minimal_config)
+        agent._context.add_message(ModelRequest(parts=[UserPromptPart(content="u1")]))
+        agent._context.add_message(ModelRequest(parts=[UserPromptPart(content="u2")]))
+
+        status = agent.clear_context()
+
+        assert status == "Cleared 2 message(s); system prompt regenerates on the next run."
+        assert agent.context.messages == []
+
+    def test_emits_cleared_event(self, minimal_config):
+        """clear_context() emits an LlmContextClearedEvent through the context layer."""
+        observer = MockObserver()
+        agent = ReactAgent(config=minimal_config, observer=observer)
+        agent._context.add_message(ModelRequest(parts=[UserPromptPart(content="u1")]))
+
+        agent.clear_context()
+
+        cleared = [e for e in observer.events if isinstance(e, LlmContextClearedEvent)]
+        assert len(cleared) == 1
+        assert cleared[0].cleared_message_count == 1
+
+    def test_no_loop_interaction(self, minimal_config):
+        """clear_context() never touches the event loop (no run_until_complete)."""
+        agent = ReactAgent(config=minimal_config)
+        agent._context.add_message(ModelRequest(parts=[UserPromptPart(content="u1")]))
+
+        with patch.object(agent._loop, "run_until_complete") as ruc:
+            agent.clear_context()
+
+        ruc.assert_not_called()
+
+
+class TestReactAgentConfigValidatorsAtConstruction:
+    """The two ReactAgentConfig validators fire at construction (AC 11)."""
+
+    def test_auto_trigger_with_max_messages_raises(self):
+        """auto_trigger=True + max_messages is rejected (window-exclusivity)."""
+        with pytest.raises(ValueError, match="max_messages"):
+            ReactAgentConfig(
+                model_cfg=ModelConfig(provider="openai", model="gpt-4o"),
+                compaction_cfg=CompactionConfig(auto_trigger=True),
+                max_messages=10,
+            )
+
+    def test_threshold_at_or_above_usage_limit_raises(self):
+        """An effective threshold >= a set token limit is rejected (dead-trigger guard)."""
+        with pytest.raises(ValueError, match="strictly below"):
+            ReactAgentConfig(
+                model_cfg=ModelConfig(provider="openai", model="gpt-4o", context_length=1000),
+                compaction_cfg=CompactionConfig(auto_trigger=True, trigger_ratio=0.85),
+                usage_limits=UsageLimits(input_tokens_limit=800),  # 850 >= 800
+            )
+
+    def test_valid_config_builds_agent(self):
+        """A valid auto-compaction config builds an agent without error."""
+        config = ReactAgentConfig(
+            model_cfg=ModelConfig(provider="openai", model="gpt-4o", context_length=10_000),
+            compaction_cfg=CompactionConfig(auto_trigger=True, trigger_ratio=0.85),
+            usage_limits=UsageLimits(input_tokens_limit=50_000),
+        )
+        agent = ReactAgent(config=config)
+        assert agent is not None

@@ -14,17 +14,31 @@ Quick Start:
 Key Concepts:
     - REACT pattern: Iterative agent execution with tool calls
     - UsageLimits: Token/request budgets to control costs
-    - ContextManager: Message history with checkpoint/rewind
+    - ContextManager: Message history tracking
     - PromptTemplate: Template-based prompts with parameter substitution
 """
 
 from .agent import ReactAgent, UsageLimitError, UserPrompt
-from .config import HttpClientConfig, ModelConfig, ReactAgentConfig, RuntimeConfig, UsageLimits
-from .context import ContextManager, ContextSnapshot
+from .compaction import (
+    COMPACTION_STRATEGIES,
+    SUMMARY_INSTRUCTIONS,
+    CompactionResult,
+    CompactionStrategy,
+    create_compaction,
+)
+from .config import (
+    CompactionConfig,
+    HttpClientConfig,
+    ModelConfig,
+    ReactAgentConfig,
+    RuntimeConfig,
+    UsageLimits,
+)
+from .context import ContextManager
 from .event import (
     ContextObserver,
-    LlmCheckpointCreatedEvent,
-    LlmCheckpointRestoredEvent,
+    LlmContextClearedEvent,
+    LlmContextCompactedEvent,
     LlmMessageEvent,
     LlmSystemPromptEvent,
     LlmUsageEvent,
@@ -53,6 +67,7 @@ __all__ = [
     "RuntimeConfig",
     "HttpClientConfig",
     "ReactAgentConfig",
+    "CompactionConfig",
     # Agent
     "ReactAgent",
     "UsageLimitError",
@@ -60,15 +75,20 @@ __all__ = [
     # Context
     "ContextManager",
     "ContextObserver",
-    "ContextSnapshot",
     "LlmMessageEvent",
     "LlmUsageEvent",
-    "LlmCheckpointCreatedEvent",
-    "LlmCheckpointRestoredEvent",
     "LlmSystemPromptEvent",
     "SystemPromptPartSnapshot",
     "ToolCallEvent",
     "ToolReturnEvent",
+    # Compaction
+    "LlmContextCompactedEvent",
+    "LlmContextClearedEvent",
+    "CompactionStrategy",
+    "CompactionResult",
+    "COMPACTION_STRATEGIES",
+    "SUMMARY_INSTRUCTIONS",
+    "create_compaction",
     # Prompts
     "PromptTemplate",
     "current_datetime_prompt",

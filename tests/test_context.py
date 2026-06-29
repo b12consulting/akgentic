@@ -1,4 +1,4 @@
-"""Tests for context management with checkpointing."""
+"""Tests for context management."""
 
 # Direct import to avoid providers dependency issue temporarily
 import importlib.util
@@ -12,8 +12,11 @@ from pydantic_ai.messages import (
     ModelResponse,
     SystemPromptPart,
     TextPart,
+    ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.usage import RequestUsage
 
 spec = importlib.util.spec_from_file_location(
     "context", Path(__file__).parent.parent / "src" / "akgentic" / "llm" / "context.py"
@@ -23,10 +26,46 @@ spec.loader.exec_module(context_module)  # type: ignore[union-attr]
 
 ContextManager = context_module.ContextManager
 ContextObserver = context_module.ContextObserver
-ContextSnapshot = context_module.ContextSnapshot
 LlmMessageEvent = context_module.LlmMessageEvent
-LlmCheckpointCreatedEvent = context_module.LlmCheckpointCreatedEvent
-LlmCheckpointRestoredEvent = context_module.LlmCheckpointRestoredEvent
+LlmContextCompactedEvent = context_module.LlmContextCompactedEvent
+LlmContextClearedEvent = context_module.LlmContextClearedEvent
+
+
+class EventRecorder:
+    """Observer that records every domain event in emission order."""
+
+    def __init__(self) -> None:
+        self.events: list[object] = []
+
+    def notify_event(self, event: object) -> None:
+        self.events.append(event)
+
+
+def create_tool_call(tool_name: str, call_id: str) -> ModelResponse:
+    """Create an assistant tool-call response for testing."""
+    return ModelResponse(
+        parts=[ToolCallPart(tool_name=tool_name, tool_call_id=call_id, args="{}")]
+    )
+
+
+def create_tool_return(tool_name: str, call_id: str) -> ModelRequest:
+    """Create a tool-return request for testing."""
+    return ModelRequest(
+        parts=[ToolReturnPart(tool_name=tool_name, tool_call_id=call_id, content="ok")]
+    )
+
+
+def make_compacted_event(summary: str, replaced: int) -> LlmContextCompactedEvent:
+    """Build an LlmContextCompactedEvent with the count-based fold fields."""
+    return LlmContextCompactedEvent(
+        run_id=None,
+        strategy_id="summarize",
+        summary=summary,
+        replaced_message_count=replaced,
+        summarizer_prompt_version="v1",
+        tokens_before=None,
+        tokens_after=None,
+    )
 
 
 class MockObserver:
@@ -34,17 +73,11 @@ class MockObserver:
 
     def __init__(self) -> None:
         self.messages_added: list[ModelMessage] = []
-        self.checkpoints_created: list[ContextSnapshot] = []
-        self.rewinds: list[ContextSnapshot] = []
 
     def notify_event(self, event: object) -> None:
         """Track typed context events."""
         if isinstance(event, LlmMessageEvent):
             self.messages_added.append(event.message)
-        elif isinstance(event, LlmCheckpointCreatedEvent):
-            self.checkpoints_created.append(event.snapshot)
-        elif isinstance(event, LlmCheckpointRestoredEvent):
-            self.rewinds.append(event.snapshot)
 
 
 def create_user_message(content: str) -> ModelRequest:
@@ -63,39 +96,6 @@ def create_assistant_message(content: str) -> ModelResponse:
         parts=[TextPart(content=content)],
         timestamp=datetime.now(),
     )
-
-
-class TestContextSnapshot:
-    """Test ContextSnapshot model."""
-
-    def test_create_snapshot(self) -> None:
-        """Test creating a snapshot with all fields."""
-        msg = create_user_message("test")
-        timestamp = datetime.now()
-        metadata = {"key": "value"}
-
-        snapshot = ContextSnapshot(
-            checkpoint_id="test-id",
-            timestamp=timestamp,
-            messages=[msg],
-            metadata=metadata,
-        )
-
-        assert snapshot.checkpoint_id == "test-id"
-        assert snapshot.timestamp == timestamp
-        assert len(snapshot.messages) == 1
-        assert snapshot.metadata == metadata
-
-    def test_snapshot_default_metadata(self) -> None:
-        """Test snapshot with default empty metadata."""
-        msg = create_user_message("test")
-        snapshot = ContextSnapshot(
-            checkpoint_id="test-id",
-            timestamp=datetime.now(),
-            messages=[msg],
-        )
-
-        assert snapshot.metadata == {}
 
 
 class TestContextManager:
@@ -143,94 +143,6 @@ class TestContextManager:
         # Original should be unchanged
         assert len(manager.messages) == 1
 
-    def test_checkpoint_auto_generates_uuid(self) -> None:
-        """Test checkpoint auto-generates UUID if no id provided."""
-        manager = ContextManager()
-        manager.add_message(create_user_message("Hello"))
-
-        snapshot = manager.checkpoint()
-
-        assert snapshot.checkpoint_id is not None
-        assert len(snapshot.checkpoint_id) > 0
-        assert len(snapshot.messages) == 1
-
-    def test_checkpoint_with_explicit_id(self) -> None:
-        """Test checkpoint with explicit id."""
-        manager = ContextManager()
-        manager.add_message(create_user_message("Hello"))
-
-        snapshot = manager.checkpoint(checkpoint_id="my-checkpoint")
-
-        assert snapshot.checkpoint_id == "my-checkpoint"
-        assert len(snapshot.messages) == 1
-
-    def test_checkpoint_with_metadata(self) -> None:
-        """Test checkpoint with metadata."""
-        manager = ContextManager()
-        manager.add_message(create_user_message("Hello"))
-        metadata = {"reason": "test", "version": 1}
-
-        snapshot = manager.checkpoint(checkpoint_id="test", metadata=metadata)
-
-        assert snapshot.metadata == metadata
-
-    def test_rewind_restores_messages(self) -> None:
-        """Test rewind restores messages to checkpoint state."""
-        manager = ContextManager()
-        manager.add_message(create_user_message("Message 1"))
-        snapshot = manager.checkpoint(checkpoint_id="checkpoint-1")
-
-        manager.add_message(create_user_message("Message 2"))
-        manager.add_message(create_user_message("Message 3"))
-        assert len(manager.messages) == 3
-
-        manager.rewind("checkpoint-1")
-
-        assert len(manager.messages) == 1
-        assert manager.messages[0] == snapshot.messages[0]
-        assert manager.messages[0].parts[0].content == "Message 1"  # type: ignore[attr-defined]
-
-    def test_rewind_invalid_id_raises_keyerror(self) -> None:
-        """Test rewind with invalid id raises KeyError."""
-        manager = ContextManager()
-        manager.add_message(create_user_message("Hello"))
-
-        with pytest.raises(KeyError):
-            manager.rewind("nonexistent-checkpoint")
-
-    def test_get_checkpoint_returns_snapshot(self) -> None:
-        """Test get_checkpoint returns snapshot for valid id."""
-        manager = ContextManager()
-        manager.add_message(create_user_message("Hello"))
-        original_snapshot = manager.checkpoint(checkpoint_id="test")
-
-        retrieved = manager.get_checkpoint("test")
-
-        assert retrieved is not None
-        assert retrieved.checkpoint_id == original_snapshot.checkpoint_id
-        assert len(retrieved.messages) == 1
-
-    def test_get_checkpoint_returns_none_for_invalid_id(self) -> None:
-        """Test get_checkpoint returns None for invalid id."""
-        manager = ContextManager()
-
-        result = manager.get_checkpoint("nonexistent")
-
-        assert result is None
-
-    def test_list_checkpoints_returns_ids_in_order(self) -> None:
-        """Test list_checkpoints returns ids in creation order."""
-        manager = ContextManager()
-        manager.add_message(create_user_message("Message"))
-
-        manager.checkpoint(checkpoint_id="first")
-        manager.checkpoint(checkpoint_id="second")
-        manager.checkpoint(checkpoint_id="third")
-
-        checkpoint_ids = manager.list_checkpoints()
-
-        assert checkpoint_ids == ["first", "second", "third"]
-
     def test_observer_on_message_added(self) -> None:
         """Test observer on_message_added is called."""
         manager = ContextManager()
@@ -242,33 +154,6 @@ class TestContextManager:
 
         assert len(observer.messages_added) == 1
         assert observer.messages_added[0] == msg
-
-    def test_observer_on_checkpoint_created(self) -> None:
-        """Test observer on_checkpoint_created is called."""
-        manager = ContextManager()
-        observer = MockObserver()
-        manager.subscribe(observer)
-        manager.add_message(create_user_message("Hello"))
-
-        snapshot = manager.checkpoint(checkpoint_id="test")
-
-        assert len(observer.checkpoints_created) == 1
-        assert observer.checkpoints_created[0].checkpoint_id == snapshot.checkpoint_id
-
-    def test_observer_on_rewind(self) -> None:
-        """Test observer on_rewind is called."""
-        manager = ContextManager()
-        observer = MockObserver()
-        manager.subscribe(observer)
-
-        manager.add_message(create_user_message("Message 1"))
-        snapshot = manager.checkpoint(checkpoint_id="test")
-        manager.add_message(create_user_message("Message 2"))
-
-        manager.rewind("test")
-
-        assert len(observer.rewinds) == 1
-        assert observer.rewinds[0].checkpoint_id == snapshot.checkpoint_id
 
     def test_sliding_window_enforces_max_messages(self) -> None:
         """Test sliding window enforces max_messages limit."""
@@ -307,25 +192,6 @@ class TestContextManager:
         assert messages[1].parts[0].content == "User 2"  # type: ignore[attr-defined]
         assert messages[2].parts[0].content == "User 3"  # type: ignore[attr-defined]
 
-    def test_checkpoint_stores_deep_copy(self) -> None:
-        """Test checkpoint stores deep copy of messages."""
-        manager = ContextManager()
-        msg = create_user_message("Original")
-        manager.add_message(msg)
-
-        snapshot = manager.checkpoint(checkpoint_id="test")
-
-        # Modify the original message's content (if mutable parts exist)
-        # Since pydantic models are immutable, we'll add another message
-        manager.add_message(create_user_message("Modified"))
-
-        # Snapshot should still have only 1 message
-        assert len(snapshot.messages) == 1
-        assert snapshot.messages[0].parts[0].content == "Original"  # type: ignore[attr-defined]
-
-        # Manager should have 2 messages
-        assert len(manager.messages) == 2
-
     def test_unsubscribe_stops_notifications(self) -> None:
         """Test unsubscribe stops observer notifications."""
         manager = ContextManager()
@@ -349,39 +215,16 @@ class TestContextManager:
         # Should not raise an error
         manager.unsubscribe(observer)
 
-    def test_clear_empties_messages_and_checkpoints(self) -> None:
-        """Test clear empties messages and checkpoints."""
+    def test_clear_empties_messages(self) -> None:
+        """Test clear() empties the message history."""
         manager = ContextManager()
         manager.add_message(create_user_message("Message 1"))
-        manager.checkpoint(checkpoint_id="checkpoint-1")
         manager.add_message(create_user_message("Message 2"))
-        manager.checkpoint(checkpoint_id="checkpoint-2")
 
         assert len(manager.messages) == 2
-        assert len(manager.list_checkpoints()) == 2
 
         manager.clear()
 
-        assert len(manager.messages) == 0
-        assert len(manager.list_checkpoints()) == 0
-        assert manager.get_checkpoint("checkpoint-1") is None
-        assert manager.get_checkpoint("checkpoint-2") is None
-
-    def test_checkpoint_with_empty_messages(self) -> None:
-        """Test checkpoint works with empty message list."""
-        manager = ContextManager()
-
-        # Checkpoint before any messages added
-        snapshot = manager.checkpoint(checkpoint_id="empty")
-
-        assert len(snapshot.messages) == 0
-        assert snapshot.checkpoint_id == "empty"
-
-        # Should be able to rewind to empty state
-        manager.add_message(create_user_message("Message"))
-        assert len(manager.messages) == 1
-
-        manager.rewind("empty")
         assert len(manager.messages) == 0
 
     def test_sliding_window_with_only_system_messages_exceeding_limit(self) -> None:
@@ -476,8 +319,6 @@ class TestContextManagerRestore:
 
         # Observer should still have only 1 notification (from add_message)
         assert len(observer.messages_added) == 1
-        assert len(observer.checkpoints_created) == 0
-        assert len(observer.rewinds) == 0
 
     def test_restore_does_not_apply_sliding_window(self) -> None:
         """Test restore() does NOT apply sliding window (restored messages are authoritative)."""
@@ -488,28 +329,6 @@ class TestContextManagerRestore:
         manager.restore(msgs)
 
         assert len(manager.messages) == 5
-
-    def test_restore_then_checkpoint_and_rewind(self) -> None:
-        """Test that after restore(), checkpoint() and rewind() still work correctly."""
-        manager = ContextManager()
-
-        # Restore some messages
-        restored = [create_user_message("R1"), create_user_message("R2")]
-        manager.restore(restored)
-        assert len(manager.messages) == 2
-
-        # Checkpoint
-        snapshot = manager.checkpoint(checkpoint_id="after-restore")
-        assert len(snapshot.messages) == 2
-
-        # Add more messages
-        manager.add_message(create_user_message("New"))
-        assert len(manager.messages) == 3
-
-        # Rewind
-        manager.rewind("after-restore")
-        assert len(manager.messages) == 2
-        assert manager.messages[0].parts[0].content == "R1"  # type: ignore[attr-defined]
 
     def test_restore_creates_defensive_copy(self) -> None:
         """Test restore() creates a defensive copy of the input list."""
@@ -532,6 +351,19 @@ class TestContextObserverProtocol:
         assert isinstance(observer, ContextObserver)
 
 
+class TestCheckpointSurfaceRemoved:
+    """The checkpoint/rewind machinery is gone from ContextManager (AC 1, 2)."""
+
+    def test_checkpoint_methods_absent(self) -> None:
+        """No checkpoint/rewind/get_checkpoint/list_checkpoints on ContextManager."""
+        for name in ("checkpoint", "rewind", "get_checkpoint", "list_checkpoints"):
+            assert not hasattr(ContextManager, name)
+
+    def test_context_snapshot_absent(self) -> None:
+        """ContextSnapshot no longer exists in the context module."""
+        assert not hasattr(context_module, "ContextSnapshot")
+
+
 class TestRecordOperatorAction:
     """Test ContextManager.record_operator_action and drain (FR1, FR2a, FR2b, FR3)."""
 
@@ -547,8 +379,6 @@ class TestRecordOperatorAction:
         assert manager.messages == []
         # No LlmMessageEvent (or any tracked event) emitted.
         assert len(observer.messages_added) == 0
-        assert len(observer.checkpoints_created) == 0
-        assert len(observer.rewinds) == 0
 
     def test_buffers_multiple_in_order(self) -> None:
         """FR2a/FR3: multiple pre-run entries buffer in record order."""
@@ -613,3 +443,163 @@ class TestRecordOperatorAction:
 
         assert len(observer.messages_added) == 1
         assert observer.messages_added[0].parts[0].content == "op"  # type: ignore[attr-defined]
+
+
+class TestLastInputTokens:
+    """ContextManager.last_input_tokens tracks the last response's input tokens (AC 1)."""
+
+    @staticmethod
+    def _response_with_input_tokens(n: int) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content="ok")], usage=RequestUsage(input_tokens=n))
+
+    def test_none_before_any_usage(self) -> None:
+        """Before any usage-bearing response, last_input_tokens is None."""
+        assert ContextManager().last_input_tokens is None
+
+    def test_set_from_usage_bearing_response(self) -> None:
+        """A ModelResponse with usage sets last_input_tokens to its input_tokens."""
+        manager = ContextManager()
+        manager.add_message(self._response_with_input_tokens(100))
+        assert manager.last_input_tokens == 100
+
+    def test_last_response_wins(self) -> None:
+        """The most recent usage-bearing response wins."""
+        manager = ContextManager()
+        manager.add_message(self._response_with_input_tokens(100))
+        manager.add_message(self._response_with_input_tokens(250))
+        assert manager.last_input_tokens == 250
+
+    def test_non_response_message_leaves_value_unchanged(self) -> None:
+        """A non-response message does not change last_input_tokens."""
+        manager = ContextManager()
+        manager.add_message(self._response_with_input_tokens(100))
+        manager.add_message(create_user_message("a non-response message"))
+        assert manager.last_input_tokens == 100
+
+
+class TestContextManagerCompact:
+    """ContextManager.compact(event) — the mechanical fold (AC 2)."""
+
+    def test_folds_exact_non_system_count_and_inserts_summary(self) -> None:
+        """Removes exactly replaced_message_count non-system messages; inserts one summary."""
+        manager = ContextManager()
+        sys_msg = create_system_message("sys")
+        u1, a1 = create_user_message("u1"), create_assistant_message("a1")
+        u2, u3 = create_user_message("u2"), create_user_message("u3")
+        for m in (sys_msg, u1, a1, u2, u3):
+            manager.add_message(m)
+
+        manager.compact(make_compacted_event("THE SUMMARY", replaced=2))
+
+        msgs = manager.messages
+        assert len(msgs) == 4
+        assert msgs[0] is sys_msg  # system message never folded
+        assert isinstance(msgs[1], ModelRequest)
+        assert isinstance(msgs[1].parts[0], UserPromptPart)
+        assert msgs[1].parts[0].content == "[Conversation summary] THE SUMMARY"
+        assert msgs[2] is u2
+        assert msgs[3] is u3
+
+    def test_never_folds_system_messages_interspersed(self) -> None:
+        """System messages anywhere stay in place; the summary lands at the first fold slot."""
+        manager = ContextManager()
+        s0, s_mid = create_system_message("s0"), create_system_message("s-mid")
+        u1, u2, u3 = create_user_message("u1"), create_user_message("u2"), create_user_message("u3")
+        for m in (s0, u1, s_mid, u2, u3):
+            manager.add_message(m)
+
+        manager.compact(make_compacted_event("S", replaced=2))
+
+        msgs = manager.messages
+        assert len(msgs) == 4
+        assert msgs[0] is s0
+        assert msgs[1].parts[0].content == "[Conversation summary] S"  # type: ignore[union-attr]
+        assert msgs[2] is s_mid
+        assert msgs[3] is u3
+
+    def test_drops_orphan_tool_results_after_fold(self) -> None:
+        """A tool-return orphaned by folding its issuing tool-call is dropped."""
+        manager = ContextManager()
+        u1 = create_user_message("u1")
+        call = create_tool_call("f", "c1")
+        ret = create_tool_return("f", "c1")
+        u2 = create_user_message("u2")
+        for m in (u1, call, ret, u2):
+            manager.add_message(m)
+
+        # Fold u1 + the issuing tool-call; the tool-return is now orphaned.
+        manager.compact(make_compacted_event("S", replaced=2))
+
+        msgs = manager.messages
+        assert len(msgs) == 2
+        assert msgs[0].parts[0].content == "[Conversation summary] S"  # type: ignore[union-attr]
+        assert msgs[1] is u2
+
+    def test_emits_compaction_event_and_no_synthetic_message_event(self) -> None:
+        """compact emits the compaction event but no LlmMessageEvent for the summary."""
+        manager = ContextManager()
+        for m in (
+            create_user_message("u1"),
+            create_user_message("u2"),
+            create_user_message("u3"),
+        ):
+            manager.add_message(m)
+        recorder = EventRecorder()
+        manager.subscribe(recorder)
+
+        event = make_compacted_event("S", replaced=2)
+        manager.compact(event)
+
+        compacted = [e for e in recorder.events if isinstance(e, LlmContextCompactedEvent)]
+        synthetic = [e for e in recorder.events if isinstance(e, LlmMessageEvent)]
+        assert compacted == [event]
+        assert synthetic == []
+
+    def test_zero_count_event_is_clean_noop(self) -> None:
+        """A replaced_message_count == 0 event removes nothing and inserts nothing."""
+        manager = ContextManager()
+        u1, u2 = create_user_message("u1"), create_user_message("u2")
+        manager.add_message(u1)
+        manager.add_message(u2)
+        recorder = EventRecorder()
+        manager.subscribe(recorder)
+
+        event = make_compacted_event("ignored", replaced=0)
+        manager.compact(event)
+
+        assert manager.messages == [u1, u2]
+        assert [e for e in recorder.events if isinstance(e, LlmContextCompactedEvent)] == [event]
+
+
+class TestContextManagerClearContext:
+    """ContextManager.clear_context() — event-based wipe (AC 3)."""
+
+    def test_empties_history_resets_hash_emits_event_returns_count(self) -> None:
+        """Wipes history (system included), resets dedup hash, emits event, returns count."""
+        manager = ContextManager()
+        manager.add_message(create_system_message("sys"))
+        manager.add_message(create_user_message("u1"))
+        manager.add_message(create_user_message("u2"))
+        manager.seed_system_prompt_hash("abc")  # simulate a recorded rendering
+        recorder = EventRecorder()
+        manager.subscribe(recorder)
+
+        removed = manager.clear_context()
+
+        assert removed == 3
+        assert manager.messages == []  # the system ModelRequest is included
+        assert manager._last_system_prompt_hash is None  # dedup hash reset
+        cleared = [e for e in recorder.events if isinstance(e, LlmContextClearedEvent)]
+        assert len(cleared) == 1
+        assert cleared[0].run_id is None
+        assert cleared[0].cleared_message_count == 3
+
+    def test_clear_empty_history_returns_zero(self) -> None:
+        """Clearing an empty history returns 0 and emits a zero-count event."""
+        manager = ContextManager()
+        recorder = EventRecorder()
+        manager.subscribe(recorder)
+
+        assert manager.clear_context() == 0
+        cleared = [e for e in recorder.events if isinstance(e, LlmContextClearedEvent)]
+        assert cleared[0].cleared_message_count == 0

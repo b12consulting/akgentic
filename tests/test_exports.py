@@ -14,7 +14,7 @@ def test_no_unexpected_exports():
     # Submodules are always visible via dir() but not in star imports.
     # `loadtest` is an optional-extra subpackage, deliberately absent from __all__.
     submodules = {
-        "agent", "config", "context", "event", "loadtest",
+        "agent", "compaction", "config", "context", "event", "loadtest",
         "pricing", "prompts", "providers",
     }
     exported = {name for name in dir(akgentic.llm) if not name.startswith("_")}
@@ -41,12 +41,14 @@ def test_key_exports_present():
     # Context
     assert hasattr(akgentic.llm, "ContextManager")
     assert hasattr(akgentic.llm, "ContextObserver")
-    assert hasattr(akgentic.llm, "ContextSnapshot")
+    # Removed in Epic 12 pre-cleanup — must not reappear.
+    assert not hasattr(akgentic.llm, "ContextSnapshot")
 
     # Events
     assert hasattr(akgentic.llm, "LlmMessageEvent")
-    assert hasattr(akgentic.llm, "LlmCheckpointCreatedEvent")
-    assert hasattr(akgentic.llm, "LlmCheckpointRestoredEvent")
+    # Checkpoint events removed in Epic 12 pre-cleanup — must not reappear.
+    assert not hasattr(akgentic.llm, "LlmCheckpointCreatedEvent")
+    assert not hasattr(akgentic.llm, "LlmCheckpointRestoredEvent")
     assert hasattr(akgentic.llm, "ToolCallEvent")
     assert hasattr(akgentic.llm, "ToolReturnEvent")
 
