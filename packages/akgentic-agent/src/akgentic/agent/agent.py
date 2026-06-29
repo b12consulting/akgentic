@@ -158,6 +158,7 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
             model_cfg=self.config.model_cfg,
             runtime_cfg=self.config.runtime_cfg,
             usage_limits=self.config.usage_limits,
+            compaction_cfg=self.config.compaction_cfg,
         )
 
         tool_factory = ToolFactory(
@@ -169,7 +170,12 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
         toolsets = tool_factory.get_toolsets()
 
         # ── Build the generic command registry and announce it once ────────
-        self._command_registry: CommandRegistry = tool_factory.get_command_registry()
+        # /compact and /clear join as command-only built-ins (never TOOL_CALL).
+        # Bound methods are captured here but invoked only at dispatch time, by
+        # which point self._react_agent (built below) exists.
+        self._command_registry: CommandRegistry = tool_factory.get_command_registry(
+            extra_commands=[self.compact, self.clear]
+        )
         self.notify_event(
             CommandsAnnouncedEvent(
                 agent=self.myAddress,
@@ -457,7 +463,10 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
             None: This method can be extended to send responses or route messages as needed.
         """
 
-        logger.info(f"Received AgentMessage from {sender}: {message.content}")
+        logger.info(
+            f"[{self.config.name}-{self.team_id}] Received '{message.type}' AgentMessage "
+            f"from {sender} ({len(message.content)} chars)"
+        )
 
         try:
             sleep(random.uniform(0.25, 0.5))  # Simulate processing delay
@@ -579,3 +588,11 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
 
         hire = self._command_registry.callable("hire_member")
         return cast(ActorAddress, hire(role))
+
+    def compact(self) -> str:
+        """Compact this agent's conversation history into a summary, preserving system prompts."""
+        return self._react_agent.compact()
+
+    def clear(self) -> str:
+        """Clear this agent's conversation; the system prompt regenerates on the next run."""
+        return self._react_agent.clear_context()
