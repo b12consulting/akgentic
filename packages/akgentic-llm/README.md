@@ -26,6 +26,10 @@ call any LLM without coupling to a specific vendor or framework primitive.
   - [Observer Pattern](#observer-pattern)
   - [Tool Event Observability](#tool-event-observability)
   - [System Prompt Rendering Events](#system-prompt-rendering-events)
+- [Context Compaction](#context-compaction)
+  - [Compaction & Clear Events](#compaction--clear-events)
+  - [Compaction Strategies](#compaction-strategies)
+  - [Overriding the Summarizer Prompt](#overriding-the-summarizer-prompt)
 - [Cost Tracking and Aggregation](#cost-tracking-and-aggregation)
 - [Prompts](#prompts)
 - [Development](#development)
@@ -470,6 +474,141 @@ class SystemPromptTracer:
             label = snapshot.dynamic_ref or "static"
             print(f"  [{label}] {snapshot.content}")
 ```
+
+## Context Compaction
+
+Long-running agents accumulate conversation history that eventually approaches the model's
+context window. **Compaction** folds older messages into a summary (preserving system
+prompts and the most recent turns); **clear** drops the history outright so the system
+prompt regenerates on the next run. Both are event-sourced: the `ContextManager` emits a
+single **primitive** event describing *what changed* (counts + summary text), never the
+replaced `ModelMessage` objects — so the log round-trips through the generic serializer and
+any subscriber can fold the same change client-side.
+
+Compaction can fire **automatically** (usage-based: when the provider-reported input tokens
+cross `trigger_ratio × context_length`, no tokenizer required) or **on demand** via the
+agent's `compact` / `clear` commands.
+
+### Compaction & Clear Events
+
+**`LlmContextCompactedEvent`** — emitted when history is folded into a summary:
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | `str \| None` | ReactAgent run the compaction belongs to; `None` if outside a run |
+| `strategy_id` | `str` | Resolved strategy id (registry id or FQCN) that produced the summary |
+| `summary` | `str` | Summary text that replaced the folded messages |
+| `replaced_message_count` | `int` | Number of (non-system) messages folded into the summary |
+| `summarizer_prompt_version` | `str` | Version id selecting the summarizer instructions — see [Overriding the Summarizer Prompt](#overriding-the-summarizer-prompt) |
+| `tokens_before` | `int \| None` | Input-token estimate before compaction; `None` if unknown |
+| `tokens_after` | `int \| None` | Post-compaction context-size estimate; `None` if the strategy doesn't report one |
+
+**`LlmContextClearedEvent`** — emitted when history is dropped without summarizing:
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | `str \| None` | ReactAgent run the clear belongs to; `None` if outside a run |
+| `cleared_message_count` | `int` | Number of messages dropped from context |
+
+Both are append-only and **count-based**: a subscriber reconstructs the resulting context by
+folding the event over its own message log — drop the first `replaced_message_count`
+non-system messages and insert the `summary` (compaction), or reset to empty (clear).
+
+**Usage — observe compaction/clear alongside the other LLM events:**
+
+```python
+from akgentic.llm import LlmContextCompactedEvent, LlmContextClearedEvent
+
+class CompactionTracer:
+    def notify_event(self, event: object) -> None:
+        if isinstance(event, LlmContextCompactedEvent):
+            print(
+                f"compacted @ run {event.run_id}: folded {event.replaced_message_count} msg(s) "
+                f"via '{event.strategy_id}' ({event.tokens_before} → {event.tokens_after} tok est.)"
+            )
+            print(f"  summary: {event.summary[:120]}…")
+        elif isinstance(event, LlmContextClearedEvent):
+            print(f"cleared @ run {event.run_id}: dropped {event.cleared_message_count} msg(s)")
+
+agent = ReactAgent(config=config, observer=CompactionTracer())
+# or: agent.subscribe_context(CompactionTracer())
+```
+
+### Compaction Strategies
+
+The strategy is selected by `CompactionConfig.strategy` — a registry id or a dotted FQCN.
+Built-ins:
+
+| `strategy` | Behaviour | Calls an LLM? |
+|---|---|---|
+| `"summarize"` (default) | Summarizes the middle of the history via an awaited LLM call; degrades to a count-based truncation marker if the summarizer errors. Preserves system prompts + the most recent `keep_recent_messages`. | Yes |
+| `"sliding_window"` | Deterministic head-drop: folds the summarizable middle with a marker, no LLM. | No |
+| `"none"` | No-op: never folds a message. | No |
+
+Configure via `CompactionConfig` (nested in `ReactAgentConfig`):
+
+```python
+from akgentic.llm import CompactionConfig
+
+cfg = CompactionConfig(
+    strategy="summarize",        # or "sliding_window", "none", or "my.module.MyStrategy"
+    auto_trigger=True,           # usage-based auto-compaction
+    trigger_ratio=0.85,          # fire when input tokens ≥ 0.85 × context_length
+    keep_recent_messages=4,      # trailing messages preserved verbatim
+    summary_target_tokens=2000,  # token budget the summarizer aims for
+    summarizer_prompt_version="v1",
+)
+```
+
+**Custom strategies (open extension).** A `CompactionStrategy` is any object with
+`async def compact(self, messages) -> CompactionResult`. Register a factory in the public,
+mutable `COMPACTION_STRATEGIES` registry before building an agent, or reference a class by
+its dotted FQCN — the resolver imports it via stdlib `importlib` (akgentic-llm imports no
+sibling package):
+
+```python
+from akgentic.llm import COMPACTION_STRATEGIES, CompactionConfig, CompactionResult
+
+class KeepLastOnly:
+    async def compact(self, messages):
+        return CompactionResult(summary="", replaced_message_count=max(0, len(messages) - 1))
+
+# (a) register a factory under a short id...
+COMPACTION_STRATEGIES["keep_last"] = lambda cfg, model_cfg, http_client: KeepLastOnly()
+cfg = CompactionConfig(strategy="keep_last")
+
+# (b) ...or point strategy at a dotted FQCN — no registration needed
+cfg = CompactionConfig(strategy="my_package.compaction.KeepLastOnly")
+```
+
+### Overriding the Summarizer Prompt
+
+The `summarize` strategy ships a **domain-agnostic default** system prompt. The prompt text
+is **not** stored on `CompactionConfig` — that config is serialized into every agent's start
+event, so embedding a multi-line prompt there would duplicate it across the event log.
+Instead the config carries only a small `summarizer_prompt_version` id, and the text lives in
+the public, mutable `SUMMARY_INSTRUCTIONS` registry keyed by that id (open-extension
+precedent: `COMPACTION_STRATEGIES`). The version id is also recorded on each
+`LlmContextCompactedEvent` for traceability.
+
+Override programmatically — using the installed package, no source fork — before any agent
+is built:
+
+```python
+from akgentic.llm import SUMMARY_INSTRUCTIONS, CompactionConfig
+
+# (a) replace the default in place — every "v1" agent picks it up
+SUMMARY_INSTRUCTIONS["v1"] = "You are a summarizer for legal documents. Preserve …"
+
+# (b) register a named variant and select it per agent (the id is what lands in the event)
+SUMMARY_INSTRUCTIONS["legal"] = "You are a summarizer for legal documents. Preserve …"
+cfg = CompactionConfig(strategy="summarize", summarizer_prompt_version="legal")
+```
+
+An unknown `summarizer_prompt_version` falls back to the built-in default. For
+deployment-driven configuration (env / `.env`), a server's wiring layer can seed
+`SUMMARY_INSTRUCTIONS` from its settings at startup — keeping the prompt a process-level
+config that never enters the per-agent event stream.
 
 ## Cost Tracking and Aggregation
 

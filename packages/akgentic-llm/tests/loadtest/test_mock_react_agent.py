@@ -96,7 +96,7 @@ def test_drop_in_surface() -> None:
     """Every ReactAgent member used by BaseAgent/state-restore is present."""
     agent = _make_agent("@Expert")
     assert hasattr(agent, "context")
-    for member in ("run", "run_sync", "subscribe_context", "checkpoint", "rewind",
+    for member in ("run", "run_sync", "subscribe_context",
                    "restore_context", "system_prompt", "tool"):
         assert callable(getattr(agent, member))
 
@@ -105,9 +105,9 @@ def test_drop_in_surface() -> None:
 
     assert agent.system_prompt(fn) is fn
     assert agent.tool(fn) is fn
-    snap = agent.checkpoint("cp1")
-    assert snap.checkpoint_id == "cp1"
-    agent.rewind("cp1")
+    # checkpoint/rewind removed in Epic 12 pre-cleanup — parity holds without them.
+    assert not hasattr(agent, "checkpoint")
+    assert not hasattr(agent, "rewind")
 
 
 # ---------------------------------------------------------------------------

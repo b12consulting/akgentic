@@ -23,7 +23,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from akgentic.llm.context import ContextManager, ContextSnapshot
+from akgentic.llm.context import ContextManager
 from akgentic.llm.event import ContextObserver, LlmMessageEvent
 from akgentic.llm.loadtest.scenario import (
     AgentScript,
@@ -313,14 +313,6 @@ class MockReactAgent:
     def subscribe_context(self, observer: ContextObserver) -> None:
         """Subscribe an observer to context events."""
         self._context.subscribe(observer)
-
-    def checkpoint(self, checkpoint_id: str | None = None) -> ContextSnapshot:
-        """Create a context checkpoint."""
-        return self._context.checkpoint(checkpoint_id)
-
-    def rewind(self, checkpoint_id: str) -> None:
-        """Restore context to a checkpoint."""
-        self._context.rewind(checkpoint_id)
 
     def restore_context(self, events: list[Any]) -> None:
         """Restore LLM context from persisted events (mirrors ``ReactAgent``)."""

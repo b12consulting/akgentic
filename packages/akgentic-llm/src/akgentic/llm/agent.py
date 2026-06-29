@@ -7,11 +7,18 @@ from typing import Any, cast
 
 from pydantic_ai import Agent, BinaryContent, UsageLimitExceeded
 from pydantic_ai import UsageLimits as PydanticUsageLimits
-from pydantic_ai.messages import ModelRequest, ModelResponse, ToolReturnPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, ToolReturnPart
 
+from .compaction import CompactionResult, CompactionStrategy, create_compaction
 from .config import ReactAgentConfig, UsageLimits
-from .context import ContextManager, ContextSnapshot
-from .event import ContextObserver, LlmMessageEvent, LlmSystemPromptEvent
+from .context import ContextManager
+from .event import (
+    ContextObserver,
+    LlmContextClearedEvent,
+    LlmContextCompactedEvent,
+    LlmMessageEvent,
+    LlmSystemPromptEvent,
+)
 from .providers import create_http_client, create_model, get_output_type
 
 logger = logging.getLogger(__name__)
@@ -52,7 +59,6 @@ class ReactAgent:
     - REACT pattern support (via pydantic-ai)
     - Dynamic system prompts with registry
     - Context management with observer pattern
-    - Checkpoint/rewind for error recovery
     - Iterative execution with context updates
     - Tool integration
     - Usage limit enforcement
@@ -128,6 +134,15 @@ class ReactAgent:
             exp_max_s=config.runtime_cfg.http_client_config.backoff_max,
         )
 
+        # Resolve the compaction strategy as runtime state (never a Pydantic
+        # field). Built AFTER self._http_client so the summarizer reuses the
+        # agent's shared httpx client (no second pool); the summarizer model uses
+        # summary_model_cfg when set, else the primary model_cfg.
+        summary_cfg = config.compaction_cfg.summary_model_cfg or config.model_cfg
+        self._compaction: CompactionStrategy = create_compaction(
+            config.compaction_cfg, summary_cfg, self._http_client
+        )
+
         # Create model from config
         self._model = create_model(config.model_cfg, self._http_client)
 
@@ -171,6 +186,10 @@ class ReactAgent:
         Raises:
             UsageLimitError: If usage limits exceeded
         """
+        # Auto-compact (at most once per turn) BEFORE iter() snapshots the
+        # history. iter() reads message_history once at entry and the loop only
+        # appends, so compacting here takes effect for the whole turn.
+        await self._maybe_compact()
         user_prompt = self._fold_pending_operator_actions(user_prompt)
         pydantic_limits = self._to_pydantic_limits(self._config.usage_limits)
 
@@ -263,6 +282,97 @@ class ReactAgent:
         if run_id is None:
             return
         self._context.record_system_prompt(str(run_id))
+
+    def _compaction_threshold(self) -> int | None:
+        """Token budget that arms the auto-trigger, or None when compaction is off.
+
+        ``int(context_length * trigger_ratio)`` when ``model_cfg.context_length``
+        is set; ``None`` (auto-compaction disabled) otherwise.
+        """
+        context_length = self._config.model_cfg.context_length
+        if context_length is None:
+            return None
+        return int(context_length * self._config.compaction_cfg.trigger_ratio)
+
+    async def _maybe_compact(self) -> None:
+        """Auto-compact once when the last run's input_tokens exceed the threshold.
+
+        Reads the provider-reported ``last_input_tokens`` (no ``tiktoken``). No-ops
+        when auto-trigger is off, the budget is unset (``context_length is None``),
+        no usage has been reported yet (``last_input_tokens is None`` — never
+        mis-fires on missing data), or usage is at/below the threshold. Fires at
+        most once per ``run()`` call.
+        """
+        cfg = self._config.compaction_cfg
+        if not cfg.auto_trigger:
+            return
+        threshold = self._compaction_threshold()
+        used = self._context.last_input_tokens
+        if threshold is None or used is None or used <= threshold:
+            return
+        await self._compact_now()
+
+    def _build_compaction_event(self, result: CompactionResult) -> LlmContextCompactedEvent:
+        """Build the append-only event from a strategy result (auto + manual share this)."""
+        cfg = self._config.compaction_cfg
+        return LlmContextCompactedEvent(
+            run_id=None,
+            strategy_id=cfg.strategy,
+            summary=result.summary,
+            replaced_message_count=result.replaced_message_count,
+            summarizer_prompt_version=cfg.summarizer_prompt_version,
+            tokens_before=self._context.last_input_tokens,
+            tokens_after=result.tokens_after,
+        )
+
+    async def _compact_now(self) -> str:
+        """Run the strategy and fold its result in — the shared async core (R1 + R2).
+
+        Awaits the strategy inside the running loop (ADR-009). A zero-replacement
+        result is a clean no-op: no event, no synthetic summary. Both the auto path
+        (``_maybe_compact``) and the sync ``compact()`` bridge converge here.
+
+        Returns:
+            A human-readable status string.
+        """
+        result = await self._compaction.compact(self._context.messages)
+        if result.replaced_message_count == 0:
+            return "Nothing to compact."
+        self._context.compact(self._build_compaction_event(result))
+        return (
+            f"Compacted: replaced {result.replaced_message_count} "
+            f"earlier message(s) with a summary."
+        )
+
+    def compact(self) -> str:
+        """Force a compaction now, bypassing the budget gate (manual /compact, FR15).
+
+        Synchronous bridge for the slash-command path: the agent-owned loop is idle
+        at dispatch time, so ``run_until_complete`` is legal here (unlike the auto
+        path, which awaits inside the running loop). Mirrors ``run_sync``'s
+        closed-agent guard.
+
+        Returns:
+            A human-readable status string.
+
+        Raises:
+            RuntimeError: If the agent has been closed.
+        """
+        if self._closed or self._loop.is_closed():
+            raise RuntimeError("ReactAgent is closed")
+        return self._loop.run_until_complete(self._compact_now())
+
+    def clear_context(self) -> str:
+        """Wipe the conversation; the system prompt regenerates next run (/clear, FR15).
+
+        Pure synchronous wrapper over ``ContextManager.clear_context`` — no
+        summarizer, no ``run_until_complete``, no loop interaction.
+
+        Returns:
+            A human-readable status string.
+        """
+        removed = self._context.clear_context()
+        return f"Cleared {removed} message(s); system prompt regenerates on the next run."
 
     def run_sync(
         self, user_prompt: UserPrompt, deps: Any = None, output_type: type[Any] | None = None
@@ -424,48 +534,38 @@ class ReactAgent:
         """
         self._context.subscribe(observer)
 
-    def checkpoint(self, checkpoint_id: str | None = None) -> ContextSnapshot:
-        """Create a checkpoint of current context.
-
-        Args:
-            checkpoint_id: Optional checkpoint ID (auto-generated if None)
-
-        Returns:
-            Created snapshot
-        """
-        return self._context.checkpoint(checkpoint_id)
-
-    def rewind(self, checkpoint_id: str) -> None:
-        """Restore context to a checkpoint.
-
-        Args:
-            checkpoint_id: Checkpoint to restore
-
-        Raises:
-            KeyError: If checkpoint not found
-        """
-        self._context.rewind(checkpoint_id)
-
     def restore_context(self, events: list[Any]) -> None:
-        """Restore LLM conversation context from persisted events.
+        """Restore LLM conversation context as an ordered fold over persisted events.
 
-        Filters ``events`` for objects whose ``.event`` attribute is an
-        ``LlmMessageEvent``, extracts the ``ModelMessage`` from each, and
-        bulk-restores them into the ``ContextManager``.  Non-matching events
-        (e.g. ``ToolCallEvent``, arbitrary objects) are silently ignored.
+        Folds ``events`` in persisted-sequence order into an accumulator:
+        ``LlmMessageEvent`` appends its message; ``LlmContextCompactedEvent``
+        applies the **same** mechanical fold as the live ``compact()`` (via the
+        shared ``ContextManager.fold_compaction`` helper, **without** notify);
+        ``LlmContextClearedEvent`` resets the accumulator to empty (**without**
+        notify). Non-matching events (e.g. ``ToolCallEvent``, arbitrary objects)
+        are ignored. The final accumulator is bulk-restored once (observers never
+        fire during replay), then the dedup hash is seeded from the latest
+        ``LlmSystemPromptEvent``. Sharing the fold with the live path keeps live
+        and replayed contexts byte-identical, and two sequential compaction events
+        compose (the later fold consumes the earlier synthetic summary) with the
+        fold applied exactly once per event (FR16).
 
         Args:
             events: List of event-like objects (typically ``EventMessage``
-                instances from ``akgentic-core``). Each object is expected
-                to carry a ``.event`` payload; only those where
-                ``isinstance(e.event, LlmMessageEvent)`` contribute a
-                message.
+                instances from ``akgentic-core``). Each is expected to carry a
+                ``.event`` payload.
         """
-        messages = [
-            e.event.message
-            for e in events
-            if hasattr(e, "event") and isinstance(e.event, LlmMessageEvent)
-        ]
+        messages: list[ModelMessage] = []
+        for e in events:
+            if not hasattr(e, "event"):
+                continue
+            payload = e.event
+            if isinstance(payload, LlmMessageEvent):
+                messages.append(payload.message)
+            elif isinstance(payload, LlmContextCompactedEvent):
+                messages = ContextManager.fold_compaction(messages, payload)
+            elif isinstance(payload, LlmContextClearedEvent):
+                messages = []
         self._context.restore(messages)
         self._seed_system_prompt_from_events(events)
 

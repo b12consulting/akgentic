@@ -24,7 +24,7 @@ Examples:
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModelConfig(BaseModel):
@@ -45,6 +45,8 @@ class ModelConfig(BaseModel):
         temperature: Sampling temperature (0.0 = deterministic, 2.0 = maximum creativity)
         seed: Random seed for reproducible outputs (not supported by all providers)
         max_tokens: Maximum tokens in model response (None = provider default/maximum)
+        context_length: Model context window in tokens; the budget that auto-triggers
+            compaction. None = compaction off. Distinct from max_tokens (the output cap).
         reasoning_effort: Reasoning effort for o1/o3-style models ('low', 'medium', 'high')
 
     Example:
@@ -91,8 +93,57 @@ class ModelConfig(BaseModel):
         default=None, gt=0, description="Maximum tokens in model response"
     )
 
+    context_length: int | None = Field(
+        default=None,
+        gt=0,
+        description="Model context window in tokens; the budget that auto-triggers compaction. None = off.",  # noqa: E501
+    )
+
     reasoning_effort: Literal["low", "medium", "high"] | None = Field(
         default=None, description="Reasoning effort for o1/o3 models"
+    )
+
+
+class CompactionConfig(BaseModel):
+    """Configuration for pluggable LLM context compaction.
+
+    Dormant schema until the engine wiring consumes it. ``strategy`` is a plain
+    ``str`` (a registry id or a dotted FQCN), never a ``Literal``.
+
+    Attributes:
+        strategy: Compaction strategy id or dotted FQCN (e.g. "summarize").
+        auto_trigger: Whether usage-based auto-compaction is enabled.
+        trigger_ratio: Fraction of context_length that arms the auto-trigger.
+        keep_recent_messages: Trailing messages preserved verbatim (counts messages, not pairs).
+        summary_target_tokens: Token budget the summarizer aims for.
+        summarizer_prompt_version: Version tag selecting the summarizer instructions from
+            the ``SUMMARY_INSTRUCTIONS`` registry (compaction.py); also recorded on the
+            emitted ``LlmContextCompactedEvent``.
+        summary_model_cfg: Optional model for summarization; None reuses the agent's model_cfg.
+    """
+
+    strategy: str = Field(default="summarize", description="Strategy id or dotted FQCN")
+
+    auto_trigger: bool = Field(default=True, description="Enable usage-based auto-compaction")
+
+    trigger_ratio: float = Field(
+        default=0.85, gt=0, le=1.0, description="Fraction of context_length that arms the trigger"
+    )
+
+    keep_recent_messages: int = Field(
+        default=4, ge=0, description="Trailing messages preserved verbatim"
+    )
+
+    summary_target_tokens: int = Field(
+        default=2000, gt=0, description="Token budget the summarizer aims for"
+    )
+
+    summarizer_prompt_version: str = Field(
+        default="v1", description="Version tag of the summarizer prompt"
+    )
+
+    summary_model_cfg: ModelConfig | None = Field(
+        default=None, description="Optional summarizer model; None reuses the agent's model_cfg"
     )
 
 
@@ -285,6 +336,8 @@ class ReactAgentConfig(BaseModel):
         model_cfg: LLM provider and model settings.
         runtime_cfg: Execution behavior and HTTP retry strategy.
         usage_limits: Resource limits for cost control.
+        compaction_cfg: Context-compaction configuration.
+        max_messages: Sliding-window size handed to ContextManager; None = unlimited.
 
     Example:
         >>> # Minimal configuration with defaults
@@ -319,3 +372,48 @@ class ReactAgentConfig(BaseModel):
     usage_limits: UsageLimits = Field(
         default_factory=UsageLimits, description="Usage limits for cost control"
     )
+
+    compaction_cfg: CompactionConfig = Field(
+        default_factory=CompactionConfig, description="Context-compaction configuration"
+    )
+
+    max_messages: int | None = Field(
+        default=None,
+        ge=0,
+        description="Sliding-window size handed to ContextManager; None = unlimited",
+    )
+
+    @model_validator(mode="after")
+    def _reject_window_with_auto_compaction(self) -> "ReactAgentConfig":
+        """Window-exclusivity: auto-compaction and a sliding window are mutually exclusive.
+
+        The window drops the oldest messages without emitting an event, which would make
+        replaced_message_count ambiguous once compaction also rewrites history.
+        """
+        if self.compaction_cfg.auto_trigger and self.max_messages is not None:
+            raise ValueError(
+                "max_messages (sliding window) cannot be combined with "
+                "compaction_cfg.auto_trigger=True; disable one of them"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_threshold_above_usage_limits(self) -> "ReactAgentConfig":
+        """Threshold-vs-usage-limit: keep the auto-trigger reachable before usage limits bite.
+
+        When auto-compaction is live, the effective threshold must sit strictly below every
+        set token limit; otherwise pydantic-ai raises UsageLimitExceeded first and the
+        auto-trigger is dead code.
+        """
+        context_length = self.model_cfg.context_length
+        if not (self.compaction_cfg.auto_trigger and context_length is not None):
+            return self
+        threshold = int(context_length * self.compaction_cfg.trigger_ratio)
+        for name in ("input_tokens_limit", "total_tokens_limit"):
+            limit = getattr(self.usage_limits, name)
+            if limit is not None and threshold >= limit:
+                raise ValueError(
+                    f"compaction threshold {threshold} must be strictly below "
+                    f"usage_limits.{name} ({limit})"
+                )
+        return self

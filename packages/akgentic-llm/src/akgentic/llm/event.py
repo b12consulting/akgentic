@@ -6,28 +6,12 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
-    from akgentic.llm.context import ContextSnapshot
-
 
 @dataclass(frozen=True)
 class LlmMessageEvent:
     """Event emitted when a new model message is added to context."""
 
     message: ModelMessage
-
-
-@dataclass(frozen=True)
-class LlmCheckpointCreatedEvent:
-    """Event emitted when a context checkpoint is created."""
-
-    snapshot: ContextSnapshot
-
-
-@dataclass(frozen=True)
-class LlmCheckpointRestoredEvent:
-    """Event emitted when context is restored from a checkpoint."""
-
-    snapshot: ContextSnapshot
 
 
 @dataclass(frozen=True)
@@ -153,6 +137,46 @@ class LlmUsageEvent:
     cache_read_tokens: int
     cache_write_tokens: int
     requests: int
+
+
+@dataclass(frozen=True)
+class LlmContextCompactedEvent:
+    """Event emitted when the context is compacted (history folded into a summary).
+
+    Primitive-only by design: it records counts and the summary text, never the
+    replaced ``ModelMessage`` objects, so it round-trips through the generic
+    serializer without any pydantic-ai type.
+
+    Attributes:
+        run_id: ReactAgent run ID the compaction belongs to; None if outside a run.
+        strategy_id: Resolved compaction strategy id (registry id or FQCN).
+        summary: Summary text that replaced the folded messages.
+        replaced_message_count: Number of messages folded into the summary.
+        summarizer_prompt_version: Version tag of the summarizer prompt used.
+        tokens_before: Input-token estimate before compaction; None if unknown.
+        tokens_after: Input-token estimate after compaction; None if unknown.
+    """
+
+    run_id: str | None
+    strategy_id: str
+    summary: str
+    replaced_message_count: int
+    summarizer_prompt_version: str
+    tokens_before: int | None
+    tokens_after: int | None
+
+
+@dataclass(frozen=True)
+class LlmContextClearedEvent:
+    """Event emitted when the context is cleared (history dropped without summarizing).
+
+    Attributes:
+        run_id: ReactAgent run ID the clear belongs to; None if outside a run.
+        cleared_message_count: Number of messages dropped from context.
+    """
+
+    run_id: str | None
+    cleared_message_count: int
 
 
 @runtime_checkable
