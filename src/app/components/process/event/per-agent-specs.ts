@@ -270,20 +270,49 @@ export const stateSpec: PerAgentSpec<AgentStateValue> = {
 export const CONVERSATION_SUMMARY_PREFIX = '[Conversation summary] ';
 
 /**
- * True when a context entry is a "system" message — one whose `parts` include a
- * `part_kind === 'system-prompt'` part. Mirrors the backend `_is_system_message`
- * exemption (and `llmMessageSystemParts` above): system entries are NEVER folded
- * by a compaction, exactly like the sliding window. Defensive: a missing or
- * non-array `parts` is treated as non-system.
+ * Part-level system-split helpers (ADR-010 §9 — part-level system exemption).
+ * The post-12-7 backend rebuilds the first `ModelRequest` keeping ONLY its
+ * `SystemPromptPart`s and folds every non-system part — including the fused
+ * `[Operator action] "/clear" … <first request>` `UserPromptPart` — into the
+ * summary. The member fold mirrors that, so it needs three reads: does an entry
+ * carry any system part, rebuild it system-parts-only, and does it still carry
+ * non-system content. All reads are defensive: a missing or non-array `parts`
+ * is treated as no parts.
+ */
+function entryParts(entry: unknown): unknown[] {
+  const parts = (entry as { parts?: unknown } | null | undefined)?.parts;
+  return Array.isArray(parts) ? parts : [];
+}
+
+/** True for a `part_kind === 'system-prompt'` part (defensive on null). */
+function isSystemPart(part: unknown): boolean {
+  return (part as { part_kind?: string } | null)?.part_kind === 'system-prompt';
+}
+
+/**
+ * True when an entry carries ≥1 `system-prompt` part. Part-level: an entry can
+ * be system-bearing AND still carry non-system parts (e.g. the fused first
+ * request), so this no longer means "never folded" — see `rebuildSystemOnly`.
  */
 function isContextSystemEntry(entry: unknown): boolean {
-  const parts = (entry as { parts?: unknown } | null | undefined)?.parts;
-  return (
-    Array.isArray(parts) &&
-    parts.some(
-      (p) => (p as { part_kind?: string } | null)?.part_kind === 'system-prompt',
-    )
-  );
+  return entryParts(entry).some(isSystemPart);
+}
+
+/** True when an entry carries ≥1 non-system part (folded into the summary). */
+function entryHasNonSystemPart(entry: unknown): boolean {
+  return entryParts(entry).some((p) => !isSystemPart(p));
+}
+
+/**
+ * Rebuild a fresh entry keeping ONLY its system-prompt parts, preserving the
+ * entry's `kind` (and any other top-level fields). Its non-system parts are
+ * dropped — they are represented solely by the folded summary.
+ */
+function rebuildSystemOnly(entry: unknown): unknown {
+  return {
+    ...(entry as object),
+    parts: entryParts(entry).filter(isSystemPart),
+  };
 }
 
 /**
@@ -306,39 +335,33 @@ function buildSummaryEntry(summary: string): unknown {
 }
 
 /**
- * Fold `messages` per a compaction event, mirroring `ContextManager.fold_compaction`
- * (ADR-010 §4): drop the first `replaced_message_count` NON-system entries and
- * insert ONE synthetic summary entry at the fold point; system entries are never
- * dropped. Returns a FRESH array on a real fold (OnPush); a non-positive
- * `replaced_message_count` is a no-op (returns the input unchanged). The backend's
- * trailing `_drop_orphan_tool_results` (an OpenAI role=tool adjacency guard for
- * the NEXT provider request) is intentionally not mirrored — it does not affect
- * what the member trace displays.
+ * Fold `messages` per a compaction event, mirroring the post-12-7 backend
+ * `summarize` (ADR-010 §9 — full-fold + part-level system exemption). The result
+ * is exactly `[…system-parts-only head entries…, ONE synthetic summary]`: every
+ * entry that carries a system part is rebuilt keeping only its system parts (its
+ * fused `UserPromptPart` is dropped), every entry with no system part is dropped
+ * entirely, and a single summary follows the system head. `replaced_message_count`
+ * is observability-only — the fold drops ALL non-system content regardless of the
+ * count. Returns a FRESH array on a real fold (OnPush); the no-op (empty `summary`
+ * AND nothing non-system to fold) returns the input unchanged (same reference) so
+ * the head is never reduced to nothing and an empty summary is never inserted. The
+ * backend's trailing `_drop_orphan_tool_results` adjacency guard is intentionally
+ * NOT mirrored — once nothing is orphaned it is inert (§9 "Frontend").
  */
 export function foldContextCompaction(
   messages: unknown[],
   event: LlmContextCompactedEvent,
 ): unknown[] {
-  if (event.replaced_message_count <= 0) return messages;
-  const summary = buildSummaryEntry(event.summary ?? '');
+  const summary = event.summary ?? '';
+  const hasNonSystemToFold = messages.some(
+    (entry) => !isContextSystemEntry(entry) || entryHasNonSystemPart(entry),
+  );
+  if (summary === '' && !hasNonSystemToFold) return messages;
   const folded: unknown[] = [];
-  let remaining = event.replaced_message_count;
-  let inserted = false;
   for (const entry of messages) {
-    if (isContextSystemEntry(entry)) {
-      folded.push(entry);
-      continue;
-    }
-    if (remaining > 0) {
-      remaining -= 1;
-      if (!inserted) {
-        folded.push(summary);
-        inserted = true;
-      }
-      continue;
-    }
-    folded.push(entry);
+    if (isContextSystemEntry(entry)) folded.push(rebuildSystemOnly(entry));
   }
+  folded.push(buildSummaryEntry(summary));
   return folded;
 }
 
@@ -364,8 +387,8 @@ export function contextMatch(msg: AkgenticMessage): boolean {
  * Incremental per-message reducer for the `context` store — the client-side
  * ordered fold of the same event log the backend folds (`ContextManager`):
  *   - `LlmMessageEvent`          → append the inner `message` (fresh array).
- *   - `LlmContextCompactedEvent` → `foldContextCompaction` (drop prefix + insert
- *                                  summary), mirroring `compact` (ADR-010 §4).
+ *   - `LlmContextCompactedEvent` → `foldContextCompaction` (full-fold to
+ *                                  `[system parts] + [summary]`, ADR-010 §9).
  *   - `LlmContextClearedEvent`   → reset to `[]`, mirroring `clear_context` (§8).
  *   - anything else              → passthrough `prev`.
  * The synthetic summary is derivable from the event (the backend emits no
