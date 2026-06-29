@@ -101,12 +101,31 @@ function userEntry(text: string): unknown {
 }
 
 /** A system ModelRequest-shaped context entry (one system-prompt part) — the
- *  fold exempts these (mirrors backend `_is_system_message`). */
+ *  part-level fold keeps these (rebuilt system-parts-only). */
 function systemEntry(text: string): unknown {
   return {
     kind: 'request',
     parts: [{ part_kind: 'system-prompt', dynamic_ref: null, content: text }],
   };
+}
+
+/** The "fused" first ModelRequest pydantic-ai builds as
+ *  `[SystemPromptPart, UserPromptPart]`. Post-12-7 the fold keeps ONLY the
+ *  system part; the fused user part (the `[Operator action] "/clear" …` block)
+ *  is dropped into the summary (AC1/AC3). */
+function fusedSystemUserEntry(systemText: string, userText: string): unknown {
+  return {
+    kind: 'request',
+    parts: [
+      { part_kind: 'system-prompt', dynamic_ref: null, content: systemText },
+      { part_kind: 'user-prompt', content: userText },
+    ],
+  };
+}
+
+/** A non-system ModelResponse-shaped context entry (one text part). */
+function responseEntry(text: string): unknown {
+  return { kind: 'response', parts: [{ part_kind: 'text', content: text }] };
 }
 
 /** EventMessage envelope carrying an LlmMessageEvent whose inner `message` is
@@ -416,12 +435,12 @@ describe('contextMatch (Epic 29 / ADR-010 §4/§8)', () => {
   });
 });
 
-describe('contextSpec fold — via the real registry (Epic 29 / ADR-010 §4/§8)', () => {
+describe('contextSpec fold — via the real registry (Epic 29 / ADR-010 §9)', () => {
   function ctx(service: IngestionService, agentId: string): unknown[] | undefined {
     return service.context.snapshot(agentId);
   }
 
-  it('AC #2 append parity: a pure LlmMessageEvent sequence appends inner messages in order', () => {
+  it('AC2 append parity: a pure LlmMessageEvent sequence appends inner messages in order', () => {
     const { log, service } = configureBed();
     const m1 = userEntry('one');
     const m2 = userEntry('two');
@@ -429,7 +448,7 @@ describe('contextSpec fold — via the real registry (Epic 29 / ADR-010 §4/§8)
     expect(ctx(service, 'A')).toEqual([m1, m2]);
   });
 
-  it('AC #2 returns a FRESH array reference on each append (OnPush safety)', () => {
+  it('AC6 returns a FRESH array reference on each append (OnPush safety)', () => {
     const { log, service } = configureBed();
     log.append(makeMessageEnvelope('A', userEntry('u1')));
     const first = ctx(service, 'A');
@@ -437,42 +456,34 @@ describe('contextSpec fold — via the real registry (Epic 29 / ADR-010 §4/§8)
     expect(first).not.toBe(ctx(service, 'A'));
   });
 
-  it('AC #3 compaction drops the first replaced_message_count NON-system entries and inserts ONE summary at the fold point', () => {
+  it('AC2/AC3 full-fold: a /clear → turns → /compact history folds to [system-only head, one summary]', () => {
     const { log, service } = configureBed();
     log.appendAll([
-      makeMessageEnvelope('A', systemEntry('SYS')),
-      makeMessageEnvelope('A', userEntry('u1')),
-      makeMessageEnvelope('A', userEntry('u2')),
-      makeMessageEnvelope('A', userEntry('u3')),
-      makeCompactionEnvelope('A', { summary: 'recap', replaced_message_count: 2 }),
+      makeMessageEnvelope(
+        'A',
+        fusedSystemUserEntry('SYS', '[Operator action] "/clear" — please help'),
+      ),
+      makeMessageEnvelope('A', responseEntry('a1')),
+      makeMessageEnvelope('A', userEntry('q2')),
+      makeMessageEnvelope('A', responseEntry('a2')),
+      makeMessageEnvelope('A', userEntry('q3')),
+      makeMessageEnvelope('A', responseEntry('a3')),
+      makeCompactionEnvelope('A', { summary: 'recap', replaced_message_count: 99 }),
     ]);
     const result = ctx(service, 'A') as any[];
-    // Leading system entry exempt; u1 + u2 replaced by exactly one summary; u3 kept.
-    expect(result.length).toBe(3);
+    // Part-level head rebuild: only the system-prompt part survives; one summary.
+    expect(result.length).toBe(2);
     expect(result[0]).toEqual(systemEntry('SYS'));
     expect(result[1].parts[0].part_kind).toBe('user-prompt');
     expect(result[1].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 'recap');
-    expect(result[2]).toEqual(userEntry('u3'));
+    // AC3 regression: no fused '/clear' head, no verbatim Q/A turn survives.
+    const dump = JSON.stringify(result);
+    expect(dump).not.toContain('/clear');
+    expect(dump).not.toContain('q2');
+    expect(dump).not.toContain('a2');
   });
 
-  it('AC #3 a system entry interleaved in the dropped prefix is preserved (never counted/folded)', () => {
-    const { log, service } = configureBed();
-    log.appendAll([
-      makeMessageEnvelope('A', userEntry('u1')),
-      makeMessageEnvelope('A', systemEntry('SYS')),
-      makeMessageEnvelope('A', userEntry('u2')),
-      makeMessageEnvelope('A', userEntry('u3')),
-      makeCompactionEnvelope('A', { summary: 's', replaced_message_count: 2 }),
-    ]);
-    const result = ctx(service, 'A') as any[];
-    // u1 dropped (summary inserted at the head), SYS exempt, u2 dropped, u3 kept.
-    expect(result.length).toBe(3);
-    expect(result[0].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 's');
-    expect(result[1]).toEqual(systemEntry('SYS'));
-    expect(result[2]).toEqual(userEntry('u3'));
-  });
-
-  it('AC #5 clear empties the per-agent array; subsequent messages rebuild it', () => {
+  it('AC5 clear empties the per-agent array; subsequent messages rebuild it', () => {
     const { log, service } = configureBed();
     log.appendAll([
       makeMessageEnvelope('A', userEntry('u1')),
@@ -484,22 +495,24 @@ describe('contextSpec fold — via the real registry (Epic 29 / ADR-010 §4/§8)
     expect(ctx(service, 'A')).toEqual([userEntry('fresh')]);
   });
 
-  it('AC #6 two sequential compactions compose (the first summary is itself foldable); no double-apply', () => {
+  it('AC5 two sequential compactions compose to [system head, summary2] (summary1 folded away)', () => {
     const { log, service } = configureBed();
     log.appendAll([
+      makeMessageEnvelope('A', systemEntry('SYS')),
       makeMessageEnvelope('A', userEntry('u1')),
       makeMessageEnvelope('A', userEntry('u2')),
-      makeMessageEnvelope('A', userEntry('u3')),
       makeCompactionEnvelope('A', { summary: 'first', replaced_message_count: 2 }),
-      // After fold 1: [summary(first), u3]. Fold 2 (count 2) replaces BOTH.
-      makeCompactionEnvelope('A', { summary: 'second', replaced_message_count: 2 }),
+      // After fold 1: [SYS, summary(first)]. A new turn arrives, then a 2nd compact.
+      makeMessageEnvelope('A', userEntry('u3')),
+      makeCompactionEnvelope('A', { summary: 'second', replaced_message_count: 99 }),
     ]);
     const result = ctx(service, 'A') as any[];
-    expect(result.length).toBe(1);
-    expect(result[0].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 'second');
+    expect(result.length).toBe(2);
+    expect(result[0]).toEqual(systemEntry('SYS'));
+    expect(result[1].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 'second');
   });
 
-  it('AC #6 ordered-fold parity: batch appendAll equals per-message append', () => {
+  it('AC7 ordered-fold parity: batch appendAll equals per-message append', () => {
     const events = (): AkgenticMessage[] => [
       makeMessageEnvelope('A', systemEntry('SYS')),
       makeMessageEnvelope('A', userEntry('u1')),
@@ -517,27 +530,93 @@ describe('contextSpec fold — via the real registry (Epic 29 / ADR-010 §4/§8)
   });
 });
 
-describe('foldContextCompaction (pure)', () => {
-  it('replaced_message_count <= 0 is a no-op (returns the SAME input array)', () => {
-    const msgs = [userEntry('a'), userEntry('b')];
-    expect(
-      foldContextCompaction(
-        msgs,
-        compactionEvent({ summary: 's', replaced_message_count: 0 }),
-      ),
-    ).toBe(msgs);
-  });
-
-  it('returns a FRESH array on a real fold; the summary carries the prefixed content', () => {
-    const msgs = [userEntry('a'), userEntry('b')];
+describe('foldContextCompaction (pure, ADR-010 §9 full-fold + part-level)', () => {
+  it('AC1 part-level head rebuild: keeps only system-prompt parts, drops the fused user part', () => {
+    const msgs = [
+      fusedSystemUserEntry('SYS', '[Operator action] "/clear" hello'),
+      userEntry('q1'),
+      responseEntry('a1'),
+    ];
     const out = foldContextCompaction(
       msgs,
       compactionEvent({ summary: 'recap', replaced_message_count: 1 }),
     ) as any[];
-    expect(out).not.toBe(msgs);
-    expect(out.length).toBe(2); // summary + b
+    expect(out.length).toBe(2);
+    expect(out[0]).toEqual(systemEntry('SYS')); // user-prompt dropped from the head
+    expect(out[1].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 'recap');
+    expect(JSON.stringify(out)).not.toContain('/clear');
+  });
+
+  it('AC2 full-fold: every non-system entry is gone, exactly one summary after the head', () => {
+    const msgs = [
+      systemEntry('SYS'),
+      userEntry('u1'),
+      responseEntry('r1'),
+      userEntry('u2'),
+    ];
+    const out = foldContextCompaction(
+      msgs,
+      compactionEvent({ summary: 's', replaced_message_count: 0 }),
+    ) as any[];
+    expect(out.length).toBe(2);
+    expect(out[0]).toEqual(systemEntry('SYS'));
+    expect(out[1].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 's');
+  });
+
+  it('AC2 no system head: folds to a single summary entry', () => {
+    const out = foldContextCompaction(
+      [userEntry('a'), userEntry('b')],
+      compactionEvent({ summary: 'recap', replaced_message_count: 5 }),
+    ) as any[];
+    expect(out.length).toBe(1);
     expect(out[0].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 'recap');
-    expect(out[1]).toEqual(userEntry('b'));
+  });
+
+  it('AC2 returns a FRESH array on a real fold', () => {
+    const msgs = [userEntry('a')];
+    expect(
+      foldContextCompaction(
+        msgs,
+        compactionEvent({ summary: 's', replaced_message_count: 1 }),
+      ),
+    ).not.toBe(msgs);
+  });
+
+  it('AC4 no-op guard: empty summary AND no non-system content returns the SAME input array', () => {
+    const msgs = [systemEntry('SYS')];
+    expect(
+      foldContextCompaction(
+        msgs,
+        compactionEvent({ summary: '', replaced_message_count: 0 }),
+      ),
+    ).toBe(msgs);
+  });
+
+  it('AC4 empty summary but non-system content present still folds (count not consulted)', () => {
+    const msgs = [systemEntry('SYS'), userEntry('drop-me')];
+    const out = foldContextCompaction(
+      msgs,
+      compactionEvent({ summary: '', replaced_message_count: 0 }),
+    ) as any[];
+    expect(out.length).toBe(2);
+    expect(out[0]).toEqual(systemEntry('SYS'));
+    expect(out[1].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + '');
+    expect(JSON.stringify(out)).not.toContain('drop-me');
+  });
+
+  it('AC5 second compaction folds summary1 (a non-system entry) into summary2', () => {
+    const afterFirst = [
+      systemEntry('SYS'),
+      userEntry(CONVERSATION_SUMMARY_PREFIX + 'first'),
+      userEntry('m'),
+    ];
+    const out = foldContextCompaction(
+      afterFirst,
+      compactionEvent({ summary: 'second', replaced_message_count: 9 }),
+    ) as any[];
+    expect(out.length).toBe(2);
+    expect(out[0]).toEqual(systemEntry('SYS'));
+    expect(out[1].parts[0].content).toBe(CONVERSATION_SUMMARY_PREFIX + 'second');
   });
 
   it('contextReduce passes a non-event message through unchanged (defensive)', () => {

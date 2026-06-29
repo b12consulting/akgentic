@@ -1244,14 +1244,14 @@ describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Story 29-2 (Epic 29 / ADR-010 §4) — the per-agent `context` store folds a
-// compaction by dropping the replaced prefix and inserting a synthetic summary
-// entry (prefixed CONVERSATION_SUMMARY_PREFIX). The member trace must render the
-// summary as a clearly-labelled row and NOT show the replaced prefix. Driven by
-// pushing the SAME folded array the store produces (foldContextCompaction) into
-// context$ and asserting the rendered conversation rows.
+// Story 29-3 (Epic 29 / ADR-010 §9) — the per-agent `context` store full-folds a
+// compaction to `[system-parts-only head] + [one summary]` (part-level system
+// exemption). The member trace must render the summary as a clearly-labelled row
+// and show NEITHER the fused `[Operator action] "/clear" …` user row NOR the
+// verbatim Q/A tail. Driven by pushing the SAME folded array the store produces
+// (foldContextCompaction) into context$ and asserting the rendered rows.
 // ---------------------------------------------------------------------------
-describe('AkgentChatComponent — folded compaction summary (Story 29-2)', () => {
+describe('AkgentChatComponent — folded compaction summary (Story 29-3)', () => {
   const AGENT = 'a-mgr';
 
   function setup(): {
@@ -1327,29 +1327,35 @@ describe('AkgentChatComponent — folded compaction summary (Story 29-2)', () =>
   function userEntry(text: string): unknown {
     return { kind: 'request', parts: [{ part_kind: 'user-prompt', content: text }] };
   }
-  function systemEntry(text: string): unknown {
+  function fusedSystemUserEntry(systemText: string, userText: string): unknown {
     return {
       kind: 'request',
-      parts: [{ part_kind: 'system-prompt', dynamic_ref: null, content: text }],
+      parts: [
+        { part_kind: 'system-prompt', dynamic_ref: null, content: systemText },
+        { part_kind: 'user-prompt', content: userText },
+      ],
     };
   }
 
-  it('AC4 renders the inserted summary row (clearly labelled, prefix stripped) and NOT the replaced prefix', () => {
+  it('AC8 renders the summary row and NEITHER the fused /clear head NOR the Q/A tail', () => {
     const { fixture, component } = setup();
 
-    // Pre-compaction history, then fold it with the SAME helper the store uses.
+    // The live scenario: fused first request (`/clear` + first prompt), Q/A turns,
+    // then a /compact. Fold it with the SAME helper the store uses.
     const preFold = [
-      systemEntry('SYSTEM'),
-      userEntry('dropped earlier turn one'),
-      userEntry('dropped earlier turn two'),
-      userEntry('kept latest turn'),
+      fusedSystemUserEntry(
+        'SYSTEM',
+        '[Operator action] "/clear" — first question after clear',
+      ),
+      userEntry('verbatim question two'),
+      userEntry('verbatim question three'),
     ];
     const folded = foldContextCompaction(preFold, {
       __model__: 'akgentic.llm.event.LlmContextCompactedEvent',
       run_id: null,
       strategy_id: 'sliding-window',
       summary: 'the running recap',
-      replaced_message_count: 2,
+      replaced_message_count: 99,
       summarizer_prompt_version: 'v1',
       tokens_before: null,
       tokens_after: 1234,
@@ -1361,15 +1367,14 @@ describe('AkgentChatComponent — folded compaction summary (Story 29-2)', () =>
     // The summary row renders, clearly labelled, with the prefix stripped.
     expect(convHeaders(fixture)).toContain('Human : Summary');
     expect(convBodies(fixture)).toContain('the running recap');
-    // The kept turn still renders as a normal user row.
-    expect(convHeaders(fixture)).toContain('Human : User');
-    expect(convBodies(fixture)).toContain('kept latest turn');
 
-    // The replaced prefix is GONE — neither dropped turn appears anywhere, and the
-    // raw summary marker is not shown to the user (stripped by the render touch).
+    // Full-fold: no fused `/clear` head row, no verbatim Q/A tail rows, and the
+    // raw summary marker is not shown (stripped by the render touch).
     const allText = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(allText).not.toContain('dropped earlier turn one');
-    expect(allText).not.toContain('dropped earlier turn two');
+    expect(allText).not.toContain('/clear');
+    expect(allText).not.toContain('first question after clear');
+    expect(allText).not.toContain('verbatim question two');
+    expect(allText).not.toContain('verbatim question three');
     expect(allText).not.toContain(CONVERSATION_SUMMARY_PREFIX);
   });
 });
