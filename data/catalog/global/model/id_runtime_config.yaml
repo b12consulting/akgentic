@@ -1,7 +1,7 @@
 id: id_runtime_config
 kind: model
 namespace: global
-user_id: admin
+user_id: anonymous
 model_type: akgentic.llm.RuntimeConfig
 description: |
   ReAct runtime tuning — retries, end strategy, parallel tool calls, http client (all defaults).

@@ -1,7 +1,7 @@
 id: id_gpt_41
 kind: model
 namespace: global
-user_id: admin
+user_id: anonymous
 model_type: akgentic.llm.ModelConfig
 description: GPT-4.1 via OpenAI — shared model configuration
 payload:

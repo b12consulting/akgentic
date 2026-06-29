@@ -1,7 +1,7 @@
 id: id_vector_store
 kind: tool
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.vector_store.VectorStoreTool
 description: Vector store tool — embedding-backed semantic store (all defaults)
 payload:

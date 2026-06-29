@@ -1,7 +1,7 @@
 id: id_gpt_52
 kind: model
 namespace: global
-user_id: admin
+user_id: anonymous
 model_type: akgentic.llm.ModelConfig
 description: GPT-5.2 via OpenAI — shared model configuration
 payload:

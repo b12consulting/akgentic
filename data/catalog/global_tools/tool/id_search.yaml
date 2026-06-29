@@ -1,7 +1,7 @@
 id: id_search
 kind: tool
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.search.SearchTool
 description: Web search + crawl + fetch over Tavily (all defaults)
 payload:

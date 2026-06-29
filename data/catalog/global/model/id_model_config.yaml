@@ -1,7 +1,7 @@
 id: id_model_config
 kind: model
 namespace: global
-user_id: admin
+user_id: anonymous
 model_type: akgentic.llm.ModelConfig
 description: |
   LLM model configuration — provider/model/temperature/etc. (all defaults).

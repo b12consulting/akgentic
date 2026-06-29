@@ -1,7 +1,7 @@
 id: id_usage_limits
 kind: model
 namespace: global
-user_id: admin
+user_id: anonymous
 model_type: akgentic.llm.UsageLimits
 description: |
   Token/request budgets to control costs for each react agent run (all defaults).

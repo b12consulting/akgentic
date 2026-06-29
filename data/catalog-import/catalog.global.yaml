@@ -1,5 +1,5 @@
 namespace: global
-user_id: admin
+user_id: anonymous
 name: Global Library
 description: Shared model configs and tool definitions referenced cross-namespace
   via global.id_xxx
@@ -20,7 +20,7 @@ entries:
         instructions: |
           CRITICAL: Always keep the plan updated.
           Create tasks when your task involves other team members
-          or is complex enough to require multiple steps.
+          or requires complex multiple steps.
           Update task status when you make progress.
           Record outputs when you complete work.
           Do not finish your turn if the plan is stale.

@@ -1,0 +1,236 @@
+namespace: global_tools
+user_id: admin
+name: Global Tools
+description: Default-valued tool definitions for every ToolCard in akgentic-tool,
+  referenced cross-namespace via global_tools.id_xxx
+properties: {}
+shareable: true
+public: true
+entries:
+
+  #### ─── Tools ────────────────────────────────────────────────────────── ####
+  id_exec:
+    kind: tool
+    model_type: akgentic.tool.sandbox.ExecTool
+    description: Exec tool — run shell commands in a sandbox (auto mode, all defaults)
+    payload:
+      name: Exec
+      exec_command:
+        instructions: null
+        expose:
+        - tool_call
+      mode: auto
+      workspace_id: null
+
+  id_knowledge_graph:
+    kind: tool
+    model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+    description: Knowledge graph tool — get/update/search a vector-store-backed graph
+      (all defaults)
+    payload:
+      name: Knowledge Graph
+      vector_store: true
+      search_top_k: 10
+      search_score_threshold: 0.3
+      read_only: false
+      get_graph:
+        instructions: null
+        expose:
+        - system_prompt
+        - command
+        prompt_include_schema: true
+        prompt_include_roots: true
+      update_graph:
+        instructions: null
+        expose:
+        - tool_call
+      search:
+        instructions: null
+        expose:
+        - tool_call
+        - command
+
+  id_mcp:
+    kind: tool
+    model_type: akgentic.tool.mcp.MCPTool
+    description: MCP tool — connect to an external Model Context Protocol server (stdio
+      connection, all defaults)
+    payload:
+      name: MCP
+      connection:
+        transport: stdio
+        stdio_command: null
+        stdio_args: []
+        stdio_env: null
+        stdio_cwd: null
+        stdio_token_env_var: null
+        bearer_token: null
+        timeout: 10.0
+        read_timeout: 300.0
+        tool_prefix: null
+
+  id_planning:
+    kind: tool
+    model_type: akgentic.tool.planning.PlanningTool
+    description: Planning tool — manage team plans and tasks over a vector store (all
+      defaults)
+    payload:
+      name: Planning
+      vector_store: true
+      search_top_k: 10
+      search_score_threshold: 0.5
+      get_planning:
+        instructions: null
+        expose:
+        - system_prompt
+        - command
+        filter_by_agent: true
+      get_planning_task:
+        instructions: null
+        expose:
+        - tool_call
+        - command
+      update_planning:
+        instructions: null
+        expose:
+        - tool_call
+      search_planning:
+        instructions: null
+        expose:
+        - tool_call
+        - command
+
+  id_search:
+    kind: tool
+    model_type: akgentic.tool.search.SearchTool
+    description: Web search + crawl + fetch over Tavily (all defaults)
+    payload:
+      name: Search
+      web_search:
+        instructions: null
+        expose:
+        - tool_call
+        max_results: 5
+        search_depth: null
+      web_crawl:
+        instructions: null
+        expose:
+        - tool_call
+        timeout: 150.0
+        max_depth: null
+        max_breadth: null
+        limit: null
+        extract_depth: null
+      web_fetch:
+        instructions: null
+        expose:
+        - tool_call
+        timeout: 30.0
+        extract_depth: null
+
+  id_team:
+    kind: tool
+    model_type: akgentic.tool.team.TeamTool
+    description: Team management tool — hire/fire members, role profiles, team roster
+      (all defaults)
+    payload:
+      name: Team
+      hire_team_members:
+        instructions: null
+        expose:
+        - tool_call
+        - command
+      fire_team_members:
+        instructions: null
+        expose:
+        - tool_call
+        - command
+      get_role_profiles:
+        instructions: null
+        expose:
+        - system_prompt
+        - command
+      get_team_roster:
+        instructions: null
+        expose:
+        - system_prompt
+        - command
+
+  id_vector_store:
+    kind: tool
+    model_type: akgentic.tool.vector_store.VectorStoreTool
+    description: Vector store tool — embedding-backed semantic store (all defaults)
+    payload:
+      name: Vector Store
+      vector_store_name: '#VectorStore'
+      embedding_model: text-embedding-3-small
+      embedding_provider: openai
+
+  id_workspace:
+    kind: tool
+    model_type: akgentic.tool.workspace.WorkspaceTool
+    description: Workspace tool — read/view/list/glob/grep/write/edit/patch/mkdir
+      over a filesystem (all defaults)
+    payload:
+      name: Workspace
+      workspace_id: null
+      read_only: false
+      workspace_read:
+        instructions: null
+        expose:
+        - tool_call
+        default_limit: 2000
+        force_document_regeneration: false
+        document_reader:
+          llm_client: openai
+          llm_model: gpt-5.4-mini
+      workspace_view:
+        instructions: null
+        expose:
+        - tool_call
+        max_dimension: 1568
+      workspace_list:
+        instructions: null
+        expose:
+        - tool_call
+        max_depth: 1
+      workspace_glob:
+        instructions: null
+        expose:
+        - tool_call
+        max_results: 100
+      workspace_grep:
+        instructions: null
+        expose:
+        - tool_call
+        max_results: 100
+        max_line_length: 2000
+      expand_media_refs:
+        instructions: null
+        expose:
+        - command
+      workspace_write:
+        instructions: null
+        expose:
+        - tool_call
+      workspace_delete:
+        instructions: null
+        expose:
+        - tool_call
+      workspace_edit:
+        instructions: null
+        expose:
+        - tool_call
+      workspace_multi_edit:
+        instructions: null
+        expose:
+        - tool_call
+      workspace_patch:
+        instructions: null
+        expose:
+        - tool_call
+      workspace_mkdir:
+        instructions: null
+        expose:
+        - tool_call
+      resources: []

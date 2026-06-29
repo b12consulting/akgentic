@@ -1,7 +1,7 @@
 id: id_knowledge_graph
 kind: tool
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
 description: Knowledge graph tool — get/update/search a vector-store-backed graph (all defaults)
 payload:

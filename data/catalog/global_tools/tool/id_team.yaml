@@ -1,7 +1,7 @@
 id: id_team
 kind: tool
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.team.TeamTool
 description: Team management tool — hire/fire members, role profiles, team roster (all defaults)
 payload:

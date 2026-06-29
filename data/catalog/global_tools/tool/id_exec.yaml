@@ -1,7 +1,7 @@
 id: id_exec
 kind: tool
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.sandbox.ExecTool
 description: Exec tool — run shell commands in a sandbox (auto mode, all defaults)
 payload:

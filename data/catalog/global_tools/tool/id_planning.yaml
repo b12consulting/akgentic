@@ -1,7 +1,7 @@
 id: id_planning
 kind: tool
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.planning.PlanningTool
 description: Planning tool — manage team plans and tasks over a vector store (all defaults)
 payload:

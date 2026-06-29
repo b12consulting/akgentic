@@ -1,7 +1,7 @@
 id: id_workspace
 kind: tool
 namespace: global
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.workspace.WorkspaceTool
 description: Workspace tool for managing agent interactions and data
 payload:

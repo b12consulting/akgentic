@@ -1,7 +1,7 @@
 id: id_mcp
 kind: tool
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 model_type: akgentic.tool.mcp.MCPTool
 description: MCP tool — connect to an external Model Context Protocol server (stdio connection, all defaults)
 payload:
