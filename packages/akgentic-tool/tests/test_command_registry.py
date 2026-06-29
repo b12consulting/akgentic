@@ -668,3 +668,145 @@ def test_kw_unknown_first_token_still_raises() -> None:
     registry = _registry(_SearchCard())
     with pytest.raises(CommandNotRecognized):
         registry.dispatch("/frobnicate status=pending")
+
+
+# ===========================================================================
+# Story 23.1 — additive ``extra_commands`` param on get_command_registry
+#
+# An agent-owned plain callable joins the same collision-checked,
+# signature-derived command table as tool-card commands, under the
+# "BaseAgent" owner label, without akgentic-tool importing llm/agent.
+# ===========================================================================
+
+
+# --- AC #1: additive, default-off param (parity with no-arg call) -----------
+
+
+def test_extra_commands_default_none_is_byte_identical() -> None:
+    factory = ToolFactory(tool_cards=[_HireCard(), _FireCard()])
+    reg_noarg = factory.get_command_registry()
+    reg_none = factory.get_command_registry(extra_commands=None)
+
+    # Same command names.
+    assert reg_noarg.has("hire_member") and reg_noarg.has("fire_member")
+    assert reg_none.has("hire_member") and reg_none.has("fire_member")
+    # Same descriptor set (field-wise model equality, same order).
+    assert reg_none.descriptors() == reg_noarg.descriptors()
+    # Same dispatch behaviour for an existing tool-card command.
+    assert reg_none.dispatch("/fire_member Bob") == reg_noarg.dispatch("/fire_member Bob")
+
+
+def test_extra_commands_empty_list_adds_nothing() -> None:
+    registry = _registry(_HireCard()).descriptors()
+    factory = ToolFactory(tool_cards=[_HireCard()])
+    reg_empty = factory.get_command_registry(extra_commands=[])
+    assert reg_empty.descriptors() == registry
+
+
+# --- AC #2: extra callable becomes a dispatchable command -------------------
+
+
+def test_extra_command_no_arg_dispatchable_under_baseagent() -> None:
+    def compact() -> str:
+        """Compact the conversation context."""
+        return "compacted"
+
+    factory = ToolFactory(tool_cards=[_HireCard()])
+    registry = factory.get_command_registry(extra_commands=[compact])
+
+    by_name = {d.name: d for d in registry.descriptors()}
+    assert "compact" in by_name
+    assert by_name["compact"].tool_card == "BaseAgent"
+    # Tool-card command still present alongside the agent-owned one.
+    assert by_name["hire_member"].tool_card == "_HireCard"
+    # Dispatch invokes the callable and string-renders its result.
+    assert registry.dispatch("/compact") == "compacted"
+
+
+def test_extra_command_typed_param_coerced_via_existing_path() -> None:
+    def echo(n: int) -> str:
+        """Echo double the integer argument."""
+        return str(n * 2)
+
+    factory = ToolFactory(tool_cards=[_HireCard()])
+    registry = factory.get_command_registry(extra_commands=[echo])
+
+    desc = {d.name: d for d in registry.descriptors()}["echo"]
+    assert [a.name for a in desc.args] == ["n"]
+    assert desc.args[0].type == "integer"
+    assert desc.args[0].required is True
+    # "21" coerced to int 21 via the same TypeAdapter machinery -> 42, not "2121".
+    assert registry.dispatch("/echo 21") == "42"
+
+
+# --- AC #3: collision raises at build time ----------------------------------
+
+
+def test_extra_command_collides_with_tool_card_command_raises() -> None:
+    def hire_member() -> str:
+        """Collides with _HireCard's hire_member."""
+        return "x"
+
+    factory = ToolFactory(tool_cards=[_HireCard()])
+    with pytest.raises(ValueError) as exc:
+        factory.get_command_registry(extra_commands=[hire_member])
+    assert "hire_member" in str(exc.value)
+
+
+def test_two_extra_commands_same_name_collide_raises() -> None:
+    def make(value: str) -> Callable[[], str]:
+        def compact() -> str:
+            """Duplicate-named extra callable."""
+            return value
+
+        return compact
+
+    factory = ToolFactory(tool_cards=[_HireCard()])
+    with pytest.raises(ValueError) as exc:
+        factory.get_command_registry(extra_commands=[make("a"), make("b")])
+    assert "compact" in str(exc.value)
+
+
+# --- AC #4: retry-wrapping preserves name + signature -----------------------
+
+
+def test_extra_command_retry_wrap_preserves_name_and_signature() -> None:
+    class _MyRetryError(Exception):
+        pass
+
+    def compact(scope: str) -> str:
+        """Raises retriable when invoked."""
+        raise RetriableError("retry me")
+
+    factory = ToolFactory(tool_cards=[_HireCard()], retry_exception=_MyRetryError)
+    registry = factory.get_command_registry(extra_commands=[compact])
+
+    # Registers under the ORIGINAL name (never "/wrapper") with its param intact.
+    assert registry.has("compact")
+    desc = {d.name: d for d in registry.descriptors()}["compact"]
+    assert desc.tool_card == "BaseAgent"
+    assert [a.name for a in desc.args] == ["scope"]
+    # The wrapped callable converts RetriableError -> the configured retry_exception.
+    fn = registry.callable("compact")
+    with pytest.raises(_MyRetryError):
+        fn("everything")
+    # Through dispatch, that failure is caught and surfaced as a result string.
+    assert "compact" in registry.dispatch("/compact everything")
+
+
+# --- AC #5: unknown command + boundary parity -------------------------------
+
+
+def test_unknown_command_raises_with_and_without_extra_commands() -> None:
+    def compact() -> str:
+        """Agent-owned built-in."""
+        return "compacted"
+
+    factory = ToolFactory(tool_cards=[_HireCard()])
+    reg_plain = factory.get_command_registry()
+    reg_extra = factory.get_command_registry(extra_commands=[compact])
+
+    with pytest.raises(CommandNotRecognized):
+        reg_plain.dispatch("/nope")
+    with pytest.raises(CommandNotRecognized):
+        reg_extra.dispatch("/nope")
