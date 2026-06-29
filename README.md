@@ -12,7 +12,7 @@ Infrastructure backend for the Akgentic platform. It provides protocol abstracti
 
 | Capability        | Community              | Department                    | Enterprise                         |
 |-------------------|------------------------|-------------------------------|------------------------------------|
-| Auth              | `NoAuth`               | OAuth2 + API key              | OAuth2 + API key + SSO + RBAC      |
+| Auth              | `NoAuth` (anonymous)   | OAuth2 + API key              | OAuth2 + API key + SSO + RBAC      |
 | Placement         | `LocalPlacement`       | `HttpPlacement`               | `DaprPlacement` (LabelMatch → Weighted → ZoneAware) |
 | Worker lifecycle  | `LocalWorkerHandle`    | `HttpWorkerHandle`            | `DaprWorkerHandle`                 |
 | Team interaction  | `LocalTeamHandle`      | `HttpTeamHandle`              | `RemoteTeamHandle`                 |
@@ -24,6 +24,8 @@ Infrastructure backend for the Akgentic platform. It provides protocol abstracti
 | Worker discovery  | N/A (same process)     | HTTP via Redis-registered URLs| Dapr service invocation            |
 | Observability     | Logfire (direct)       | Logfire (direct)              | Logfire + OTel Collector           |
 | Workspace storage | Local filesystem       | Docker named volume           | NFS / EFS                          |
+
+> **Auth row — one contract, per-tier dispatch.** The per-tier glosses above name only what differs (the *credential sources* a tier accepts). All three tiers implement the **same** async `AuthStrategy.resolve_request_user` contract that `akgentic-infra` owns; community's is a trivial anonymous resolver. The contract, the shared `RequireAuth` enforcement middleware, and the `require_team_access` resource-ownership gate are documented in [Authentication contract & enforcement](#authentication-contract--enforcement) (per ADR-034) — this README is the canonical source; department / enterprise docs point here.
 
 ### Community (single process)
 
@@ -342,7 +344,7 @@ The **Used in** column refers to the role in the distributed (department / enter
 | `WorkerHandle`                 | `worker_handle.py`  | Team stop / delete / resume / get             | Both — server-side remote handle delegates to the worker's local handle |
 | `TeamHandle`                   | `team_handle.py`    | Send messages, route human input, subscribe   | Both — server-side remote handle delegates to the worker's local handle |
 | `RuntimeCache`                 | `runtime_cache.py`  | Map team IDs to live TeamHandle instances      | Both — real cache on the worker, stateless no-op resolver on the server |
-| `AuthStrategy`                 | `auth.py`           | Request authentication and user extraction     | Server |
+| `AuthStrategy`                 | `auth.py`           | Async `resolve_request_user(connection) -> RequestUser` (raises 401) + `get_auth_routes` — see [Authentication contract & enforcement](#authentication-contract--enforcement) | Server |
 | `InteractionChannelAdapter`    | `channels.py`       | Outbound message delivery to external channels | Worker — runs in the orchestrator's actor thread |
 | `InteractionChannelIngestion`  | `channels.py`       | Inbound webhook routing to teams               | Server |
 | `ChannelParser`                | `channels.py`       | Parse channel-specific webhook payloads        | Server |
@@ -376,6 +378,49 @@ The server is built around a tier-agnostic `TeamService` that delegates all infr
 | `POST`   | `/webhook/{channel}`            | Inbound channel webhook              |
 
 Catalog endpoints are mounted under `/catalog/` and provided by `akgentic-catalog`.
+
+### Authentication contract & enforcement
+
+Authentication is **one tier-agnostic contract** that `akgentic-infra` owns, plus a shared enforcement mechanism the tiers compose. Per ADR-034 (`_bmad-output/akgentic-infra/decisions/adr-034-tier-agnostic-auth-contract.md` — its current-vs-Design-D diagrams show the before/after assembly, the one-contract/one-mechanism target, the twice-vs-once request flow, and the ownership table), a tier no longer hand-wires its own copy of the auth assembly; it implements the resolver and composes the building block.
+
+**The contract — `AuthStrategy` (`protocols/auth.py`).** A `@runtime_checkable` Protocol with one async resolver:
+
+```python
+async def resolve_request_user(self, connection: HTTPConnection) -> RequestUser: ...  # raises HTTPException(401)
+def get_auth_routes(self) -> list[BaseRoute]: ...                                      # community returns []
+```
+
+The boundary speaks the **neutral infra `RequestUser`** (`{user_id, email, roles}`, `server/auth.py`); a tier's richer identity type (e.g. an `AuthenticatedUser` carrying `name`/`auth_method`) is projected to `RequestUser` **inside** the resolver, not at a separate per-tier seam. The contract is **async-native** — there is no synchronous entry point (removed in Story 40.1). A tier that fails to implement the resolver fails `isinstance(..., AuthStrategy)` and the shared contract test, so the half-wiring that produced the enterprise `/admin/catalog/*` 401 becomes structurally impossible to ship silently.
+
+**The shared `RequireAuth` building block (`server/middleware/require_auth.py`).** One ASGI middleware (`RequireAuthMiddleware`) that, per non-`OPTIONS` / non-allowlisted `http`/`websocket` scope:
+
+1. awaits `services.auth.resolve_request_user(connection)` **exactly once**,
+2. stashes the resolved `RequestUser` on `request.state.request_user` (the same stash the gate, the caller-identity scope, and the mutation-log audit all read), and
+3. on a raising resolver, rejects **pre-routing** — WebSocket close `1008`, else a `JSONResponse` 401.
+
+It is parameterized by the allowlists the tier supplies: `exact_allowlist` (default `frozenset({"/readiness"})`) and `prefix_allowlist` (default `("/auth/",)`).
+
+**Override seam (bounded extensibility).** The block is pluggable at the edges only:
+
+- `requires_principal(connection) -> bool` — a tier predicate (richer than the static allowlists) that exempts paths authenticated by a *different* mechanism (e.g. an HMAC-verified signed-webhook or Dapr fan-out path) without treating them as anonymous.
+- `on_reject(connection, exc) -> Response` — the tier shapes its own HTTP 401 (JSON vs redirect-to-login, `WWW-Authenticate` header, etc.). The WebSocket `1008` close is fixed.
+- **Guarded escape hatch** — a tier MAY supply a wholly custom middleware **only if** it passes the shared stash-contract test (resolve once → stash `request.state.request_user` → 401-on-raise pre-routing).
+
+The load-bearing invariant — **resolve-once + stash key + 401-on-raise pre-routing** — is **never** overridable; only the edges are.
+
+**The seam reads the stash; the gate is unchanged.** `get_request_user` (`server/auth.py`) returns the stashed `RequestUser` when the middleware populated it, else the community anonymous default (`RequestUser(user_id="anonymous")` — never `None`, never raises). Auth therefore runs **once per request**, not twice. The catalog gate `require_authenticated_principal` keeps `Depends(get_request_user)` and **still never 401s on its own** — the strategy raises 401, the shared middleware is the pre-routing 401 path.
+
+**`require_team_access` — resource-ownership authorization (`server/routes/_team_access.py`).** A per-route `Depends` (authorization, *not* authentication — middleware has no route/param knowledge) that resolves the team `Process` by `team_id` via the team-access seam (`get_team_service` → `TeamService.get_team`) and allows iff `process.user_id == principal.user_id` **OR** `"admin" in principal.roles`; otherwise it raises **404** (404-over-403 — no existence leak). It is mounted on the per-`team_id` routes (`GET`/`DELETE /teams/{id}`, `POST /teams/{id}/message`, `GET /teams/{id}/events`) and mirrors ADR-028's `require_namespace_owner_or_admin`. The check and the team-access seam are **infra-owned**; the RBAC role *vocabulary* and enterprise's tenant intersection stay tier-side.
+
+**Per-tier wiring (infra-owned vs tier-owned).**
+
+| Tier | Resolver | Middleware |
+|---|---|---|
+| Community (`NoAuth`) | trivial anonymous — returns `RequestUser(user_id="anonymous")`, never raises; `get_auth_routes` → `[]` | mounts **none** (nothing to enforce) — behaviour byte-unchanged |
+| Department | implements `resolve_request_user` (its credential dispatch, projecting to `RequestUser`) | composes the shared `RequireAuth` block into its own stack with its own allowlists |
+| Enterprise | implements `resolve_request_user` (its credential dispatch + tenant scoping) | composes the shared `RequireAuth` block into its own stack with its own allowlists |
+
+**Infra owns** the `AuthStrategy` contract, the `RequireAuth` building block, the stash + `get_request_user` seam, and `require_team_access`. **Tiers own** their credential dispatch (which sources, in what priority), their middleware-stack composition / layer ordering, their allowlist *contents*, and their RBAC role vocabulary. Department / enterprise document only their own composition and allowlists; they point here for the contract.
 
 ### Frontend Adapter Plugin
 

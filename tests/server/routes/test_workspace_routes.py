@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from akgentic.infra.server.auth import RequestUser, get_request_user
 from akgentic.infra.server.settings import ServerSettings
 
 
@@ -296,3 +299,126 @@ def test_workspace_file_upload_rejects_bad_selector(
     )
     assert resp.status_code == 400
     assert set(seeded_settings.workspaces_root.iterdir()) == before
+
+
+# --- Route-level authorization: path team_id (ADR-034 §Layered authz, AC1-AC5) ---
+
+
+def _identity(app: FastAPI, user: RequestUser) -> TestClient:
+    """A TestClient whose request-user seam resolves to ``user``."""
+    app.dependency_overrides[get_request_user] = lambda: user
+    return TestClient(app)
+
+
+def _owned_team_with_file(owner_client: TestClient, ws_root_parent: Path) -> uuid.UUID:
+    """Create a team via REST under the owner's identity and seed ``output.txt``."""
+    resp = owner_client.post("/teams/", json={"catalog_namespace": "test-team"})
+    assert resp.status_code == 201
+    team_id = uuid.UUID(resp.json()["team_id"])
+    ws_root = ws_root_parent / str(team_id)
+    ws_root.mkdir(parents=True, exist_ok=True)
+    (ws_root / "output.txt").write_text("hello world")
+    return team_id
+
+
+def test_workspace_routes_deny_non_owner_404(
+    app: FastAPI, seeded_settings: ServerSettings
+) -> None:
+    """A non-owner non-admin gets 404 on tree/file/upload (no existence leak) — AC3."""
+    owner = _identity(app, RequestUser(user_id="alice"))
+    team_id = _owned_team_with_file(owner, seeded_settings.workspaces_root)
+    # The owner reaches the route (sanity).
+    assert owner.get(f"/workspace/{team_id}/tree").status_code == 200
+
+    intruder = _identity(app, RequestUser(user_id="bob"))
+    assert intruder.get(f"/workspace/{team_id}/tree").status_code == 404
+    assert (
+        intruder.get(f"/workspace/{team_id}/file", params={"path": "output.txt"}).status_code
+        == 404
+    )
+    upload = intruder.post(
+        f"/workspace/{team_id}/file",
+        data={"path": "x.txt"},
+        files={"file": ("x.txt", b"data", "text/plain")},
+    )
+    assert upload.status_code == 404
+    app.dependency_overrides.clear()
+
+
+def test_workspace_routes_admin_non_owner_allowed(
+    app: FastAPI, seeded_settings: ServerSettings
+) -> None:
+    """An ``admin`` bypasses ownership on tree/file/upload — AC4."""
+    owner = _identity(app, RequestUser(user_id="alice"))
+    team_id = _owned_team_with_file(owner, seeded_settings.workspaces_root)
+
+    admin = _identity(app, RequestUser(user_id="root", roles=["admin"]))
+    assert admin.get(f"/workspace/{team_id}/tree").status_code == 200
+    assert (
+        admin.get(f"/workspace/{team_id}/file", params={"path": "output.txt"}).status_code == 200
+    )
+    upload = admin.post(
+        f"/workspace/{team_id}/file",
+        data={"path": "by-admin.txt"},
+        files={"file": ("by-admin.txt", b"admin data", "text/plain")},
+    )
+    assert upload.status_code == 201
+    app.dependency_overrides.clear()
+
+
+def test_workspace_file_read_missing_team_404(client: TestClient) -> None:
+    """GET .../file 404s for a non-existent team (now via the gate) — AC5."""
+    fake_id = uuid.uuid4()
+    resp = client.get(f"/workspace/{fake_id}/file", params={"path": "output.txt"})
+    assert resp.status_code == 404
+
+
+# --- ?workspace_id= foreign-team check (ADR-034 open question #5, AC7) ---
+
+
+def test_workspace_id_foreign_team_is_404(
+    app: FastAPI, seeded_settings: ServerSettings
+) -> None:
+    """A ?workspace_id= naming a foreign team's id is rejected with 404 — AC7."""
+    alice = _identity(app, RequestUser(user_id="alice"))
+    alice_team = _owned_team_with_file(alice, seeded_settings.workspaces_root)
+
+    bob = _identity(app, RequestUser(user_id="bob"))
+    bob_team = _owned_team_with_file(bob, seeded_settings.workspaces_root)
+    # bob owns bob_team (path passes) but points workspace_id at alice's team id.
+    resp = bob.get(
+        f"/workspace/{bob_team}/tree", params={"workspace_id": str(alice_team)}
+    )
+    assert resp.status_code == 404
+    app.dependency_overrides.clear()
+
+
+def test_workspace_id_unknown_uuid_is_allowed(
+    client: TestClient,
+    team_with_workspace: uuid.UUID,
+    seeded_settings: ServerSettings,
+) -> None:
+    """A ?workspace_id= UUID that names no team is a shared segment — allowed (AC7)."""
+    stray = uuid.uuid4()
+    alt_root = seeded_settings.workspaces_root / str(stray)
+    alt_root.mkdir(parents=True, exist_ok=True)
+    (alt_root / "shared.txt").write_text("shared content")
+    resp = client.get(
+        f"/workspace/{team_with_workspace}/tree", params={"workspace_id": str(stray)}
+    )
+    assert resp.status_code == 200
+    names = [e["name"] for e in resp.json()["entries"]]
+    assert "shared.txt" in names
+
+
+def test_workspace_id_own_team_is_allowed(
+    client: TestClient, team_with_workspace: uuid.UUID
+) -> None:
+    """A ?workspace_id= equal to the caller's own team id is allowed (AC7)."""
+    resp = client.get(
+        f"/workspace/{team_with_workspace}/tree",
+        params={"workspace_id": str(team_with_workspace)},
+    )
+    assert resp.status_code == 200
+    names = [e["name"] for e in resp.json()["entries"]]
+    assert "output.txt" in names

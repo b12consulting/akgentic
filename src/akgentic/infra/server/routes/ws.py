@@ -21,6 +21,7 @@ from starlette.websockets import WebSocketState
 
 from akgentic.core.messages import Message
 from akgentic.infra.protocols.event_stream import StreamClosed, StreamReader
+from akgentic.infra.server.auth import get_request_user
 from akgentic.infra.server.routes.frontend_adapter import FrontendAdapter
 from akgentic.infra.server.services.team_service import TeamService
 from akgentic.team.models import TeamStatus
@@ -174,6 +175,8 @@ async def websocket_events(websocket: WebSocket, team_id: uuid.UUID) -> None:
     - Running team: subscribes and pushes events in real-time.
     - Stopped team: accepts connection and idles until restored.
     - Non-existent team: rejects with close code 4004.
+    - Non-owner non-admin: rejects with close code 1008 (the WS analogue of the
+      REST gate's 404), before ``accept()`` — the caller receives no event data.
     """
     service = _get_team_service(websocket)
     conn_mgr = _get_connection_manager(websocket)
@@ -182,6 +185,19 @@ async def websocket_events(websocket: WebSocket, team_id: uuid.UUID) -> None:
     if process is None:
         logger.info("WebSocket rejected: team_id=%s (not found)", team_id)
         await websocket.close(code=4004, reason="Team not found")
+        return
+
+    # Same owner-or-admin rule as the REST gate (require_team_access), applied
+    # in-handler since a WebSocket has no Depends 404 path. Identity resolves via
+    # the single get_request_user seam off the WS ``.state`` stash (ADR-034).
+    from akgentic.infra.server.routes._team_access import owner_or_admin
+
+    user = get_request_user(websocket)
+    if not owner_or_admin(process, user):
+        logger.info(
+            "WebSocket rejected: team_id=%s (forbidden, user_id=%s)", team_id, user.user_id
+        )
+        await websocket.close(code=1008, reason="Forbidden")
         return
 
     await websocket.accept()

@@ -1,46 +1,47 @@
 """FastAPI authentication dependency for ``/admin/*`` routes.
 
-Per ADR-023 §D3: administrative HTTP surfaces (``/admin/catalog/*`` today,
-any future ``/admin/*`` family) are gated by the wired ``AuthStrategy`` as a
-router-level FastAPI dependency. The dependency reads ``app.state.services.auth``
-live, so community's ``NoAuth`` and enterprise's ``SsoRbacAuth`` work without
-any code change — each tier wires its own strategy at app-build time.
+Per ADR-023: administrative HTTP surfaces (``/admin/catalog/*`` today, any future
+``/admin/*`` family) resolve their principal from the single ``get_request_user``
+seam — the same source ``scope_catalog_caller_identity`` and the ADR-028
+owner-or-admin gates already trust. There is ONE identity source across all tiers.
 
-The helper is kept intentionally tiny: all auth policy lives in the strategy
-implementations (``NoAuth``, ``SsoRbacAuth``, etc.). This module is only the
-FastAPI glue.
+The gate never 401s on its own. Community's default ``get_request_user`` returns
+``RequestUser(user_id="anonymous")`` and passes. The only 401 paths are a *raising*
+``get_request_user`` override (dept/enterprise bad credentials) and the pre-routing
+``RequireAuthMiddleware`` — both outside this module.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, Request
+
+from akgentic.infra.server.auth import RequestUser, get_request_user
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["require_authenticated_principal"]
 
 
-def require_authenticated_principal(request: Request) -> str:
-    """Resolve the principal ID from the wired ``AuthStrategy`` or raise 401.
+def require_authenticated_principal(
+    request: Request,
+    user: RequestUser = Depends(get_request_user),
+) -> str:
+    """Resolve the principal ID from the ``get_request_user`` seam.
 
-    Reads the tier's wired strategy from ``request.app.state.services.auth``
-    and delegates the actual authentication check to it. A ``None`` return
-    from the strategy is treated as an authentication failure and surfaced as
-    ``HTTPException(status_code=401, detail="authentication required")``.
+    Reads the request user through the ADR-023 seam (honouring each tier's
+    ``app.dependency_overrides``) and returns its ``user_id``. The resolved
+    ``RequestUser`` is stashed on ``request.state`` so the DI-less
+    ``AdminCatalogMutationLogMiddleware`` can read the same principal. The gate
+    adds no failure branch of its own — a raising override surfaces its own 401.
 
     Args:
         request: The incoming FastAPI/Starlette request.
+        user: The authenticated principal, resolved via ``get_request_user``.
 
     Returns:
-        The authenticated principal ID (string) as returned by the strategy.
-
-    Raises:
-        HTTPException: 401 when the wired strategy returns ``None``.
+        The authenticated principal ID (``user.user_id``).
     """
-    services = request.app.state.services
-    principal: str | None = services.auth.authenticate(request)
-    if principal is None:
-        raise HTTPException(status_code=401, detail="authentication required")
-    return principal
+    request.state.request_user = user
+    return user.user_id

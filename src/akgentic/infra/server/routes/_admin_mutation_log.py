@@ -7,10 +7,10 @@ response status — a 409 is logged alongside a 201.
 
 Fields emitted on every mutation:
 
-* ``principal_id`` — resolved by calling ``services.auth.authenticate`` once.
-  Duplicating the call the ``_auth_dep`` already made is cheap (strategy
-  implementations are synchronous and in-process) and keeps this middleware
-  independent of the dependency wiring order.
+* ``principal_id`` — read from the ``RequestUser`` the ``/admin/*`` auth gate
+  stashes on ``request.state`` (``_auth_dep.require_authenticated_principal``).
+  This middleware has no FastAPI DI context, so it cannot ``Depends`` the seam
+  itself; it reads the gate's stash, which is populated before the handler runs.
 * ``kind`` — the ``{kind}`` segment of the URL path (``team``, ``agent``, ...).
 * ``namespace`` — the ``namespace`` query string value when present; empty
   string when absent (list / create-without-namespace paths).
@@ -102,22 +102,17 @@ class AdminCatalogMutationLogMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _resolve_principal_id(request: Request) -> str:
-        """Return the principal id from the wired strategy, or empty string.
+        """Return the principal id from the gate's ``request.state`` stash.
 
-        The auth dependency already ran on every admin-catalog request — by
-        the time this middleware's post-response hook fires, we know the
-        strategy returned a non-``None`` principal (otherwise the dependency
-        would have raised 401 and the handler wouldn't have produced a
-        response). Calling the strategy again is a harmless, cheap lookup.
-        A missing ``services`` attribute (defensive guard for non-standard
-        app shapes in tests) degrades to an empty string rather than
-        crashing the middleware chain.
+        The ``/admin/*`` auth gate (``require_authenticated_principal``) runs
+        before the handler and stashes the resolved ``RequestUser`` on
+        ``request.state.request_user``. By the time this post-response hook
+        fires, the stash is present. A missing stash (defensive guard for
+        non-standard app shapes in tests) degrades to an empty string rather
+        than crashing the middleware chain.
         """
-        services = getattr(request.app.state, "services", None)
-        if services is None:
-            return ""
-        principal = services.auth.authenticate(request)
-        return principal or ""
+        user = getattr(request.state, "request_user", None)
+        return user.user_id if user is not None else ""
 
 
 def _parse_kind_and_id(path: str) -> tuple[str, str]:
