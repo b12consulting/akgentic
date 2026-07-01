@@ -1,8 +1,8 @@
 name: Release
 
-# Manual release: reads version from pyproject.toml on version-1.x, tags
-# version-1.x HEAD, builds the wheel, and creates a GitHub Release with the
-# wheel attached.
+# Manual release: reads version from pyproject.toml on the chosen ref (the
+# `ref` input, default version-1.x), tags that ref's HEAD, builds the wheel,
+# and creates a GitHub Release with the wheel attached.
 #
 # Bumping the version is a separate maintainer action via a normal PR. This
 # workflow does NOT push commits to version-1.x — branch protection blocks
@@ -12,6 +12,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/ref to release from"
+        required: true
+        default: version-1.x
 
 jobs:
   release:
@@ -19,10 +24,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout version-1.x
+      - name: Checkout release ref
         uses: actions/checkout@v6
         with:
-          ref: version-1.x
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
 
       - name: Install uv
@@ -49,7 +54,7 @@ jobs:
             exit 1
           fi
 
-      - name: Tag version-1.x HEAD
+      - name: Tag release ref HEAD
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
