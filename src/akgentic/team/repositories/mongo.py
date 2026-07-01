@@ -102,15 +102,34 @@ class MongoEventStore:
         """Persist a team process snapshot via upsert.
 
         Serializes the Process with ``model_dump()`` and upserts into the
-        ``teams`` collection keyed by ``team_id``.
+        ``teams`` collection keyed by ``team_id`` using ``update_one`` with
+        ``$set``/``$setOnInsert``. This **merges** fields rather than replacing
+        the whole document: fields absent from this write are left intact, not
+        removed (unlike the previous ``replace_one``). Safe for the additive
+        ``Process`` schema; removing a field would need an explicit ``$unset``.
 
         Args:
             process: The team process snapshot to persist.
         """
+        # Shard-key-safe upsert (Cosmos for MongoDB hardening): use
+        # update_one + $set/$setOnInsert instead of replace_one(upsert=True).
+        # team_id is the Cosmos shard key; keeping it out of $set and only in
+        # $setOnInsert means it is mutated solely on insert (never under $set,
+        # so the immutable-shard-key rule cannot trip on update).
+        # Rationale is defensive, NOT a proven fix: the Cosmos substatus 1001
+        # ("wrong-pk-value") on sharded upserts is undocumented and its root
+        # cause unconfirmed. Sending no full replacement document removes the
+        # most plausible replace-path trigger, but only the operational
+        # Validation Plan against real sharded Cosmos can confirm it.
+        # Trade-off vs replace_one: $set only sets the listed fields and does
+        # NOT remove fields absent from this write (see the docstring).
         doc = process.model_dump()
-        self._teams.replace_one(
-            {"team_id": str(process.team_id)},
-            doc,
+        team_id = str(process.team_id)
+        doc.pop("_id", None)  # model_dump emits no _id; defensive only
+        fields = {k: v for k, v in doc.items() if k != "team_id"}
+        self._teams.update_one(
+            {"team_id": team_id},
+            {"$set": fields, "$setOnInsert": {"team_id": team_id}},
             upsert=True,
         )
         logger.debug("Saved team %s", process.team_id)
@@ -233,15 +252,30 @@ class MongoEventStore:
         """Persist an agent state snapshot via upsert.
 
         Serializes the AgentStateSnapshot with ``model_dump()`` and upserts
-        into the ``agent_states`` collection keyed by ``team_id`` + ``agent_id``.
+        into the ``agent_states`` collection keyed by ``team_id`` + ``agent_id``
+        using ``update_one`` with ``$set``/``$setOnInsert``. As with
+        ``save_team`` this **merges** rather than replaces the document: fields
+        absent from this write are left intact (not removed). Safe for the
+        additive ``AgentStateSnapshot`` schema.
 
         Args:
             snapshot: The agent state snapshot to persist.
         """
+        # Shard-key-safe upsert (Cosmos for MongoDB hardening): see save_team
+        # for the full rationale (defensive hardening, not a proven 1001 fix).
+        # team_id is the Cosmos shard key; agent_id is the document-identity
+        # discriminator (backed by the unique (team_id, agent_id) index). Both
+        # are kept out of $set and placed only in $setOnInsert so the shard key
+        # is never mutated on update and no full replacement document is sent.
+        # As with save_team, $set does NOT remove fields absent from this write.
         doc = snapshot.model_dump()
-        self._agent_states.replace_one(
-            {"team_id": str(snapshot.team_id), "agent_id": snapshot.agent_id},
-            doc,
+        team_id = str(snapshot.team_id)
+        agent_id = snapshot.agent_id
+        doc.pop("_id", None)  # model_dump emits no _id; defensive only
+        fields = {k: v for k, v in doc.items() if k not in ("team_id", "agent_id")}
+        self._agent_states.update_one(
+            {"team_id": team_id, "agent_id": agent_id},
+            {"$set": fields, "$setOnInsert": {"team_id": team_id, "agent_id": agent_id}},
             upsert=True,
         )
         logger.debug(
