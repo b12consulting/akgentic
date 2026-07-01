@@ -413,7 +413,10 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
             None: This method can be extended to send responses or route messages as needed.
         """
 
-        logger.info(f"Received AgentMessage from {sender}: {message.content}")
+        logger.info(
+            f"[{self.config.name}-{self.team_id}] Received '{message.type}' AgentMessage "
+            f"from {sender} ({len(message.content)} chars)"
+        )
 
         try:
             sleep(random.uniform(0.25, 0.5))  # Simulate processing delay
