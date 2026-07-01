@@ -14,6 +14,7 @@ once per backend. This module retains only Mongo-specific invariants:
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 from tests.models.conftest import (
     make_agent_state_snapshot,
     make_persisted_event,
+    make_process,
 )
 
 
@@ -133,6 +135,64 @@ class TestMongoEventStoreMongoSpecific:
         info = mongo_db["teams"].index_information()
         assert info["teams_user_id_idx"]["key"] == [("user_id", 1)]
         assert list(info.keys()).count("teams_user_id_idx") == 1
+
+    # --- Collection name configuration --------------------------------------
+
+    def test_collection_names_default_when_env_unset(
+        self, mongo_db: Any, monkeypatch: Any
+    ) -> None:
+        """With the override env vars unset, the default collection names are used.
+
+        Persists one document of each kind and asserts it lands in the
+        hardcoded ``teams`` / ``events`` / ``agent_states`` collections.
+        """
+        for env in (
+            "MONGO_TEAMS_COLLECTION",
+            "MONGO_EVENTS_COLLECTION",
+            "MONGO_AGENT_STATES_COLLECTION",
+        ):
+            monkeypatch.delenv(env, raising=False)
+
+        store = MongoEventStore(mongo_db)
+        team_id = uuid.uuid4()
+        store.save_team(make_process(team_id=team_id))
+        store.save_event(make_persisted_event(team_id=team_id, sequence=1))
+        store.save_agent_state(make_agent_state_snapshot(team_id=team_id, agent_id="a1"))
+
+        assert mongo_db["teams"].count_documents({}) == 1
+        assert mongo_db["events"].count_documents({}) == 1
+        assert mongo_db["agent_states"].count_documents({}) == 1
+
+    def test_collection_names_overridden_by_env(
+        self, mongo_db: Any
+    ) -> None:
+        """The three env vars rename the collections; defaults stay empty.
+
+        Constructs a store with custom collection names set via environment
+        variables, persists one document of each kind, and asserts they land
+        in the custom collections and NOT in the default ones.
+        """
+        overrides = {
+            "MONGO_TEAMS_COLLECTION": "t_custom",
+            "MONGO_EVENTS_COLLECTION": "e_custom",
+            "MONGO_AGENT_STATES_COLLECTION": "as_custom",
+        }
+        with patch.dict(os.environ, overrides):
+            store = MongoEventStore(mongo_db)
+
+        team_id = uuid.uuid4()
+        store.save_team(make_process(team_id=team_id))
+        store.save_event(make_persisted_event(team_id=team_id, sequence=1))
+        store.save_agent_state(make_agent_state_snapshot(team_id=team_id, agent_id="a1"))
+
+        # Documents land in the custom collections...
+        assert mongo_db["t_custom"].count_documents({}) == 1
+        assert mongo_db["e_custom"].count_documents({}) == 1
+        assert mongo_db["as_custom"].count_documents({}) == 1
+        # ...and not in the defaults.
+        assert mongo_db["teams"].count_documents({}) == 0
+        assert mongo_db["events"].count_documents({}) == 0
+        assert mongo_db["agent_states"].count_documents({}) == 0
 
     # --- Import guards ------------------------------------------------------
 
