@@ -62,7 +62,10 @@ class HumanProxy(UserProxy):
             message: The AgentMessage from an agent.
             sender: The ActorAddress of the requesting agent.
         """
-        logger.info(f"[Message from {sender}] {message.content}")
+        logger.info(
+            f"[{self.config.name}-{self.team_id}] Received '{message.type}' AgentMessage "
+            f"from {sender} ({len(message.content)} chars)"
+        )
         # In a real implementation, this would:
         # - Queue the request for human review
         # - Send to UI for human response
