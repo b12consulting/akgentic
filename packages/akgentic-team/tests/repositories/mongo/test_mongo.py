@@ -138,6 +138,52 @@ class TestMongoEventStoreMongoSpecific:
         assert info["teams_user_id_idx"]["key"] == [("user_id", 1)]
         assert list(info.keys()).count("teams_user_id_idx") == 1
 
+    # --- event.id index presence --------------------------------------------
+
+    def test_events_team_event_id_index_created_on_init(
+        self, mongo_store: MongoEventStore, mongo_db: Any
+    ) -> None:
+        """``__init__`` creates ``events_team_event_id_idx`` on ``events``.
+
+        Compound ascending key on ``team_id`` + the nested ``event.id``,
+        backing the anchor lookup in ``load_events(after_event_id=...)``
+        (ADR-21 §5). Deliberately not unique: a unique index would turn a
+        read-path ambiguity into a write-path ``DuplicateKeyError`` on
+        ``save_event``.
+        """
+        info = mongo_db["events"].index_information()
+        assert "events_team_event_id_idx" in info
+        assert info["events_team_event_id_idx"]["key"] == [("team_id", 1), ("event.id", 1)]
+        assert not info["events_team_event_id_idx"].get("unique")
+
+    def test_events_team_event_id_index_creation_is_idempotent(
+        self, mongo_store: MongoEventStore, mongo_db: Any
+    ) -> None:
+        """Re-running the constructor against the same database does not raise.
+
+        ``create_index`` returns silently when an index with the same key
+        spec already exists, so redeploys against a long-lived MongoDB are
+        safe. After the second construction the entry is still present
+        exactly once with the same key spec.
+        """
+        # First construction already happened via the ``mongo_store`` fixture.
+        MongoEventStore(mongo_db)  # second construction — must not raise
+
+        info = mongo_db["events"].index_information()
+        assert info["events_team_event_id_idx"]["key"] == [("team_id", 1), ("event.id", 1)]
+        assert list(info.keys()).count("events_team_event_id_idx") == 1
+
+    def test_existing_events_team_sequence_index_still_created(
+        self, mongo_store: MongoEventStore, mongo_db: Any
+    ) -> None:
+        """The pre-existing ``(team_id, sequence)`` index is untouched.
+
+        It already backs the ``{"sequence": {"$gt": n}}`` range filter and
+        needs no change for the cursor push-down.
+        """
+        specs = [entry["key"] for entry in mongo_db["events"].index_information().values()]
+        assert [("team_id", 1), ("sequence", 1)] in specs
+
     # --- Collection name configuration --------------------------------------
 
     def test_collection_names_default_when_env_unset(

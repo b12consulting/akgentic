@@ -36,6 +36,7 @@ except ImportError as exc:
     ) from exc
 
 from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.ports import EventNotFoundError
 
 if TYPE_CHECKING:
     import pymongo.collection
@@ -96,6 +97,12 @@ class MongoEventStore:
         # same database returns silently when an index with the same key spec
         # already exists, so this is safe across redeploys.
         self._teams.create_index("user_id", name="teams_user_id_idx")
+        # ADR-21 §5: backs the load_events(after_event_id=...) anchor lookup.
+        # Not unique — a unique index would turn a read-path ambiguity into a
+        # write-path DuplicateKeyError on save_event.
+        self._events.create_index(
+            [("team_id", 1), ("event.id", 1)], name="events_team_event_id_idx"
+        )
         logger.debug("Initialized MongoEventStore with database '%s'", db.name)
 
     def save_team(self, process: Process) -> None:
@@ -201,19 +208,31 @@ class MongoEventStore:
         self._events.insert_one(doc)
         logger.debug("Saved event seq=%d for team %s", event.sequence, event.team_id)
 
-    def load_events(self, team_id: uuid.UUID) -> list[PersistedEvent]:
-        """Load all persisted events for a team, ordered by sequence.
+    def load_events(
+        self, team_id: uuid.UUID, after_event_id: uuid.UUID | None = None
+    ) -> list[PersistedEvent]:
+        """Load persisted events for a team, ordered by sequence.
 
-        Queries the ``events`` collection by ``team_id`` and sorts by
-        ``sequence`` ascending.
+        Both the anchor resolve and the ``sequence > N`` range filter run in
+        MongoDB — the anchor via an indexed, projected ``find_one``, the range
+        as a ``$gt`` clause on the find (ADR-21 §5).
 
         Args:
             team_id: Unique identifier of the team.
+            after_event_id: If provided, return only events after the matching
+                event — anchor excluded. If ``None`` (default), the full log.
 
         Returns:
             List of PersistedEvent ordered by sequence, or empty list if none.
+
+        Raises:
+            EventNotFoundError: If ``after_event_id`` does not resolve to an
+                event of this team.
         """
-        cursor = self._events.find({"team_id": str(team_id)}).sort("sequence", 1)
+        query: dict[str, object] = {"team_id": str(team_id)}
+        if after_event_id is not None:
+            query["sequence"] = {"$gt": self._resolve_anchor_sequence(team_id, after_event_id)}
+        cursor = self._events.find(query).sort("sequence", 1)
         events: list[PersistedEvent] = []
         for doc in cursor:
             doc.pop("_id", None)
@@ -225,6 +244,26 @@ class MongoEventStore:
                 )
         logger.debug("Loaded %d events for team %s", len(events), team_id)
         return events
+
+    def _resolve_anchor_sequence(self, team_id: uuid.UUID, after_event_id: uuid.UUID) -> int:
+        """Return the ``sequence`` of the cursor anchor, or raise if absent.
+
+        ``event.id`` is persisted as a string, so both ids are coerced with
+        ``str()``: a raw ``uuid.UUID`` would be BSON-encoded as Binary
+        subtype-4 and match nothing. The projection keeps this to a single
+        indexed lookup returning one integer — the document is never hydrated.
+
+        Raises:
+            EventNotFoundError: If the anchor is not an event of this team.
+        """
+        anchor = self._events.find_one(
+            {"team_id": str(team_id), "event.id": str(after_event_id)},
+            projection={"sequence": 1, "_id": 0},
+        )
+        if anchor is None:
+            raise EventNotFoundError(f"Event {after_event_id} not found for team {team_id}")
+        sequence: int = anchor["sequence"]
+        return sequence
 
     def get_max_sequence(self, team_id: uuid.UUID) -> int:
         """Return the highest event sequence number for a team, or 0.
