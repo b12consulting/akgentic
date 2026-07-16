@@ -3,9 +3,29 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.agent_state import BaseState
+from akgentic.core.messages.orchestrator import StateChangedMessage
+from akgentic.team.subscriber import PersistenceSubscriber
 from fastapi.testclient import TestClient
+
+from akgentic.infra.server.deps import CommunityServices
+from tests.server.conftest import append_synthetic_events
+
+
+class SampleAgentState(BaseState):
+    """Minimal BaseState subclass for building a StateChangedMessage."""
+
+    task_count: int = 0
+
+
+def _create_team(client: TestClient) -> str:
+    """Create a team through the API and return its id."""
+    resp = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    return str(resp.json()["team_id"])
 
 
 def test_send_message_success(client: TestClient) -> None:
@@ -245,3 +265,147 @@ def test_get_events_running_team(client: TestClient) -> None:
     resp = client.get(f"/teams/{team_id}/events")
     assert resp.status_code == 200
     assert isinstance(resp.json()["events"], list)
+
+
+# --- after_event_id cursor ---
+
+
+def test_get_events_no_cursor_returns_full_log_sequence_asc(
+    client: TestClient,
+    community_services: CommunityServices,
+) -> None:
+    """No cursor returns the full log, sequence ASC — unchanged behaviour."""
+    team_id = _create_team(client)
+    appended = append_synthetic_events(
+        community_services.event_store, uuid.UUID(team_id), 3
+    )
+
+    resp = client.get(f"/teams/{team_id}/events")
+
+    assert resp.status_code == 200
+    events = resp.json()["events"]
+    sequences = [e["sequence"] for e in events]
+    assert sequences == sorted(sequences)
+    assert [e["event"]["id"] for e in events[-3:]] == [str(e.event.id) for e in appended]
+
+
+def test_get_events_mid_log_cursor_returns_strict_tail(
+    client: TestClient,
+    community_services: CommunityServices,
+) -> None:
+    """A mid-log cursor returns only the events after it — anchor excluded."""
+    team_id = _create_team(client)
+    appended = append_synthetic_events(
+        community_services.event_store, uuid.UUID(team_id), 3
+    )
+
+    resp = client.get(
+        f"/teams/{team_id}/events", params={"after_event_id": str(appended[0].event.id)}
+    )
+
+    assert resp.status_code == 200
+    ids = [e["event"]["id"] for e in resp.json()["events"]]
+    assert ids == [str(appended[1].event.id), str(appended[2].event.id)]
+
+
+def test_get_events_newest_cursor_returns_empty_list(
+    client: TestClient,
+    community_services: CommunityServices,
+) -> None:
+    """A cursor on the newest event is a success with no events, not an error."""
+    team_id = _create_team(client)
+    appended = append_synthetic_events(
+        community_services.event_store, uuid.UUID(team_id), 3
+    )
+
+    resp = client.get(
+        f"/teams/{team_id}/events", params={"after_event_id": str(appended[-1].event.id)}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["events"] == []
+
+
+def test_get_events_unknown_cursor_returns_400(client: TestClient) -> None:
+    """A cursor that was never persisted is a bad cursor, not a missing team."""
+    team_id = _create_team(client)
+
+    resp = client.get(
+        f"/teams/{team_id}/events", params={"after_event_id": str(uuid.uuid4())}
+    )
+
+    assert resp.status_code == 400
+
+
+def test_get_events_state_changed_message_cursor_returns_400(
+    client: TestClient,
+    community_services: CommunityServices,
+) -> None:
+    """A StateChangedMessage id streamed over WS is not a valid cursor.
+
+    The message MUST carry a sender: PersistenceSubscriber only diverts a
+    StateChangedMessage into an AgentStateSnapshot when ``sender is not None``.
+    A sender-less one falls through to the event log, becomes a valid cursor,
+    and would return 200 — testing the exact opposite of this test's name.
+
+    The sender name must not collide with a seeded-catalog agent: the live
+    team's own agents emit a state change on init_state(), so asserting on a
+    real agent's snapshot would pass whether or not on_message() diverted.
+    """
+    team_id = _create_team(client)
+    store = community_services.event_store
+    subscriber = PersistenceSubscriber(uuid.UUID(team_id), store)
+
+    sender = MagicMock(spec=ActorAddress)
+    sender.name = "@TrapSender"
+    state_changed = StateChangedMessage(sender=sender, state=SampleAgentState(task_count=1))
+    subscriber.on_message(state_changed)
+
+    # It became a snapshot and never entered the event log — so its id is not a cursor.
+    snapshots = store.load_agent_states(uuid.UUID(team_id))
+    assert any(s.agent_id == "@TrapSender" for s in snapshots)
+    persisted_ids = [e.event.id for e in store.load_events(uuid.UUID(team_id))]
+    assert state_changed.id not in persisted_ids
+
+    resp = client.get(
+        f"/teams/{team_id}/events", params={"after_event_id": str(state_changed.id)}
+    )
+
+    assert resp.status_code == 400
+
+
+def test_get_events_cross_team_cursor_returns_400(
+    client: TestClient,
+    community_services: CommunityServices,
+) -> None:
+    """A cursor belonging to another team does not resolve for this one."""
+    team_a = _create_team(client)
+    team_b = _create_team(client)
+    team_b_events = append_synthetic_events(
+        community_services.event_store, uuid.UUID(team_b), 1
+    )
+
+    resp = client.get(
+        f"/teams/{team_a}/events",
+        params={"after_event_id": str(team_b_events[0].event.id)},
+    )
+
+    assert resp.status_code == 400
+
+
+def test_get_events_unknown_team_with_cursor_returns_404(client: TestClient) -> None:
+    """A bad team wins over a bad cursor: the team check runs first."""
+    resp = client.get(
+        f"/teams/{uuid.uuid4()}/events", params={"after_event_id": str(uuid.uuid4())}
+    )
+
+    assert resp.status_code == 404
+
+
+def test_get_events_malformed_cursor_returns_422(client: TestClient) -> None:
+    """A malformed uuid yields FastAPI's stock validation error."""
+    team_id = _create_team(client)
+
+    resp = client.get(f"/teams/{team_id}/events", params={"after_event_id": "not-a-uuid"})
+
+    assert resp.status_code == 422
