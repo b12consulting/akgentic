@@ -35,6 +35,8 @@ except ImportError as exc:
         "Install with: pip install akgentic-team[mongo]"
     ) from exc
 
+from pymongo.errors import PyMongoError
+
 from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
 from akgentic.team.ports import EventNotFoundError
 
@@ -98,11 +100,26 @@ class MongoEventStore:
         # already exists, so this is safe across redeploys.
         self._teams.create_index("user_id", name="teams_user_id_idx")
         # ADR-21 §5: backs the load_events(after_event_id=...) anchor lookup.
+        # Single-field on the nested path, NOT compound with team_id: Cosmos for
+        # MongoDB rejects compound indexes on nested paths unless the account sets
+        # EnableUniqueCompoundNestedDocs, and event.id is a uuid4 — already maximally
+        # selective, so leading with team_id buys nothing for this equality lookup.
         # Not unique — a unique index would turn a read-path ambiguity into a
         # write-path DuplicateKeyError on save_event.
-        self._events.create_index(
-            [("team_id", 1), ("event.id", 1)], name="events_team_event_id_idx"
-        )
+        # Guarded: the index is a performance optimization, not a correctness
+        # requirement. If the backend rejects the spec, the anchor lookup degrades
+        # to a collection scan and load_events still returns the right events —
+        # which beats failing construction and refusing to start the process.
+        try:
+            self._events.create_index("event.id", name="events_event_id_idx")
+        except PyMongoError:
+            logger.warning(
+                "Could not create index 'events_event_id_idx' on '%s.event.id'; "
+                "load_events(after_event_id=...) anchor lookups will fall back to a "
+                "collection scan and degrade on large event logs. Results stay correct.",
+                events_name,
+                exc_info=True,
+            )
         logger.debug("Initialized MongoEventStore with database '%s'", db.name)
 
     def save_team(self, process: Process) -> None:

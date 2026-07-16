@@ -14,10 +14,14 @@ once per backend. This module retains only Mongo-specific invariants:
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
+
+import pytest
+from pymongo.errors import OperationFailure
 
 from akgentic.team.repositories.mongo import MongoEventStore
 
@@ -140,23 +144,26 @@ class TestMongoEventStoreMongoSpecific:
 
     # --- event.id index presence --------------------------------------------
 
-    def test_events_team_event_id_index_created_on_init(
+    def test_events_event_id_index_created_on_init(
         self, mongo_store: MongoEventStore, mongo_db: Any
     ) -> None:
-        """``__init__`` creates ``events_team_event_id_idx`` on ``events``.
+        """``__init__`` creates ``events_event_id_idx`` on ``events``.
 
-        Compound ascending key on ``team_id`` + the nested ``event.id``,
-        backing the anchor lookup in ``load_events(after_event_id=...)``
-        (ADR-21 §5). Deliberately not unique: a unique index would turn a
-        read-path ambiguity into a write-path ``DuplicateKeyError`` on
-        ``save_event``.
+        Single-field ascending key on the nested ``event.id``, backing the
+        anchor lookup in ``load_events(after_event_id=...)``. Deliberately
+        NOT compound with ``team_id``: Cosmos for MongoDB rejects compound
+        indexes on nested paths unless the account enables
+        ``EnableUniqueCompoundNestedDocs``, and ``event.id`` is a uuid4 —
+        already maximally selective for this equality lookup. Deliberately
+        not unique: a unique index would turn a read-path ambiguity into a
+        write-path ``DuplicateKeyError`` on ``save_event``.
         """
         info = mongo_db["events"].index_information()
-        assert "events_team_event_id_idx" in info
-        assert info["events_team_event_id_idx"]["key"] == [("team_id", 1), ("event.id", 1)]
-        assert not info["events_team_event_id_idx"].get("unique")
+        assert "events_event_id_idx" in info
+        assert info["events_event_id_idx"]["key"] == [("event.id", 1)]
+        assert not info["events_event_id_idx"].get("unique")
 
-    def test_events_team_event_id_index_creation_is_idempotent(
+    def test_events_event_id_index_creation_is_idempotent(
         self, mongo_store: MongoEventStore, mongo_db: Any
     ) -> None:
         """Re-running the constructor against the same database does not raise.
@@ -170,8 +177,33 @@ class TestMongoEventStoreMongoSpecific:
         MongoEventStore(mongo_db)  # second construction — must not raise
 
         info = mongo_db["events"].index_information()
-        assert info["events_team_event_id_idx"]["key"] == [("team_id", 1), ("event.id", 1)]
-        assert list(info.keys()).count("events_team_event_id_idx") == 1
+        assert info["events_event_id_idx"]["key"] == [("event.id", 1)]
+        assert list(info.keys()).count("events_event_id_idx") == 1
+
+    def test_index_rejection_is_logged_and_does_not_block_construction(
+        self, mongo_db: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A backend that rejects the event.id spec must not stop the process.
+
+        Cosmos for MongoDB rejects compound-on-nested by default and may
+        reject other specs depending on account capabilities. The index is a
+        performance optimization, not a correctness requirement — so
+        construction logs and continues rather than raising, which would
+        refuse to start the server on every replica.
+        """
+        real_create_index = type(mongo_db["events"]).create_index
+
+        def _reject_event_id(self: Any, keys: Any, **kwargs: Any) -> Any:
+            if keys == "event.id":
+                raise OperationFailure("index not supported on this account")
+            return real_create_index(self, keys, **kwargs)
+
+        with patch.object(type(mongo_db["events"]), "create_index", _reject_event_id):
+            with caplog.at_level(logging.WARNING):
+                MongoEventStore(mongo_db)  # must NOT raise
+
+        assert "events_event_id_idx" in caplog.text
+        assert "collection scan" in caplog.text
 
     def test_existing_events_team_sequence_index_still_created(
         self, mongo_store: MongoEventStore, mongo_db: Any
