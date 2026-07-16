@@ -210,18 +210,27 @@ class TeamService:
         logger.info("Team restored: team_id=%s", team_id)
         return updated
 
-    def get_events(self, team_id: uuid.UUID) -> list[PersistedEvent]:
-        """Get all persisted events for a team.
+    def get_events(
+        self, team_id: uuid.UUID, after_event_id: uuid.UUID | None = None
+    ) -> list[PersistedEvent]:
+        """Get persisted events for a team, ordered by sequence ASC.
+
+        Args:
+            team_id: Team whose events to load.
+            after_event_id: If provided, return only events after the matching
+                event — anchor excluded. If None, return the full log.
 
         Raises:
             ValueError: If team not found.
+            EventNotFoundError: Propagated from the store when after_event_id
+                does not resolve to an event of this team.
         """
         process = self._services.worker_handle.get_team(team_id)
         if process is None:
             msg = f"Team {team_id} not found"
             raise ValueError(msg)
-        logger.debug("Loading events for team %s", team_id)
-        return self._services.event_store.load_events(team_id)
+        logger.debug("Loading events for team %s (after_event_id=%s)", team_id, after_event_id)
+        return self._services.event_store.load_events(team_id, after_event_id=after_event_id)
 
     def get_event_stream(self) -> EventStream:
         """Return the tier's EventStream for cursor-based replay and fan-out."""

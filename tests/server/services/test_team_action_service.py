@@ -7,7 +7,9 @@ import uuid
 import pytest
 from akgentic.team.models import TeamStatus
 
+from akgentic.infra.server.deps import CommunityServices
 from akgentic.infra.server.services.team_service import TeamService
+from tests.server.conftest import append_synthetic_events
 
 
 def test_send_message_success(team_service: TeamService) -> None:
@@ -127,6 +129,47 @@ def test_get_events_not_found(team_service: TeamService) -> None:
     """get_events raises ValueError for non-existent team."""
     with pytest.raises(ValueError, match="not found"):
         team_service.get_events(uuid.uuid4())
+
+
+def test_get_events_without_cursor_returns_full_log(
+    team_service: TeamService,
+    community_services: CommunityServices,
+) -> None:
+    """get_events with no cursor returns the full log, sequence ASC."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    appended = append_synthetic_events(community_services.event_store, process.team_id, 3)
+
+    events = team_service.get_events(process.team_id)
+
+    sequences = [e.sequence for e in events]
+    assert sequences == sorted(sequences)
+    assert [e.event.id for e in events[-3:]] == [e.event.id for e in appended]
+
+
+def test_get_events_after_cursor_returns_strict_tail(
+    team_service: TeamService,
+    community_services: CommunityServices,
+) -> None:
+    """get_events with a mid-log cursor returns the tail, anchor excluded."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    appended = append_synthetic_events(community_services.event_store, process.team_id, 3)
+
+    tail = team_service.get_events(process.team_id, after_event_id=appended[0].event.id)
+
+    assert [e.event.id for e in tail] == [appended[1].event.id, appended[2].event.id]
+
+
+def test_get_events_unknown_team_raises_value_error_before_store_lookup(
+    team_service: TeamService,
+) -> None:
+    """The team-existence check precedes cursor resolution.
+
+    A bad team wins over a bad cursor: were the store consulted first, an
+    unresolvable cursor would surface as EventNotFoundError (a LookupError),
+    not the ValueError asserted here.
+    """
+    with pytest.raises(ValueError, match="not found"):
+        team_service.get_events(uuid.uuid4(), after_event_id=uuid.uuid4())
 
 
 def test_process_human_input_not_found_team(team_service: TeamService) -> None:
