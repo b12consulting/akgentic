@@ -12,6 +12,14 @@ from akgentic.team.models import (
 )
 
 
+class EventNotFoundError(LookupError):
+    """Raised when ``load_events(after_event_id=...)`` cannot resolve the anchor.
+
+    Subclasses ``LookupError`` — never ``ValueError`` — so the corrupted-document
+    handlers in the YAML and Mongo backends cannot swallow a stale cursor.
+    """
+
+
 class EventStore(Protocol):
     """Typed persistence surface for team event sourcing.
 
@@ -27,10 +35,29 @@ class EventStore(Protocol):
         """
         ...
 
-    def load_events(self, team_id: uuid.UUID) -> list[PersistedEvent]:
-        """Load all persisted events for a team.
+    def load_events(
+        self, team_id: uuid.UUID, after_event_id: uuid.UUID | None = None
+    ) -> list[PersistedEvent]:
+        """Load persisted events for a team, ordered by ``sequence`` ASC.
 
-        Called by TeamRestorer to replay events during team resumption.
+        Args:
+            team_id: Team whose events to load.
+            after_event_id: If provided, return only events persisted *after*
+                the event whose ``event.id`` matches — exclusive of the anchor
+                itself. If ``None`` (default), return the full log, which is
+                what TeamRestorer replays on resume.
+
+        Raises:
+            EventNotFoundError: If ``after_event_id`` is not an event of this
+                team. A stale cursor MUST fail loudly, never silently degrade
+                into a full-log return.
+
+        Implementations MUST resolve the anchor to its ``sequence`` and push a
+        ``sequence > N`` range filter down to the backend (SQL WHERE, Mongo find
+        filter, list slice) rather than load-all-then-filter in Python — the
+        infra read path calls this per client poll.
+
+        See ADR-21 §1 for the additive, backwards-compatible Protocol change.
         """
         ...
 

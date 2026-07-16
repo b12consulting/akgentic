@@ -21,6 +21,7 @@ import uuid
 from nagra import Transaction  # type: ignore[import-untyped]
 
 from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.ports import EventNotFoundError
 from akgentic.team.repositories.postgres._queries import decode_jsonb_column
 
 
@@ -125,8 +126,20 @@ class NagraEventStore:
                 (str(event.team_id), event.sequence, data),
             )
 
-    def load_events(self, team_id: uuid.UUID) -> list[PersistedEvent]:
-        """Return all events for a team ordered by ``sequence`` ASC."""
+    def load_events(
+        self, team_id: uuid.UUID, after_event_id: uuid.UUID | None = None
+    ) -> list[PersistedEvent]:
+        """Return events for a team ordered by ``sequence`` ASC.
+
+        Args:
+            team_id: Team whose events to load.
+            after_event_id: If provided, return only events after the matching
+                event — anchor excluded. If ``None`` (default), the full log.
+
+        Raises:
+            EventNotFoundError: If ``after_event_id`` does not resolve to an
+                event of this team.
+        """
         with Transaction(self._conn_string) as trn:
             cursor = trn.execute(
                 "SELECT data FROM event_entries WHERE team_id = %s "
@@ -134,7 +147,15 @@ class NagraEventStore:
                 (str(team_id),),
             )
             rows = cursor.fetchall()
-        return [PersistedEvent.model_validate(decode_jsonb_column(r[0])) for r in rows]
+        events = [PersistedEvent.model_validate(decode_jsonb_column(r[0])) for r in rows]
+        if after_event_id is None:
+            return events
+        # Interim in-memory slice; the range-query push-down lands in story 24-4.
+        # event.id is persisted as a string, so compare stringified ids.
+        for index, event in enumerate(events):
+            if str(event.event.id) == str(after_event_id):
+                return events[index + 1 :]
+        raise EventNotFoundError(f"Event {after_event_id} not found for team {team_id}")
 
     def get_max_sequence(self, team_id: uuid.UUID) -> int:
         """Return the largest sequence for a team, or ``0`` if empty.

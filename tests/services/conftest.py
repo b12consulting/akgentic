@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.ports import EventNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +44,33 @@ class InMemoryEventStore:
             # those tests never call load_events, so a missing dict is safe.
             logger.debug("Event serialization skipped (mock sender): %s", type(event.event))
 
-    def load_events(self, team_id: uuid.UUID) -> list[PersistedEvent]:
-        """Load all persisted events for a team (deserialized from dicts).
+    def load_events(
+        self, team_id: uuid.UUID, after_event_id: uuid.UUID | None = None
+    ) -> list[PersistedEvent]:
+        """Load persisted events for a team (deserialized from dicts).
 
         Round-trips through model_dump/model_validate so that
         ActorAddressImpl becomes ActorAddressProxy, matching real
-        persistence backends (YAML, MongoDB).
+        persistence backends (YAML, MongoDB). Honours the same tail-slice
+        contract as the real backends, which slice a ``sequence``-ordered
+        list — so sort before slicing rather than trusting insertion order.
+
+        Raises:
+            EventNotFoundError: If ``after_event_id`` does not resolve to an
+                event of this team.
         """
         tid = str(team_id)
-        return [PersistedEvent.model_validate(d) for d in self._event_dicts if d["team_id"] == tid]
+        events = sorted(
+            (PersistedEvent.model_validate(d) for d in self._event_dicts if d["team_id"] == tid),
+            key=lambda e: e.sequence,
+        )
+        if after_event_id is None:
+            return events
+        # event.id is persisted as a string, so compare stringified ids.
+        for index, event in enumerate(events):
+            if str(event.event.id) == str(after_event_id):
+                return events[index + 1 :]
+        raise EventNotFoundError(f"Event {after_event_id} not found for team {team_id}")
 
     def save_team(self, process: Process) -> None:
         """Persist team process snapshot."""

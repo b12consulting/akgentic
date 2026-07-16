@@ -20,7 +20,7 @@ import pytest
 from akgentic.core.messages.message import UserMessage
 
 from akgentic.team.models import TeamStatus
-from akgentic.team.ports import EventStore
+from akgentic.team.ports import EventNotFoundError, EventStore
 from tests.models.conftest import (
     SampleAgentState,
     make_agent_state_snapshot,
@@ -151,6 +151,108 @@ class TestEventStoreContract:
     def test_load_events_returns_empty_list_when_missing(self, event_store: EventStore) -> None:
         """Protocol contract: no events for a team yields ``[]``."""
         assert event_store.load_events(uuid.uuid4()) == []
+
+    # --- load_events(after_event_id) cursor baseline -----------------------
+
+    def test_load_events_after_event_id_none_equals_no_arg(self, event_store: EventStore) -> None:
+        """``load_events(t, after_event_id=None)`` is equivalent to ``load_events(t)``."""
+        team_id = uuid.uuid4()
+        for seq in (1, 2, 3):
+            event_store.save_event(make_persisted_event(team_id=team_id, sequence=seq))
+
+        no_arg = event_store.load_events(team_id)
+        with_none = event_store.load_events(team_id, after_event_id=None)
+        assert [e.event.id for e in with_none] == [e.event.id for e in no_arg]
+        assert [e.sequence for e in with_none] == [1, 2, 3]
+
+    def test_load_events_after_event_id_excludes_anchor(self, event_store: EventStore) -> None:
+        """A resolving anchor yields the strict tail — the anchor itself is excluded."""
+        team_id = uuid.uuid4()
+        for seq in (1, 2, 3, 4, 5):
+            event_store.save_event(make_persisted_event(team_id=team_id, sequence=seq))
+
+        anchor = event_store.load_events(team_id)[2]
+        assert anchor.sequence == 3
+
+        tail = event_store.load_events(team_id, after_event_id=anchor.event.id)
+        assert [e.sequence for e in tail] == [4, 5]
+        assert anchor.event.id not in [e.event.id for e in tail]
+
+    def test_load_events_unknown_after_event_id_raises(self, event_store: EventStore) -> None:
+        """An anchor that was never persisted raises rather than returning ``[]``.
+
+        Returning ``[]`` would be indistinguishable from the legitimate
+        "you are already up to date" answer (ADR-21 §2).
+        """
+        team_id = uuid.uuid4()
+        for seq in (1, 2, 3):
+            event_store.save_event(make_persisted_event(team_id=team_id, sequence=seq))
+
+        with pytest.raises(EventNotFoundError):
+            event_store.load_events(team_id, after_event_id=uuid.uuid4())
+
+    def test_load_events_first_event_anchor_returns_all_but_first(
+        self, event_store: EventStore
+    ) -> None:
+        """The first event as anchor yields every event except that one."""
+        team_id = uuid.uuid4()
+        for seq in (1, 2, 3, 4, 5):
+            event_store.save_event(make_persisted_event(team_id=team_id, sequence=seq))
+
+        first = event_store.load_events(team_id)[0]
+        tail = event_store.load_events(team_id, after_event_id=first.event.id)
+        assert [e.sequence for e in tail] == [2, 3, 4, 5]
+
+    def test_load_events_last_event_anchor_returns_empty(self, event_store: EventStore) -> None:
+        """The last event as anchor yields ``[]`` — the caller is up to date."""
+        team_id = uuid.uuid4()
+        for seq in (1, 2, 3):
+            event_store.save_event(make_persisted_event(team_id=team_id, sequence=seq))
+
+        last = event_store.load_events(team_id)[-1]
+        assert event_store.load_events(team_id, after_event_id=last.event.id) == []
+
+    def test_load_events_anchor_from_other_team_raises(self, event_store: EventStore) -> None:
+        """An anchor belonging to another team raises — the lookup is team-scoped.
+
+        Returning team A's whole log because the caller passed team B's
+        cursor is the silent degradation ADR-21 §2 exists to prevent.
+        """
+        team_a = uuid.uuid4()
+        team_b = uuid.uuid4()
+        for seq in (1, 2, 3):
+            event_store.save_event(make_persisted_event(team_id=team_a, sequence=seq))
+            event_store.save_event(make_persisted_event(team_id=team_b, sequence=seq))
+
+        foreign_anchor = event_store.load_events(team_b)[0]
+        with pytest.raises(EventNotFoundError):
+            event_store.load_events(team_a, after_event_id=foreign_anchor.event.id)
+
+    def test_load_events_after_event_id_on_empty_store_raises(
+        self, event_store: EventStore
+    ) -> None:
+        """An anchor queried against a team with no events raises, never ``[]``."""
+        with pytest.raises(EventNotFoundError):
+            event_store.load_events(uuid.uuid4(), after_event_id=uuid.uuid4())
+
+    def test_load_events_cursor_round_trip(self, event_store: EventStore) -> None:
+        """The incremental-reader usage pattern: poll, append, poll again.
+
+        This is the case that would catch a silent regression back to a
+        full-log return — the second poll must yield exactly the one new
+        event, not the whole history.
+        """
+        team_id = uuid.uuid4()
+        for seq in (1, 2, 3):
+            event_store.save_event(make_persisted_event(team_id=team_id, sequence=seq))
+
+        cursor = event_store.load_events(team_id)[-1].event.id
+        assert event_store.load_events(team_id, after_event_id=cursor) == []
+
+        event_store.save_event(make_persisted_event(team_id=team_id, sequence=4))
+
+        fresh = event_store.load_events(team_id, after_event_id=cursor)
+        assert [e.sequence for e in fresh] == [4]
 
     # --- get_max_sequence -------------------------------------------------
 

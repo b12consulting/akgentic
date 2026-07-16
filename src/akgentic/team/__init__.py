@@ -18,6 +18,7 @@ from akgentic.team.models import (
     TeamStatus,
 )
 from akgentic.team.ports import (
+    EventNotFoundError,
     EventStore,
     NullServiceRegistry,
     ServiceRegistry,
@@ -31,6 +32,7 @@ __version__ = "1.0.0-alpha.2"
 __all__: list[str] = [
     "__version__",
     "AgentStateSnapshot",
+    "EventNotFoundError",
     "EventStore",
     "NullServiceRegistry",
     "PersistenceSubscriber",
