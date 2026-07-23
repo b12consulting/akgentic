@@ -420,15 +420,14 @@ class TestFactoryProxySpawning:
         for addr in team:
             assert addr.is_alive()
 
-    def test_build_entry_point_not_in_supervisor_proxies_without_subordinates(
+    def test_build_entry_point_not_in_supervisor_addrs_without_subordinates(
         self, actor_system: ActorSystem
     ) -> None:
-        """Entry point without subordinates is NOT in supervisor_proxies."""
+        """Entry point without subordinates is NOT in supervisor_addrs."""
         tc = _make_team_card()  # lead has no subordinates
 
         runtime = TeamFactory.build(tc, actor_system)
 
         assert "lead" not in runtime.supervisor_addrs
-        assert "lead" not in runtime.supervisor_proxies
         # Entry point is still reachable via entry_proxy
         assert runtime.entry_proxy is not None
