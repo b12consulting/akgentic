@@ -5,8 +5,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+import pytest
+from akgentic.core.messages.message import UserMessage
+from pydantic import ValidationError
+
 from akgentic.infra.server.models import (
     CreateTeamRequest,
+    EmitMessageRequest,
     EventListResponse,
     EventResponse,
     HumanInputRequest,
@@ -72,10 +77,46 @@ def test_team_list_response_with_items() -> None:
     assert resp.teams[0].team_id == tid
 
 
-def test_send_message_request() -> None:
-    """SendMessageRequest requires content."""
+def test_send_message_request_content_path() -> None:
+    """SendMessageRequest accepts a plain content string (message left unset)."""
     req = SendMessageRequest(content="hello")
     assert req.content == "hello"
+    assert req.message is None
+
+
+def test_send_message_request_message_path() -> None:
+    """SendMessageRequest accepts a serialized Message envelope (content left unset)."""
+    serialized = UserMessage(content="typed").model_dump(mode="json")
+    req = SendMessageRequest(message=serialized)
+    assert req.message == serialized
+    assert req.content is None
+
+
+def test_send_message_request_rejects_neither() -> None:
+    """Neither content nor message set violates the exactly-one validator."""
+    with pytest.raises(ValidationError):
+        SendMessageRequest()
+
+
+def test_send_message_request_rejects_both() -> None:
+    """Both content and message set violates the exactly-one validator."""
+    serialized = UserMessage(content="typed").model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        SendMessageRequest(content="hello", message=serialized)
+
+
+def test_emit_message_request_round_trips_serialized_message() -> None:
+    """EmitMessageRequest holds a serialized Message dict (with __model__) as message."""
+    serialized = UserMessage(content="banner").model_dump(mode="json")
+    req = EmitMessageRequest(message=serialized)
+    assert req.message == serialized
+    assert req.message["__model__"] == "akgentic.core.messages.message.UserMessage"
+
+
+def test_emit_message_request_requires_message() -> None:
+    """message is required — omitting it raises a ValidationError."""
+    with pytest.raises(ValidationError):
+        EmitMessageRequest()  # type: ignore[call-arg]
 
 
 def test_human_input_request() -> None:
