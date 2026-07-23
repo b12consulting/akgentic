@@ -10,6 +10,7 @@ from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_address_impl import ActorAddressProxy
 from akgentic.core.agent import Akgent
 from akgentic.core.messages.message import UserMessage
+from akgentic.core.orchestrator import Orchestrator
 from akgentic.core.user_proxy import UserProxy
 from akgentic.core.utils.deserializer import ActorAddressDict
 from pydantic import ValidationError
@@ -77,8 +78,8 @@ class TestTeamRuntimeConstruction:
         assert runtime.actor_system.proxy_ask.call_count > initial_call_count
         assert runtime._orchestrator_proxy is not None
 
-    def test_model_post_init_builds_supervisor_proxies(self) -> None:
-        """AC3: model_post_init rebuilds supervisor proxies from addresses."""
+    def test_model_post_init_keeps_supervisor_addrs(self) -> None:
+        """AC2: supervisor_addrs is preserved (the removed proxy build is gone)."""
         supervisor_card = make_agent_card(name="supervisor", role="Supervisor", agent_class=Akgent)
         worker_card = make_agent_card(name="worker", role="Worker", agent_class=Akgent)
         entry_member = TeamCardMember(
@@ -101,8 +102,13 @@ class TestTeamRuntimeConstruction:
             team_card=tc,
             supervisor_addrs={"supervisor": sup_addr},
         )
-        assert "supervisor" in runtime._supervisor_proxies
-        runtime.actor_system.proxy_ask.assert_any_call(sup_addr, Akgent)
+        assert runtime.supervisor_addrs == {"supervisor": sup_addr}
+
+    def test_model_post_init_builds_orchestrator_proxy_tell(self) -> None:
+        """AC1: model_post_init builds _orchestrator_proxy_tell via proxy_tell(orchestrator_addr)."""
+        runtime = make_team_runtime()
+        assert runtime._orchestrator_proxy_tell is not None
+        runtime.actor_system.proxy_tell.assert_any_call(runtime.orchestrator_addr, Orchestrator)
 
 
 class TestTeamRuntimeSerialization:
@@ -112,8 +118,8 @@ class TestTeamRuntimeSerialization:
         runtime = make_team_runtime()
         data = runtime.model_dump()
         assert "_orchestrator_proxy" not in data
+        assert "_orchestrator_proxy_tell" not in data
         assert "_entry_proxy" not in data
-        assert "_supervisor_proxies" not in data
         assert "_message_cls" not in data
 
     def test_actor_system_excluded_from_dump(self) -> None:
@@ -229,7 +235,88 @@ class TestTeamRuntimeMessaging:
         runtime = make_team_runtime()
         assert runtime.orchestrator_proxy is runtime._orchestrator_proxy
         assert runtime.entry_proxy is runtime._entry_proxy
-        assert runtime.supervisor_proxies is runtime._supervisor_proxies
+
+
+class TestTeamRuntimeEmitMessage:
+    """AC3: emitMessage tell-forwards a pre-formed message to the orchestrator."""
+
+    def test_emit_message_tell_forwards(self) -> None:
+        """emitMessage delegates to _orchestrator_proxy_tell.emitMessage with the same instance."""
+        runtime = make_team_runtime(message_types=[UserMessage])
+        msg = UserMessage(content="banner")
+        runtime.emitMessage(msg)
+        runtime._orchestrator_proxy_tell.emitMessage.assert_called_once_with(msg)
+
+    def test_emit_message_returns_none(self) -> None:
+        """emitMessage is fire-and-forget — returns None."""
+        runtime = make_team_runtime(message_types=[UserMessage])
+        assert runtime.emitMessage(UserMessage(content="x")) is None
+
+
+class TestTeamRuntimeCoerceMessage:
+    """AC4: _coerce_message wraps a str and passes a Message through untouched."""
+
+    def test_coerce_str_wraps_via_make_message(self) -> None:
+        runtime = make_team_runtime(message_types=[UserMessage])
+        result = runtime._coerce_message("hello")
+        assert isinstance(result, UserMessage)
+        assert result.content == "hello"
+
+    def test_coerce_message_passthrough_identity(self) -> None:
+        runtime = make_team_runtime(message_types=[UserMessage])
+        original = UserMessage(content="preformed")
+        assert runtime._coerce_message(original) is original
+
+
+class TestTeamRuntimeTypedSend:
+    """AC4, AC5: send/send_to/send_from_to accept a Message and route it untouched."""
+
+    def test_send_with_message_routes_same_instance(self) -> None:
+        sup_addr = make_stub_addr("supervisor")
+        runtime = make_team_runtime(
+            message_types=[UserMessage],
+            supervisor_addrs={"sup": sup_addr},
+        )
+        preformed = UserMessage(content="typed")
+        runtime.send(preformed)
+        call_args = runtime._entry_proxy.send.call_args
+        assert call_args.args[0] is sup_addr
+        assert call_args.args[1] is preformed
+
+    def test_send_with_str_still_wraps(self) -> None:
+        sup_addr = make_stub_addr("supervisor")
+        runtime = make_team_runtime(
+            message_types=[UserMessage],
+            supervisor_addrs={"sup": sup_addr},
+        )
+        runtime.send("plain")
+        msg = runtime._entry_proxy.send.call_args.args[1]
+        assert isinstance(msg, UserMessage)
+        assert msg.content == "plain"
+
+    def test_send_to_with_message_routes_same_instance(self) -> None:
+        target_addr = make_stub_addr("worker")
+        runtime = make_team_runtime(message_types=[UserMessage])
+        runtime._orchestrator_proxy.get_team_member = MagicMock(return_value=target_addr)
+        preformed = UserMessage(content="typed")
+        runtime.send_to("worker", preformed)
+        call_args = runtime._entry_proxy.send.call_args
+        assert call_args.args[0] is target_addr
+        assert call_args.args[1] is preformed
+
+    def test_send_from_to_with_message_routes_same_instance(self) -> None:
+        sender_addr = make_stub_addr("developer")
+        recipient_addr = make_stub_addr("manager")
+        runtime = make_team_runtime(message_types=[UserMessage])
+        runtime._orchestrator_proxy.get_team_member = MagicMock(
+            side_effect=lambda name: sender_addr if name == "developer" else recipient_addr,
+        )
+        preformed = UserMessage(content="typed")
+        runtime.send_from_to("developer", "manager", preformed)
+        sender_proxy = runtime.actor_system.proxy_tell.return_value
+        call_args = sender_proxy.send.call_args
+        assert call_args.args[0] is recipient_addr
+        assert call_args.args[1] is preformed
 
 
 class TestTeamRuntimeSendToResolution:

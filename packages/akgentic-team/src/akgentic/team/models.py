@@ -179,8 +179,8 @@ class TeamRuntime(SerializableBaseModel):
     )
 
     _orchestrator_proxy: Orchestrator = PrivateAttr()
+    _orchestrator_proxy_tell: Orchestrator = PrivateAttr()
     _entry_proxy: Akgent[Any, Any] = PrivateAttr()
-    _supervisor_proxies: dict[str, Akgent[Any, Any]] = PrivateAttr(default_factory=dict)
     _message_cls: type[Message] | None = PrivateAttr(default=None)
     _addr_map: dict[uuid.UUID, ActorAddress] = PrivateAttr(default_factory=dict)
 
@@ -194,16 +194,11 @@ class TeamRuntime(SerializableBaseModel):
             __context: Pydantic validation context (unused).
         """
         self._orchestrator_proxy = self.actor_system.proxy_ask(self.orchestrator_addr, Orchestrator)
+        self._orchestrator_proxy_tell = self.actor_system.proxy_tell(
+            self.orchestrator_addr, Orchestrator
+        )
         entry_agent_class = self.team.entry_point.card.get_agent_class()
         self._entry_proxy = self.actor_system.proxy_tell(self.entry_addr, entry_agent_class)
-
-        self._supervisor_proxies = {}
-        for card in self.team.supervisors:
-            addr = self.supervisor_addrs.get(card.config.name)
-            if addr is not None:
-                self._supervisor_proxies[card.config.name] = self.actor_system.proxy_ask(
-                    addr, card.get_agent_class()
-                )
 
         self._message_cls = self.team.message_types[0] if self.team.message_types else None
 
@@ -224,19 +219,37 @@ class TeamRuntime(SerializableBaseModel):
             raise RuntimeError(msg)
         return self._message_cls(content=content)  # type: ignore[call-arg]
 
-    def send(self, content: str) -> None:
+    def _coerce_message(self, content: str | Message) -> Message:
+        """Coerce a routing payload to a Message.
+
+        A ``str`` is wrapped in the team's default type via ``_make_message``;
+        a ``Message`` is passed through untouched (the caller picked the type).
+        """
+        return content if isinstance(content, Message) else self._make_message(content)
+
+    def emitMessage(self, message: Message) -> None:  # noqa: N802
+        """Publish a pre-formed message into the team's event record.
+
+        Fire-and-forget tell to the orchestrator, which stamps ``team_id`` and
+        fans out to subscribers (persist + live stream) with no agent processing
+        and no outbound dispatch. Rationale: ADR-22.
+        """
+        self._orchestrator_proxy_tell.emitMessage(message)
+
+    def send(self, content: str | Message) -> None:
         """Send a message into the team through the entry-point agent.
 
         Routes through the entry proxy so that ``sender`` is set to the
-        entry agent.  Each supervisor receives its own message instance
-        to avoid shared mutable state between actors.  The entry point
-        itself never receives a copy -- it is the sender, not a recipient.
+        entry agent.  The entry point itself never receives a copy -- it is
+        the sender, not a recipient.
 
         Args:
-            content: The message content to send.
+            content: The message content, or a pre-formed ``Message`` to route
+                untouched (a passed ``Message`` is the SAME instance for every
+                supervisor -- passthrough per ADR-22, not cloned per recipient).
         """
         for addr in self.supervisor_addrs.values():
-            self._entry_proxy.send(addr, self._make_message(content))
+            self._entry_proxy.send(addr, self._coerce_message(content))
 
     def _resolve_addr(self, agent_name: str, addr: ActorAddress) -> ActorAddress:
         """Resolve a potentially stale proxy address to a live address.
@@ -284,7 +297,7 @@ class TeamRuntime(SerializableBaseModel):
             raise ValueError(msg)
         return self._resolve_addr(agent_name, addr)
 
-    def send_to(self, agent_name: str, content: str) -> None:
+    def send_to(self, agent_name: str, content: str | Message) -> None:
         """Send a directed message to a specific agent by name.
 
         Looks up the agent via the orchestrator proxy and sends a message
@@ -293,20 +306,21 @@ class TeamRuntime(SerializableBaseModel):
 
         Args:
             agent_name: Name of the target agent.
-            content: The message content.
+            content: The message content, or a pre-formed ``Message`` to route
+                untouched.
 
         Raises:
             ValueError: If the agent is not found or has a stale proxy address.
         """
         actor_addr = self._lookup_member(agent_name)
-        message = self._make_message(content)
+        message = self._coerce_message(content)
         self._entry_proxy.send(actor_addr, message)
 
     def send_from_to(
         self,
         sender_name: str,
         recipient_name: str,
-        content: str,
+        content: str | Message,
     ) -> None:
         """Send a message from a specified agent to another agent.
 
@@ -326,7 +340,7 @@ class TeamRuntime(SerializableBaseModel):
         sender_addr = self._lookup_member(sender_name)
         recipient_addr = self._lookup_member(recipient_name)
         sender_proxy = self.actor_system.proxy_tell(sender_addr, Akgent)
-        sender_proxy.send(recipient_addr, self._make_message(content))
+        sender_proxy.send(recipient_addr, self._coerce_message(content))
 
     def process_human_input(self, content: str, message: Message) -> None:
         """Route human input to the correct UserProxy by recipient name.
@@ -372,18 +386,13 @@ class TeamRuntime(SerializableBaseModel):
 
     @property
     def orchestrator_proxy(self) -> Orchestrator:
-        """Read-only access to the orchestrator proxy."""
+        """Read-only access to the orchestrator proxy (ask)."""
         return self._orchestrator_proxy
 
     @property
     def entry_proxy(self) -> Akgent[Any, Any]:
-        """Read-only access to the entry-point proxy."""
+        """Read-only access to the entry-point proxy (tell)."""
         return self._entry_proxy
-
-    @property
-    def supervisor_proxies(self) -> dict[str, Akgent[Any, Any]]:
-        """Read-only access to the supervisor proxies."""
-        return self._supervisor_proxies
 
 
 # --- Persistence Models ---
