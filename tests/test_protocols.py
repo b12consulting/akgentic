@@ -467,6 +467,9 @@ def test_team_handle_is_runtime_checkable() -> None:
         def send_from_to(self, sender_name: str, recipient_name: str, content: str) -> None:
             pass
 
+        def emitMessage(self, message: object) -> None:  # noqa: N802
+            pass
+
         def process_human_input(self, content: str, message: object) -> None:
             pass
 
@@ -511,9 +514,24 @@ def test_team_handle_has_send_from_to() -> None:
 
 def test_team_handle_send_from_to_returns_none() -> None:
     """TeamHandle.send_from_to returns None."""
+    from akgentic.core.messages.message import Message
+
     from akgentic.infra.protocols import TeamHandle
 
-    hints = get_type_hints(TeamHandle.send_from_to)
+    hints = get_type_hints(TeamHandle.send_from_to, localns={"Message": Message})
+    assert hints["return"] is type(None)
+
+
+def test_team_handle_has_emit_message() -> None:
+    """TeamHandle defines emitMessage with a message parameter, returning None."""
+    from akgentic.core.messages.message import Message
+
+    from akgentic.infra.protocols import TeamHandle
+
+    assert hasattr(TeamHandle, "emitMessage")
+    sig = inspect.signature(TeamHandle.emitMessage)
+    assert "message" in sig.parameters
+    hints = get_type_hints(TeamHandle.emitMessage, localns={"Message": Message})
     assert hints["return"] is type(None)
 
 
@@ -546,28 +564,32 @@ def test_team_handle_has_unsubscribe() -> None:
 
 
 def test_team_handle_method_count() -> None:
-    """TeamHandle has exactly 6 public methods."""
+    """TeamHandle has exactly 7 public methods (emitMessage added per ADR-22)."""
     from akgentic.infra.protocols import TeamHandle
 
     public_methods = [
         m for m in dir(TeamHandle) if not m.startswith("_") and callable(getattr(TeamHandle, m))
     ]
-    assert len(public_methods) == 6
+    assert len(public_methods) == 7
 
 
 def test_team_handle_send_returns_none() -> None:
     """TeamHandle.send returns None."""
+    from akgentic.core.messages.message import Message
+
     from akgentic.infra.protocols import TeamHandle
 
-    hints = get_type_hints(TeamHandle.send)
+    hints = get_type_hints(TeamHandle.send, localns={"Message": Message})
     assert hints["return"] is type(None)
 
 
 def test_team_handle_send_to_returns_none() -> None:
     """TeamHandle.send_to returns None."""
+    from akgentic.core.messages.message import Message
+
     from akgentic.infra.protocols import TeamHandle
 
-    hints = get_type_hints(TeamHandle.send_to)
+    hints = get_type_hints(TeamHandle.send_to, localns={"Message": Message})
     assert hints["return"] is type(None)
 
 

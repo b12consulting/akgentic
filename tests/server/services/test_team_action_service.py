@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from akgentic.core.messages.message import Message, UserMessage
 from akgentic.team.models import TeamStatus
 
 from akgentic.infra.server.deps import CommunityServices
@@ -72,6 +73,59 @@ def test_send_message_from_to_stopped_team(team_service: TeamService) -> None:
     team_service.stop_team(process.team_id)
     with pytest.raises(ValueError, match="not running"):
         team_service.send_message_from_to(process.team_id, "@Human", "@Manager", "hello")
+
+
+def test_emit_message_success(team_service: TeamService) -> None:
+    """emit_message publishes to a running team without error."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    # Should not raise
+    team_service.emit_message(process.team_id, UserMessage(content="notice"))
+
+
+def test_emit_message_not_found(team_service: TeamService) -> None:
+    """emit_message raises ValueError for non-existent team."""
+    with pytest.raises(ValueError, match="not found"):
+        team_service.emit_message(uuid.uuid4(), UserMessage(content="notice"))
+
+
+def test_emit_message_stopped_team(team_service: TeamService) -> None:
+    """emit_message raises ValueError for stopped team."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    team_service.stop_team(process.team_id)
+    with pytest.raises(ValueError, match="not running"):
+        team_service.emit_message(process.team_id, UserMessage(content="notice"))
+
+
+def test_emit_message_forwards_same_instance(team_service: TeamService) -> None:
+    """emit_message forwards the exact Message instance to handle.emitMessage."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    emitted: list[Message] = []
+    handle = team_service.get_handle(process.team_id)
+    assert handle is not None
+    handle.emitMessage = (  # type: ignore[method-assign]
+        lambda message: emitted.append(message)
+    )
+
+    message = UserMessage(content="notice")
+    team_service.emit_message(process.team_id, message)
+
+    assert emitted == [message]
+    assert emitted[0] is message
+
+
+def test_send_message_forwards_message_untouched(team_service: TeamService) -> None:
+    """A Message passed to send_message reaches the handle untouched (delegation unchanged)."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    sent: list[object] = []
+    handle = team_service.get_handle(process.team_id)
+    assert handle is not None
+    handle.send = lambda content: sent.append(content)  # type: ignore[method-assign]
+
+    message = UserMessage(content="typed")
+    team_service.send_message(process.team_id, message)
+
+    assert sent == [message]
+    assert sent[0] is message
 
 
 def test_stop_team_success(team_service: TeamService) -> None:

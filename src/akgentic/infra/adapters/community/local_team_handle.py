@@ -28,17 +28,25 @@ class LocalTeamHandle:
         """The unique identifier of the team this handle points to."""
         return self._runtime.id
 
-    def send(self, content: str) -> None:
+    def send(self, content: str | Message) -> None:
         """Send a message to the team's default entry point."""
         self._runtime.send(content)
 
-    def send_to(self, agent_name: str, content: str) -> None:
+    def send_to(self, agent_name: str, content: str | Message) -> None:
         """Send a message to a specific agent within the team."""
         self._runtime.send_to(agent_name, content)
 
-    def send_from_to(self, sender_name: str, recipient_name: str, content: str) -> None:
+    def send_from_to(self, sender_name: str, recipient_name: str, content: str | Message) -> None:
         """Send a message from a specific agent to another agent."""
         self._runtime.send_from_to(sender_name, recipient_name, content)
+
+    def emitMessage(self, message: Message) -> None:  # noqa: N802
+        """Publish a pre-formed message to the team's subscribers.
+
+        Thin forwarder to ``TeamRuntime.emitMessage`` — no coercion, no
+        team_id stamping (the orchestrator owns that). Rationale: ADR-22.
+        """
+        self._runtime.emitMessage(message)
 
     def process_human_input(self, content: str, message: Message) -> None:
         """Route human input to the team's HumanProxy agent."""

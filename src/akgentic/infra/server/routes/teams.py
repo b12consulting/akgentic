@@ -12,6 +12,7 @@ from akgentic.catalog.models.errors import EntryNotFoundError
 from akgentic.infra.server.auth import RequestUser, get_request_user
 from akgentic.infra.server.models import (
     CreateTeamRequest,
+    EmitMessageRequest,
     EventListResponse,
     EventResponse,
     HumanInputRequest,
@@ -19,6 +20,7 @@ from akgentic.infra.server.models import (
     TeamListResponse,
     TeamResponse,
 )
+from akgentic.infra.server.routes._message_payload import decode_message, resolve_send_payload
 from akgentic.infra.server.services.team_service import TeamService
 from akgentic.team import EventNotFoundError
 from akgentic.team.models import Process
@@ -111,10 +113,16 @@ def send_message(
     body: SendMessageRequest,
     service: TeamService = Depends(get_team_service),
 ) -> None:
-    """Send a message to a running team."""
+    """Send a message to a running team.
+
+    Accepts either a plain ``content`` string or a pre-formed typed ``Message``
+    (the ``message`` wire envelope, deserialized to the concrete type for agent
+    processing); a bad envelope is a 400 (ADR-22). Team-state errors map through
+    ``_raise_action_error``.
+    """
     logger.info("POST /teams/%s/message", team_id)
     try:
-        service.send_message(team_id, body.content)
+        service.send_message(team_id, resolve_send_payload(body))
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -126,10 +134,10 @@ def send_message_to_agent(
     body: SendMessageRequest,
     service: TeamService = Depends(get_team_service),
 ) -> None:
-    """Send a message to a specific agent in a running team."""
+    """Send a message (plain ``content`` or typed ``message`` envelope) to a specific agent."""
     logger.info("POST /teams/%s/message/%s", team_id, agent_name)
     try:
-        service.send_message_to(team_id, agent_name, body.content)
+        service.send_message_to(team_id, agent_name, resolve_send_payload(body))
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -142,12 +150,33 @@ def send_message_from_to(
     body: SendMessageRequest,
     service: TeamService = Depends(get_team_service),
 ) -> None:
-    """Send a message from a specific agent to another agent in a running team."""
-    logger.info(
-        "POST /teams/%s/message/from/%s/to/%s", team_id, sender_name, recipient_name
-    )
+    """Send a message (plain ``content`` or typed ``message``) from one agent to another."""
+    logger.info("POST /teams/%s/message/from/%s/to/%s", team_id, sender_name, recipient_name)
     try:
-        service.send_message_from_to(team_id, sender_name, recipient_name, body.content)
+        service.send_message_from_to(
+            team_id, sender_name, recipient_name, resolve_send_payload(body)
+        )
+    except ValueError as exc:
+        _raise_action_error(exc)
+
+
+@router.post("/{team_id}/notification", status_code=204)
+def emit_notification(
+    team_id: uuid.UUID,
+    body: EmitMessageRequest,
+    service: TeamService = Depends(get_team_service),
+) -> None:
+    """Inject a pre-formed notification Message into a running team.
+
+    Deserializes the ``__model__``-tagged payload back into the concrete
+    ``Message`` and publishes it to the team's subscribers with no agent
+    processing (ADR-22). A decode failure or a non-``Message`` payload is a
+    client error (400); team-state errors map through ``_raise_action_error``.
+    """
+    logger.info("POST /teams/%s/notification", team_id)
+    message = decode_message(body.message)
+    try:
+        service.emit_message(team_id, message)
     except ValueError as exc:
         _raise_action_error(exc)
 
