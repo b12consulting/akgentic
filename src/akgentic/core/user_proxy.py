@@ -65,7 +65,10 @@ class UserProxy(Akgent[BaseConfig, BaseState]):
         Example:
             >>> user_proxy.process_human_input("Approve the plan", original_msg)
         """
-        logger.info(f"Received human input: {content}, at destination of: {message.sender}")
+        logger.info(
+            f"[{self.config.name}-{self.team_id}] Received human input "
+            f"({len(content)} chars), reply-to: {message.sender}"
+        )
         response = ResultMessage(content=content)
         self.send(message.sender, response)
 
