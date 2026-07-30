@@ -137,7 +137,7 @@ class ExecTool(ToolCard):
             ValueError: If observer.orchestrator is None.
             KeyError: If ``self.mode`` names an unregistered backend.
         """
-        self._observer = observer
+        super().observer(observer)  # store the observer weakly via the base setter
         if observer.orchestrator is None:
             raise ValueError("ExecTool requires access to the orchestrator.")
 

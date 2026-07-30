@@ -15,6 +15,7 @@ from akgentic.tool.core import (
     ToolCard,
     _resolve,
 )
+from akgentic.tool.errors import RetriableError
 from akgentic.tool.event import ActorToolObserver
 from akgentic.tool.planning.planning_actor import (
     PlanActor,
@@ -128,7 +129,7 @@ class PlanningTool(ToolCard):
 
         Requires an ActorToolObserver for actor system access.
         """
-        self._observer = observer
+        super().observer(observer)  # store the observer weakly via the base setter
         if observer.orchestrator is None:
             raise ValueError("PlanningTool requires access to the orchestrator.")
 
@@ -275,7 +276,7 @@ class PlanningTool(ToolCard):
 
     def _update_planning_factory(self, params: UpdatePlanning) -> Callable:
         planning_proxy = self._planning_proxy
-        observer = self._observer
+        observer_or_none = self._observer_or_none  # bound method -> weak edge to agent
 
         def update_planning(update: UpdatePlan) -> str:
             """Update team tasks (create, update, delete).
@@ -284,6 +285,9 @@ class PlanningTool(ToolCard):
             - description: max 300 characters — keep it concise.
             - output: max 150 characters — will be truncated automatically if exceeded.
             """
+            observer = observer_or_none()
+            if observer is None:
+                raise RetriableError("Plan is unavailable; the agent is shutting down.")
             ## observer.myAddress is used to set the creator of any new tasks in the plan.
             return planning_proxy.update_planning(update, observer.myAddress)
 
