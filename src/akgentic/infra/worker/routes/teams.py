@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from akgentic.core.messages.message import Message
 from akgentic.core.messages.orchestrator import SentMessage
+from akgentic.infra.adapters.community.local_team_handle import LocalTeamHandle
 from akgentic.infra.server.models import (
     EmitMessageRequest,
     HumanInputRequest,
@@ -33,12 +34,18 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 class WorkerCreateTeamRequest(BaseModel):
     """Request body for POST /teams on the worker.
 
-    The worker receives the already-resolved TeamCard and user_id from the
-    server — catalog resolution happens server-side.
+    The worker receives the already-resolved TeamCard plus the caller identity
+    (user_id, user_email) from the server — catalog resolution happens
+    server-side. ``team_id`` lets the server pin the identifier it already
+    handed out; the team manager generates one when it is absent.
     """
 
     team_card: TeamCard = Field(description="Pre-resolved TeamCard for team creation")
     user_id: str = Field(description="Authenticated user identifier (from server)")
+    user_email: str = Field(default="", description="Authenticated user email (from server)")
+    team_id: uuid.UUID | None = Field(
+        default=None, description="Caller-supplied team identifier; auto-generated when absent"
+    )
 
 
 def get_services(request: Request) -> WorkerServices:
@@ -85,9 +92,17 @@ def create_team(
     runtime: TeamRuntime = services.team_manager.create_team(
         team_card=body.team_card,
         user_id=body.user_id,
+        user_email=body.user_email,
+        team_id=body.team_id,
     )
+    # The message / notification / human-input routes resolve via runtime_cache.get,
+    # so a team is only reachable once its handle is stored here.
+    services.runtime_cache.store(runtime.id, LocalTeamHandle(runtime))
     process = services.worker_handle.get_team(runtime.id)
-    if process is None:  # pragma: no cover
+    if process is None:
+        # Drop the handle stored above: this create failed, and nothing else
+        # evicts a team that never reached the event store.
+        services.runtime_cache.remove(runtime.id)
         msg = f"Team {runtime.id} was created but not found in event store"
         raise RuntimeError(msg)
     return _process_to_response(process)
@@ -226,6 +241,10 @@ def stop_team(
     logger.info("POST /teams/%s/stop", team_id)
     try:
         services.worker_handle.stop_team(team_id)
+        # Evict only once the stop succeeded, so the cache never diverges from
+        # team state. A rejected stop leaves the handle cached; the eviction
+        # subscriber reclaims it when the orchestrator does tear down.
+        services.runtime_cache.remove(team_id)
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -239,6 +258,9 @@ def delete_team(
     logger.info("DELETE /teams/%s", team_id)
     try:
         services.worker_handle.delete_team(team_id)
+        # Only evict once the delete actually succeeded: a rejected delete (team
+        # still RUNNING) leaves the team live, and its handle must stay reachable.
+        services.runtime_cache.remove(team_id)
     except ValueError as exc:
         _raise_action_error(exc)
 
