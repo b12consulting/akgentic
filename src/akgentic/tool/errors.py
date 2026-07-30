@@ -14,3 +14,9 @@ class RetriableError(Exception):
     """
 
     pass
+
+
+class ToolObserverGone(RuntimeError):  # noqa: N818 — signals a lifecycle state, not a failure
+    """A tool callable ran after its owning agent was stopped."""
+
+    pass

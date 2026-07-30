@@ -18,7 +18,7 @@ from .core import (  # noqa: F401
     ToolCard,
     ToolFactory,
 )
-from .errors import RetriableError  # noqa: F401
+from .errors import RetriableError, ToolObserverGone  # noqa: F401
 from .event import (  # noqa: F401
     ActorToolObserver,
     TeamManagementToolObserver,
@@ -50,6 +50,7 @@ __all__ = [
     "Channels",
     # Errors
     "RetriableError",
+    "ToolObserverGone",
     # Events and observers
     "ToolObserver",
     "ActorToolObserver",

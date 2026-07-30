@@ -170,7 +170,7 @@ class KnowledgeGraphTool(ToolCard):
         from akgentic.tool.knowledge_graph import _check_kg_dependencies
 
         _check_kg_dependencies()
-        self._observer = observer
+        super().observer(observer)  # store the observer weakly via the base setter
 
         if observer.orchestrator is None:
             raise ValueError("KnowledgeGraphTool requires access to the orchestrator.")
