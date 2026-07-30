@@ -42,6 +42,24 @@ if TYPE_CHECKING:
     from akgentic.core.orchestrator import Orchestrator
 
 
+def _evict_anyio_run_vars(loop: asyncio.AbstractEventLoop) -> None:
+    """Remove anyio's per-loop run-vars entry so the closed loop can be GC'd.
+
+    anyio keeps per-loop state in a module-global ``WeakKeyDictionary``
+    (``anyio.lowlevel._run_vars``, keyed by the loop). Its value retains the
+    finished run ``Task``, which strong-references the loop, so the weak key
+    never clears and the loop leaks. Evicting our own loop's entry breaks that
+    self-reference. Best-effort and version-guarded: anyio internals are private,
+    and a missing/absent ``_run_vars`` (or no anyio) must not break teardown.
+    """
+    try:
+        from anyio.lowlevel import _run_vars  # noqa: PLC0415
+
+        _run_vars.pop(loop, None)
+    except Exception:
+        pass
+
+
 class WarningError(Exception):
     """Custom exception type for non-critical warnings that should not trigger error telemetry."""
 
@@ -536,14 +554,48 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     def on_stop(self) -> None:
         """Cleanup hook called when actor stops.
 
-        Notifies orchestrator of stop event.
+        Drains and reclaims the actor's event loop, then notifies the
+        orchestrator of the stop event. The drain is best-effort so a failed
+        teardown never blocks the StopMessage telemetry.
         """
-        if self._event_loop.is_running():
-            self._event_loop.stop()
-        self._event_loop.close()
+        # Best-effort drain; __init__ always creates the loop on this lineage, so
+        # the drain's is_closed() guard is what makes a repeated stop a no-op.
+        self._drain_event_loop(self._event_loop)
 
         self._notify_orchestrator(StopMessage())
         logger.info(f"[{self.config.name}] Stopped.")
+
+    def _drain_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Fully tear down the actor's event loop so it can be reclaimed.
+
+        ``loop.close()`` alone is not enough: pydantic-ai/anyio register per-loop
+        state in a module-global ``anyio.lowlevel._run_vars`` ``WeakKeyDictionary``
+        whose value retains the finished run ``Task``, and the Task strong-refs
+        the loop — defeating the weak key, so the closed loop (and everything
+        anchored to it) never gets collected. We cancel stragglers, drain async
+        generators and the default executor, close, then evict the loop's anyio
+        run-vars entry. Best-effort: failures are logged, never raised.
+        """
+        try:
+            if not loop.is_closed():
+                self._cancel_pending_tasks(loop)
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+                loop.close()
+        except Exception:
+            logger.warning("[%s] event-loop drain failed", self.config.name, exc_info=True)
+        finally:
+            _evict_anyio_run_vars(loop)
+
+    @staticmethod
+    def _cancel_pending_tasks(loop: asyncio.AbstractEventLoop) -> None:
+        """Cancel and await any tasks still pending on ``loop`` before close."""
+        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        if not pending:
+            return
+        for task in pending:
+            task.cancel()
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
 
     ##
     ## Event
