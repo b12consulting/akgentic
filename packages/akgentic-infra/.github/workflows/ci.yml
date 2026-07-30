@@ -3,30 +3,29 @@ name: CI
 on:
   push:
   pull_request:
-    branches: [master]
+    branches: [version-1.3.x]
   workflow_dispatch:
 
 env:
   NO_COLOR: "1"
+  # Release channel for akgentic-* dependencies. This is the 1.3.x maintenance
+  # line, so siblings are built from their own version-1.3.x branches into the
+  # local wheelhouse — never from master, whose APIs have moved on.
+  RELEASE_BRANCH: version-1.3.x
+  # Transitive closure of akgentic-* dependencies, space-separated. uv resolves
+  # the graph from the wheelhouse, so order does not matter.
+  AKGENTIC_DEPS: "akgentic-core akgentic-llm akgentic-tool akgentic-team akgentic-agent akgentic-catalog"
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout workspace
+      - name: Checkout akgentic-infra
         uses: actions/checkout@v6
         with:
-          repository: b12consulting/akgentic-quick-start
-          ref: master
-          submodules: recursive
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Override akgentic-infra submodule with current branch
-        working-directory: packages/akgentic-infra
-        run: |
-          git fetch origin master
-          git fetch origin ${{ github.head_ref || github.ref_name }}
-          git checkout FETCH_HEAD
+          # full history so the test/* branch guard can diff against the
+          # maintenance-line tip
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -36,17 +35,36 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install dependencies
-        run: uv sync --all-packages --all-extras
+      # Build every akgentic-* dependency from RELEASE_BRANCH into a local
+      # wheelhouse. uv pip install --find-links then resolves them from there;
+      # all other (PyPI) deps still come from the default index.
+      - name: Build akgentic-* dependency wheelhouse
+        run: |
+          mkdir -p wheelhouse
+          for dep in ${AKGENTIC_DEPS}; do
+            echo "::group::build ${dep} @ ${RELEASE_BRANCH}"
+            git clone --depth 1 --branch "${RELEASE_BRANCH}" \
+              "https://github.com/b12consulting/${dep}.git" "/tmp/${dep}"
+            uv build --wheel --out-dir wheelhouse "/tmp/${dep}"
+            echo "::endgroup::"
+          done
+          ls -1 wheelhouse
 
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: uv pip install --find-links wheelhouse -e ".[dev]"
+
+      # --no-sync: run in the wheelhouse-built venv without re-resolving from a
+      # lockfile (there is no project lockfile in this install model).
       - name: Type checking
-        run: uv run mypy packages/akgentic-infra/src/
+        run: uv run --no-sync mypy src/
 
       - name: Linting
-        run: uv run ruff check packages/akgentic-infra/src/
+        run: uv run --no-sync ruff check src/
 
       - name: Enforce no MagicMock in integration and e2e tests
-        working-directory: packages/akgentic-infra
         run: |
           if grep -r "MagicMock" tests/integration/ --include='*.py' -l | grep -v '/test_cli\.py$'; then
             echo "::error::MagicMock found in integration tests — integration tests must not use mocks"
@@ -59,9 +77,8 @@ jobs:
 
       - name: Enforce zero src/ changes on test branches
         if: startsWith(github.head_ref || github.ref_name, 'test/')
-        working-directory: packages/akgentic-infra
         run: |
-          changed=$(git diff origin/master --name-only -- src/ || true)
+          changed=$(git diff origin/version-1.3.x --name-only -- src/ || true)
           if [ -n "$changed" ]; then
             echo "::error::src/ changes detected on a test/* branch — test branches must not modify production code"
             echo "$changed"
@@ -71,20 +88,8 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout workspace
+      - name: Checkout akgentic-infra
         uses: actions/checkout@v6
-        with:
-          repository: b12consulting/akgentic-quick-start
-          ref: master
-          submodules: recursive
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Override akgentic-infra submodule with current branch
-        working-directory: packages/akgentic-infra
-        run: |
-          git fetch origin master
-          git fetch origin ${{ github.head_ref || github.ref_name }}
-          git checkout FETCH_HEAD
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -94,14 +99,28 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
+      - name: Build akgentic-* dependency wheelhouse
+        run: |
+          mkdir -p wheelhouse
+          for dep in ${AKGENTIC_DEPS}; do
+            echo "::group::build ${dep} @ ${RELEASE_BRANCH}"
+            git clone --depth 1 --branch "${RELEASE_BRANCH}" \
+              "https://github.com/b12consulting/${dep}.git" "/tmp/${dep}"
+            uv build --wheel --out-dir wheelhouse "/tmp/${dep}"
+            echo "::endgroup::"
+          done
+
+      - name: Create virtual environment
+        run: uv venv
+
       - name: Install dependencies
-        run: uv sync --all-packages --all-extras
+        run: uv pip install --find-links wheelhouse -e ".[dev]"
 
       - name: Run unit tests with coverage
         run: >
-          uv run pytest packages/akgentic-infra/tests/
-          --ignore=packages/akgentic-infra/tests/integration/
-          --ignore=packages/akgentic-infra/tests/e2e/
+          uv run --no-sync pytest tests/
+          --ignore=tests/integration/
+          --ignore=tests/e2e/
           --cov=akgentic.infra
           --cov-report=term-missing
           --cov-report=json:coverage.json
@@ -124,20 +143,8 @@ jobs:
     if: false  # temporarily disabled — deadlock under pytest-cov, investigating
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout workspace
+      - name: Checkout akgentic-infra
         uses: actions/checkout@v6
-        with:
-          repository: b12consulting/akgentic-quick-start
-          ref: master
-          submodules: recursive
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Override akgentic-infra submodule with current branch
-        working-directory: packages/akgentic-infra
-        run: |
-          git fetch origin master
-          git fetch origin ${{ github.head_ref || github.ref_name }}
-          git checkout FETCH_HEAD
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -147,14 +154,26 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
+      - name: Build akgentic-* dependency wheelhouse
+        run: |
+          mkdir -p wheelhouse
+          for dep in ${AKGENTIC_DEPS}; do
+            git clone --depth 1 --branch "${RELEASE_BRANCH}" \
+              "https://github.com/b12consulting/${dep}.git" "/tmp/${dep}"
+            uv build --wheel --out-dir wheelhouse "/tmp/${dep}"
+          done
+
+      - name: Create virtual environment
+        run: uv venv
+
       - name: Install dependencies
-        run: uv sync --all-packages --all-extras
+        run: uv pip install --find-links wheelhouse -e ".[dev]"
 
       # --cov-fail-under=0 overrides pyproject.toml fail_under=90
       # so integration coverage is reported without a gate.
       - name: Run integration tests
         run: >
-          uv run pytest packages/akgentic-infra/tests/integration/ -v
+          uv run --no-sync pytest tests/integration/ -v
           -o "addopts="
           --cov=akgentic.infra
           --cov-report=term-missing
@@ -172,22 +191,9 @@ jobs:
         run: |
           echo "::notice::OPENAI_API_KEY not available — skipping LLM integration tests"
 
-      - name: Checkout workspace
+      - name: Checkout akgentic-infra
         if: env.OPENAI_API_KEY != ''
         uses: actions/checkout@v6
-        with:
-          repository: b12consulting/akgentic-quick-start
-          ref: master
-          submodules: recursive
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Override akgentic-infra submodule with current branch
-        if: env.OPENAI_API_KEY != ''
-        working-directory: packages/akgentic-infra
-        run: |
-          git fetch origin master
-          git fetch origin ${{ github.head_ref || github.ref_name }}
-          git checkout FETCH_HEAD
 
       - name: Install uv
         if: env.OPENAI_API_KEY != ''
@@ -199,12 +205,26 @@ jobs:
         if: env.OPENAI_API_KEY != ''
         run: uv python install 3.12
 
+      - name: Build akgentic-* dependency wheelhouse
+        if: env.OPENAI_API_KEY != ''
+        run: |
+          mkdir -p wheelhouse
+          for dep in ${AKGENTIC_DEPS}; do
+            git clone --depth 1 --branch "${RELEASE_BRANCH}" \
+              "https://github.com/b12consulting/${dep}.git" "/tmp/${dep}"
+            uv build --wheel --out-dir wheelhouse "/tmp/${dep}"
+          done
+
+      - name: Create virtual environment
+        if: env.OPENAI_API_KEY != ''
+        run: uv venv
+
       - name: Install dependencies
         if: env.OPENAI_API_KEY != ''
-        run: uv sync --all-packages --all-extras
+        run: uv pip install --find-links wheelhouse -e ".[dev]"
 
       - name: Run integration tests with real LLM
         if: env.OPENAI_API_KEY != ''
         run: >
-          uv run pytest packages/akgentic-infra/tests/integration/ -v
+          uv run --no-sync pytest tests/integration/ -v
           -o "addopts="
