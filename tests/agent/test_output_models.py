@@ -1,6 +1,7 @@
-"""Tests for output models typed message protocol (Story 2-1).
+"""Tests for the output-model typed message protocol (Stories 2-1, 5-5).
 
-Tests REPLY_PROTOCOLS, Request.message_type, and structured_output template.
+Covers REPLY_PROTOCOLS wording/order, Request.message_type, the plain-string
+(un-enumerated) recipient schema, and the prompt-carried reply protocol.
 """
 
 from pydantic import ValidationError
@@ -9,7 +10,6 @@ from akgentic.agent.output_models import (
     REPLY_PROTOCOLS,
     Request,
     StructuredOutput,
-    structured_output,
 )
 
 
@@ -21,10 +21,27 @@ class TestReplyProtocols:
         expected = {"request", "response", "notification", "instruction", "acknowledgment"}
         assert set(REPLY_PROTOCOLS.keys()) == expected
 
-    def test_sender_placeholder_in_all_values(self) -> None:
-        """All protocol entries that reference sender should contain {sender} placeholder."""
-        for msg_type in ("request", "notification", "instruction"):
-            assert "{sender}" in REPLY_PROTOCOLS[msg_type], f"{msg_type} missing {{sender}}"
+    def test_order_matches_intent_sequence(self) -> None:
+        """AC-5: entries ordered request, response, instruction, notification, acknowledgment."""
+        assert list(REPLY_PROTOCOLS.keys()) == [
+            "request",
+            "response",
+            "instruction",
+            "notification",
+            "acknowledgment",
+        ]
+
+    def test_carry_out_then_form(self) -> None:
+        """AC-5: reply-directed entries use the 'carry out …, then …' phrasing."""
+        assert REPLY_PROTOCOLS["request"].startswith("Carry out the task, then ")
+        assert REPLY_PROTOCOLS["instruction"].startswith("Carry out the task, then ")
+
+    def test_sender_placeholder_in_reply_directed_values(self) -> None:
+        """request and instruction reference the sender via {sender}; others do not."""
+        assert "{sender}" in REPLY_PROTOCOLS["request"]
+        assert "{sender}" in REPLY_PROTOCOLS["instruction"]
+        for msg_type in ("response", "notification", "acknowledgment"):
+            assert "{sender}" not in REPLY_PROTOCOLS[msg_type]
 
     def test_format_sender_placeholder(self) -> None:
         """Should format {sender} placeholder correctly."""
@@ -33,9 +50,25 @@ class TestReplyProtocols:
         assert "{sender}" not in formatted
 
     def test_no_reply_types_indicate_no_action(self) -> None:
-        """Notification and acknowledgment should instruct no reply."""
-        assert "Do NOT reply" in REPLY_PROTOCOLS["notification"]
-        assert "No further action" in REPLY_PROTOCOLS["acknowledgment"]
+        """AC-5: notification/acknowledgment no longer say 'Return an empty list.'."""
+        assert "No reply is expected" in REPLY_PROTOCOLS["notification"]
+        assert "No further action needed" in REPLY_PROTOCOLS["acknowledgment"]
+        for msg_type in ("notification", "acknowledgment"):
+            assert "Return an empty list" not in REPLY_PROTOCOLS[msg_type]
+
+
+class TestPromptCarriedReplyProtocol:
+    """AC-3: the reply protocol is carried in the prompt, not the output schema."""
+
+    def test_request_prompt_prefix(self) -> None:
+        """A request from @Manager composes the exact AC-3 prompt prefix."""
+        sender = "@Manager"
+        protocol = REPLY_PROTOCOLS["request"].format(sender=sender)
+        prefix = f"You received a request from {sender}. {protocol}"
+        assert prefix == (
+            "You received a request from @Manager. "
+            "Carry out the task, then respond to @Manager. You may also delegate to others."
+        )
 
 
 class TestRequestMessageType:
@@ -69,43 +102,26 @@ class TestRequestMessageType:
         data = req.model_dump()
         assert data["message_type"] == "instruction"
 
+    def test_message_type_description_order(self) -> None:
+        """AC-6: field description lists intents in REPLY_PROTOCOLS order."""
+        description = Request.model_fields["message_type"].description
+        assert description is not None
+        positions = [
+            description.index(f"'{intent}'")
+            for intent in ("request", "response", "instruction", "notification", "acknowledgment")
+        ]
+        assert positions == sorted(positions)
 
-class TestStructuredOutputTemplate:
-    """Tests for structured_output template string."""
 
-    def test_contains_message_type_placeholder(self) -> None:
-        """Template should contain {message_type} placeholder."""
-        assert "{message_type}" in structured_output
+class TestRecipientSchema:
+    """AC-2: recipient is a plain string with no enum constraint."""
 
-    def test_contains_reply_protocol_placeholder(self) -> None:
-        """Template should contain {reply_protocol} placeholder."""
-        assert "{reply_protocol}" in structured_output
-
-    def test_contains_sender_placeholder(self) -> None:
-        """Template should contain {sender} placeholder."""
-        assert "{sender}" in structured_output
-
-    def test_contains_team_placeholder(self) -> None:
-        """Template should contain {team} placeholder."""
-        assert "{team}" in structured_output
-
-    def test_contains_roles_placeholder(self) -> None:
-        """Template should contain {roles} placeholder."""
-        assert "{roles}" in structured_output
-
-    def test_full_format(self) -> None:
-        """Should format all placeholders without error."""
-        result = structured_output.format(
-            sender="@Alice",
-            message_type="request",
-            reply_protocol=REPLY_PROTOCOLS["request"].format(sender="@Alice"),
-            team="@Bob, @Carol",
-            roles="Developer, Tester",
-        )
-        assert "@Alice" in result
-        assert "request" in result
-        assert "@Bob" in result
-        assert "Developer" in result
+    def test_recipient_has_no_enum(self) -> None:
+        """The generated JSON schema for recipient must be a plain string."""
+        schema = Request.model_json_schema()
+        recipient = schema["properties"]["recipient"]
+        assert recipient["type"] == "string"
+        assert "enum" not in recipient
 
 
 class TestStructuredOutputModel:

@@ -37,17 +37,16 @@ Human
 HumanProxy ──send()──► BaseAgent (Manager)
                              │
                     receiveMsg_AgentMessage()
+                             │  prepend reply protocol to the prompt:
+                             │  "You received a request from @Human. Carry out the
+                             │   task, then respond to @Human. ..."
                              │
-                    process_message(content, sender)
+                    process_message(prompt, sender)
                              │
-                    act(content, StructuredOutput)
+                    act(prompt, StructuredOutput)
                       │
                       ├─ expand !!glob_pattern refs (if WorkspaceTool present)
-                      ├─ _build_structured_output_type():
-                      │     ├─ constrain recipient to enum of valid @members + roles
-                      │     └─ inject context docstring: sender, message_type,
-                      │         reply_protocol, team roster, available roles
-                      └─ ReactAgent.run_sync(prompt, output_type=ConstrainedOutput)
+                      └─ ReactAgent.run_sync(prompt, output_type=StructuredOutput)
                              │
                     StructuredOutput.messages = [
                         Request(recipient="@Assistant", message_type="instruction", message="..."),
@@ -200,71 +199,49 @@ An empty list means the agent has nothing more to send — but the LLM still run
 the LLM call is skipped. The message is still processed and added to the agent's context
 for future interactions.
 
-### Schema-Constrained Recipients
+### Static Schema + Prompt-Carried Reply Protocol
 
-`_build_structured_output_type()` creates per-call Pydantic subclasses of `Request` and
-`StructuredOutput` that constrain the `recipient` field to an enum of valid values:
+`act()` reasons against the **static** `StructuredOutput` type directly — there is no
+per-call subclass and no `type()` metaprogramming on the hot path:
 
 ```python
-valid_recipients = ["@Human", "@Developer001"]   # existing @members
-                 + ["QA", "Reviewer"]            # available roles for hiring
-# → recipient field gets json_schema_extra={"enum": valid_recipients}
+output = self._react_agent.run_sync(prompt, deps=self, output_type=StructuredOutput)
 ```
 
-This enum is included in the JSON schema sent to the LLM via pydantic-ai, so **invalid
-recipients are prevented at generation time** rather than caught after the fact. The LLM
-can only produce recipients that exist as team members or hireable roles.
-
-The subclass also injects a dynamic docstring with per-call context:
-
-- `{sender}` — who triggered this message
-- `{message_type}` — the incoming message's intent
-- `{reply_protocol}` — behavioral instruction from `REPLY_PROTOCOLS`
-- `{team}` — current team member names
-- `{roles}` — available roles for hiring
-
-For example, when `@Human` sends a `request` to `@Manager` with `@Developer456` on the
-team and `QA` as an available role, the LLM sees this docstring in the output schema:
-
-```
-This thread was triggered by a request from (@Human).
-Carry out the task and respond to @Human. You may also delegate to others.
-
-You CANNOT wait, sleep, poll, or loop. Return an empty list instead.
-You process ONE message at a time. After you conclude, your turn ends.
-
-Team members: @Developer456.
-Available roles: QA.
-```
-
-And the `recipient` field in the JSON schema is constrained to:
-
-```json
-{"enum": ["@Human", "@Developer456", "QA"]}
-```
-
-This is thread-safe: multiple agents run `act()` concurrently on separate Pykka threads,
-each with its own per-call subclass.
-
-### Routing and Delivery
-
-`process_message()` resolves each `Request.recipient`:
+`Request.recipient` is a **plain string** with no `enum` constraint. Recipient validity is
+enforced at **routing time** in `process_message()`, not in the schema:
 
 | Recipient format | Resolution |
 |---|---|
-| `@MemberName` | Direct send to the named actor in the current team |
+| `@MemberName` | `get_team_member(name)` → direct send (skipped if not found) |
 | `RoleName` | `hire_member(role)` → create actor → send |
 
-Before delivery, the message content is enriched with the sender and intent:
+The reply-protocol guidance lives where the LLM actually reads it — the **prompt**.
+`receiveMsg_AgentMessage()` prepends a one-line protocol (keyed on the incoming message
+type via `REPLY_PROTOCOLS`) to the raw content before handing it to `process_message()`:
 
-```python
-content = f"You received a request from @Manager:\n\n{request.message}"
+```
+You received a request from @Human. Carry out the task, then respond to @Human.
+You may also delegate to others.
+
+<raw message content>
 ```
 
-This enriched content is what the **receiving** agent's LLM sees in its conversation
-history. Combined with its own `StructuredOutput` docstring (which independently injects
-the sender and reply protocol), the receiving LLM has redundant signals about how to
-respond.
+> **Note:** This supersedes the schema-constrained-recipient + docstring-injection
+> mechanism from Story 5.1 / ADR-004. The intent-driven 5-type protocol is unchanged —
+> only its enforcement moved from a per-call schema to the prompt + routing-time validation.
+
+### Routing and Delivery
+
+`process_message()` resolves each `Request.recipient` (see the table above) and sends the
+**raw** `request.message` as an `AgentMessage`. The sender does not enrich the content —
+the reply-protocol prefix is added by the *receiving* agent's `receiveMsg_AgentMessage()`,
+so the guidance is always keyed to the intent that agent actually received:
+
+```python
+# In the receiver's receiveMsg_AgentMessage(), before process_message():
+prompt = f"You received a request from @Manager. {reply_protocol}\n\n{message.content}"
+```
 
 On `LLMUsageLimitError`, the agent escalates to the first team member with
 `role="human"` via `notify_human()`.
@@ -290,20 +267,20 @@ human_proxy.process_human_input("My answer", original_message)
 
 ## Message Protocol
 
-The 5-type intent protocol controls conversation flow. When processing an incoming
-message, the LLM receives a behavioral instruction (`REPLY_PROTOCOLS`) in its structured
-output schema that guides what to return:
+The 5-type intent protocol controls conversation flow. When an incoming message is
+received, the matching `REPLY_PROTOCOLS` instruction is prepended to the **user prompt**
+(not the output schema), so the LLM reads the guidance inline with the content:
 
-| Intent | Receiver instruction |
+| Intent | Receiver instruction (`REPLY_PROTOCOLS`) |
 |---|---|
-| `request` | "Carry out the task and respond to {sender}. You may also delegate." |
-| `instruction` | "Carry out the task and acknowledge to {sender} if requested." |
-| `response` | "Analyse the response and continue or end the exchange." |
-| `notification` | "Informational only. Do NOT reply to {sender}. Return an empty list." |
-| `acknowledgment` | "Receipt confirmed. No further action needed. Return an empty list." |
+| `request` | "Carry out the task, then respond to {sender}. You may also delegate to others." |
+| `response` | "Analyse the response, then continue or end the exchange." |
+| `instruction` | "Carry out the task, then acknowledge to {sender} if requested." |
+| `notification` | "Informational message. No reply is expected." |
+| `acknowledgment` | "No further action needed." |
 
-The protocol is **soft guidance**, not framework enforcement. The LLM is guided to return
-an empty list for `notification` and `acknowledgment`, but the framework processes
+The protocol is **soft guidance**, not framework enforcement. The LLM is guided to send no
+further messages for `notification` and `acknowledgment`, but the framework processes
 whatever the LLM returns. This is intentional: LLMs are probabilistic, and rigid
 enforcement would be brittle.
 

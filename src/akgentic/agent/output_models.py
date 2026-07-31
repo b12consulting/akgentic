@@ -8,22 +8,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-structured_output = """This thread was triggered by a {message_type} from ({sender}).
-{reply_protocol}
-
-You CANNOT wait, sleep, poll, or loop. Return an empty list instead.
-You process ONE message at a time. After you conclude, your turn ends.
-
-Team members: {team}.
-Available roles: {roles}.
-"""
-
 REPLY_PROTOCOLS: dict[str, str] = {
-    "request": "Carry out the task and respond to {sender}. You may also delegate to others.",
-    "instruction": "Carry out the task and acknowledge to {sender} if requested.",
-    "response": "Analyse the response and continue or end the exchange.",
-    "notification": "Informational only. Do NOT reply to {sender}. Return an empty list.",
-    "acknowledgment": "Receipt confirmed. No further action needed. Return an empty list.",
+    "request": "Carry out the task, then respond to {sender}. You may also delegate to others.",
+    "response": "Analyse the response, then continue or end the exchange.",
+    "instruction": "Carry out the task, then acknowledge to {sender} if requested.",
+    "notification": "Informational message. No reply is expected.",
+    "acknowledgment": "No further action needed.",
 }
 
 
@@ -40,8 +30,8 @@ class Request(BaseModel):
         ...,
         description="Choose based on intent: "
         "'request' = ask recipient to perform a task and reply to you with the result; "
-        "'instruction' = direct recipient to perform a task, you may ask for acknowledgement; "
         "'response' = respond to a previous request; "
+        "'instruction' = direct recipient to perform a task, you may ask for acknowledgement; "
         "'notification' = send information to the recipient, no reply is expected; "
         "'acknowledgment' = confirm receipt of an instruction, no reply is expected.",
     )

@@ -102,10 +102,10 @@ The `recipient` field drives all routing logic in `process_message()`:
 | `@MemberName`    | Existing team member by name | Direct send         |
 | `RoleName`       | Role not yet hired           | Auto-hire then send |
 
-Recipients are **schema-constrained** at generation time: `_build_structured_output_type()`
-creates a per-call `Request` subclass where the `recipient` field is restricted to an enum
-of valid `@member` names and available role names. Invalid recipients are prevented by the
-JSON schema sent to the LLM, not caught after the fact.
+Recipients are validated at **routing time**, not in the schema: `Request.recipient` is a
+plain string, and `process_message()` resolves it (`@name` → `get_team_member`, role →
+`hire_member`), skipping delivery when a `@member` is not found. There is no per-call
+`Request` subclass and no `enum` constraint on `recipient` (Story 5.5).
 
 ### Context is the "Call Stack"
 
@@ -426,9 +426,9 @@ flowchart TD
     H --> P[done]
 ```
 
-> **Note:** Recipients are schema-constrained at generation time via
-> `_build_structured_output_type()`, so invalid recipients cannot be produced by
-> the LLM. The routing logic is a simple two-branch dispatch.
+> **Note:** Recipients are validated at routing time (`@name` → `get_team_member`,
+> role → `hire_member`); an unknown `@member` is simply not delivered to. The routing
+> logic is a simple two-branch dispatch.
 
 ### 5. Mailbox Notification
 
@@ -460,69 +460,53 @@ def process_message(self, message_content: str, sender: ActorAddress) -> None:
     for request in output.messages:
         recipient = request.recipient
 
-        member = None
         if recipient.startswith("@"):
             member = self.get_team_member(recipient)
         else:
             member = self.hire_member(recipient)
 
         if member is not None:
-            article = "an" if request.message_type[0] in "aeiou" else "a"
-            content = (
-                f"You received {article} {request.message_type}"
-                f" from {self.config.name}:\n\n"
-                + request.message
-            )
             self.send(
                 member,
                 AgentMessage(
-                    content=content,
+                    content=request.message,
                     type=request.message_type,
                     recipient=member,
                 ),
             )
 ```
 
-Since recipients are schema-constrained by `_build_structured_output_type()`, the routing
-logic is a simple two-branch dispatch with no error recovery needed.
+The sender delivers the **raw** `request.message`; the reply-protocol prefix is added by
+the *receiving* agent's `receiveMsg_AgentMessage()` (see below), keyed to the intent that
+agent received. Recipients are resolved at routing time, so the dispatch is a simple
+two-branch lookup with no error recovery needed.
 
-### 2. Schema-Constrained Structured Output (_build_structured_output_type)
+### 2. Static Structured Output + Prompt-Carried Reply Protocol
 
-Each call to `act()` delegates to `_build_structured_output_type()` which creates
-per-call Pydantic subclasses with two purposes:
-
-1. **Constrain recipients** — A `Request` subclass restricts `recipient` to an enum
-   of valid `@member` names + available role names via `json_schema_extra`. This enum
-   appears in the JSON schema sent to the LLM, preventing invalid routing at generation
-   time.
-
-2. **Inject per-call context** — A `StructuredOutput` subclass gets a dynamic docstring
-   with the sender, message type, reply protocol, team roster, and available roles.
+`act()` reasons against the **static** `StructuredOutput` type — no per-call subclass and
+no `type()` metaprogramming on the hot path:
 
 ```python
-# Per-call Request subclass with constrained recipients
-valid_recipients = [f"@{name}" for name in team] + list(roles)
-local_request = type("Request", (Request,), {
-    "__annotations__": {"recipient": str},
-    "recipient": Field(..., json_schema_extra={"enum": valid_recipients}),
-})
-
-# Per-call StructuredOutput subclass with context docstring
-local_output_type = type(output_type.__name__, (output_type,), {
-    "__annotations__": {"messages": list[local_request]},
-    "messages": Field(default_factory=list),
-    "__doc__": structured_output.format(
-        sender=sender,
-        message_type=self._current_message.type,
-        reply_protocol=REPLY_PROTOCOLS.get(self._current_message.type, ""),
-        team=", ".join(team) or "no other members",
-        roles=", ".join(roles) or "no roles available",
-    ),
-})
+output = self._react_agent.run_sync(prompt, deps=self, output_type=StructuredOutput)
 ```
 
-This is thread-safe: each agent's `act()` call creates its own subclass on a separate
-Pykka thread.
+The reply-protocol guidance is carried in the **prompt**, not the output schema. On
+receipt, `receiveMsg_AgentMessage()` prepends the matching `REPLY_PROTOCOLS` line to the
+raw content before calling `process_message()`:
+
+```python
+sender_name = message.sender.name if message.sender else "unknown"
+article = "an" if message.type[0] in "aeiou" else "a"
+prefixed_content = (
+    f"You received {article} {message.type} from {sender_name}. "
+    f"{REPLY_PROTOCOLS.get(message.type, '').format(sender=sender_name)}"
+    f"\n\n{message.content}"
+)
+self.process_message(prefixed_content, sender)
+```
+
+This supersedes the schema-constrained-recipient + docstring-injection mechanism from
+Story 5.1 / ADR-004; the intent-driven 5-type protocol itself is unchanged.
 
 ### 3. Hire-by-Role (hire_member)
 
@@ -553,7 +537,8 @@ except LLMUsageLimitError as e:
     raise WarningError(f"LLM usage limit exceeded: {e}")
 ```
 
-Routing errors are no longer possible at runtime thanks to schema-constrained recipients.
+Invalid `@member` recipients are handled gracefully at routing time: `get_team_member()`
+returns `None` and delivery is skipped rather than raising.
 
 ---
 
@@ -724,9 +709,9 @@ StructuredOutput(messages=[
 2. **Let `TeamTool` handle team awareness — don't duplicate it in prompts**
 
    `TeamTool` is auto-injected and provides `GetTeamRoster` and
-   `GetRoleProfiles` as dynamic system prompts. The `StructuredOutput`
-   docstring also injects `{team}` and `{roles}`. Writing team member lists
-   in prompts is redundant and will drift out of date:
+   `GetRoleProfiles` as dynamic system prompts, giving the LLM live team and
+   role visibility. Writing team member lists in prompts is redundant and will
+   drift out of date:
 
    ```python
    # Wrong: hard-codes team members the LLM can already see
@@ -904,8 +889,8 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
     Key methods:
 
     act(user_content, output_type) -> T
-        Execute one LLM REACT loop. Builds schema-constrained output type
-        via _build_structured_output_type(), then delegates to ReactAgent.
+        Execute one LLM REACT loop against the static StructuredOutput schema,
+        delegating to ReactAgent.run_sync(output_type=StructuredOutput).
 
     process_message(message_content, sender) -> None
         Core routing engine. Calls act(), resolves recipients,
@@ -981,7 +966,7 @@ python -m pytest tests/ --cov=akgentic.agent
 When extending the collaboration system:
 
 1. **Maintain `AgentMessage` as the sole inter-agent message type** — do not introduce new types without strong justification
-2. **Keep schema constraints in sync** — `_build_structured_output_type()` must reflect the current team roster and available roles
+2. **Keep routing validation in `process_message()`** — recipient validity is enforced at routing time, not in the output schema; the `Request.recipient` field stays a plain string
 3. **Document prompt patterns** — add examples to this document when new routing patterns are validated
 4. **Performance test fan-out** — benchmark with large `StructuredOutput` lists to detect delivery bottlenecks
 
