@@ -25,6 +25,7 @@ from pathlib import Path
 import yaml
 
 from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.ports import EventNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -169,28 +170,49 @@ class YamlEventStore:
             yaml.dump(data, f, default_flow_style=False)
         logger.debug("Appended event seq=%d for team %s", event.sequence, event.team_id)
 
-    def load_events(self, team_id: uuid.UUID) -> list[PersistedEvent]:
-        """Load all persisted events for a team from events.yaml.
+    @staticmethod
+    def _unreadable_log(
+        team_id: uuid.UUID, after_event_id: uuid.UUID | None
+    ) -> list[PersistedEvent]:
+        """Result for a team whose events.yaml is absent or unparseable.
 
-        Reads multi-document YAML and reconstructs each document as a
-        PersistedEvent, returned sorted by sequence number.
+        Raises:
+            EventNotFoundError: If a cursor was passed — an unreadable log
+                cannot resolve an anchor, and ``[]`` would be read by the
+                caller as "you are already up to date".
+        """
+        if after_event_id is not None:
+            raise EventNotFoundError(f"Event {after_event_id} not found for team {team_id}")
+        return []
+
+    def load_events(
+        self, team_id: uuid.UUID, after_event_id: uuid.UUID | None = None
+    ) -> list[PersistedEvent]:
+        """Load persisted events for a team from events.yaml, ordered by sequence.
 
         Args:
             team_id: Unique identifier of the team.
+            after_event_id: If provided, return only events after the matching
+                event — anchor excluded. If ``None`` (default), the full log.
 
         Returns:
-            List of PersistedEvent ordered by sequence, or empty list if
-            no events file exists.
+            List of PersistedEvent ordered by sequence, or empty list if no
+            events file exists and no cursor was passed.
+
+        Raises:
+            EventNotFoundError: If ``after_event_id`` does not resolve to an
+                event of this team, including when the events file is absent
+                or unparseable.
         """
         events_path = self._team_dir(team_id) / "events.yaml"
         if not events_path.exists():
-            return []
+            return self._unreadable_log(team_id, after_event_id)
         try:
             with open(events_path) as f:
                 docs = list(yaml.safe_load_all(f))
         except yaml.YAMLError as exc:
             logger.error("Corrupted events.yaml for team %s: %s", team_id, exc)
-            return []
+            return self._unreadable_log(team_id, after_event_id)
         events: list[PersistedEvent] = []
         for doc in docs:
             if doc is None:
@@ -202,7 +224,15 @@ class YamlEventStore:
                     "Skipping corrupted event for team %s: %s", team_id, exc
                 )
         logger.debug("Loaded %d events for team %s", len(events), team_id)
-        return sorted(events, key=lambda e: e.sequence)
+        ordered = sorted(events, key=lambda e: e.sequence)
+        if after_event_id is None:
+            return ordered
+        # Interim in-memory slice; YAML keeps it permanently (ADR-21 §4).
+        # event.id is persisted as a string, so compare stringified ids.
+        for index, event in enumerate(ordered):
+            if str(event.event.id) == str(after_event_id):
+                return ordered[index + 1 :]
+        raise EventNotFoundError(f"Event {after_event_id} not found for team {team_id}")
 
     def get_max_sequence(self, team_id: uuid.UUID) -> int:
         """Return the highest event sequence number for a team, or 0.
