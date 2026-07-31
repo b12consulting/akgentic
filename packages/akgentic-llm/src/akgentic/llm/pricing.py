@@ -1,17 +1,18 @@
-"""Pricing table, aggregation models, and aggregate_usage() function.
+"""Aggregation models and aggregate_usage() with genai-prices cost estimation.
 
-Provides per-1M-token pricing for supported LLM models and functions to
-aggregate ``LlmUsageEvent`` lists into hierarchical cost summaries.
+Aggregates ``LlmUsageEvent`` lists into hierarchical cost summaries. Per-model
+cost is estimated with the ``genai-prices`` library (offline bundled price
+snapshot), so provider rates stay current without a hand-maintained table and
+cached tokens are priced without double-counting.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TypedDict
 
-import yaml
+from genai_prices import Usage, calc_price
 from pydantic import BaseModel, Field
 
 from akgentic.llm.event import LlmUsageEvent
@@ -28,17 +29,6 @@ class _ModelAccum(TypedDict):
     requests: int
 
 
-def _load_pricing() -> dict[str, dict[str, float]]:
-    """Load pricing table from pricing.yaml bundled alongside this module."""
-    yaml_path = Path(__file__).parent / "pricing.yaml"
-    with yaml_path.open() as f:
-        data: dict[str, dict[str, float]] = yaml.safe_load(f)
-        return data
-
-
-PRICING: dict[str, dict[str, float]] = _load_pricing()
-
-
 @dataclass(frozen=True)
 class ModelUsage:
     """Aggregated token usage and cost for a single model.
@@ -51,7 +41,8 @@ class ModelUsage:
         cache_read_tokens: Total tokens read from provider cache.
         cache_write_tokens: Total tokens written to provider cache.
         requests: Total HTTP requests.
-        estimated_cost_usd: Estimated cost in USD based on PRICING table.
+        estimated_cost_usd: Estimated cost in USD computed via genai-prices
+            (0.0 when the model is not resolvable by genai-prices).
     """
 
     model_name: str
@@ -87,7 +78,7 @@ class AgentUsageSummary(BaseModel):
     """Hierarchical usage summary for an agent.
 
     Aggregates LlmUsageEvent data into per-model and optionally per-run
-    breakdowns with cost estimates derived from the PRICING table.
+    breakdowns with cost estimates derived via genai-prices.
 
     Attributes:
         by_model: Mapping of model_name to aggregated ModelUsage.
@@ -110,37 +101,36 @@ class AgentUsageSummary(BaseModel):
     total_cost_usd: float = 0.0
 
 
-# PRICING keys sorted longest-first so "gpt-4.1-nano" matches before "gpt-4.1"
-_PRICING_KEYS_BY_LENGTH: list[str] = sorted(PRICING, key=len, reverse=True)
-
-
-def _resolve_pricing(model_name: str) -> dict[str, float]:
-    """Find pricing rates by checking if a PRICING key is contained in the model name.
-
-    Checks longest keys first so "gpt-4.1-mini" matches before "gpt-4.1".
-    Handles versioned names like "gpt-5.2-2025-12-11" naturally.
-    """
-    for key in _PRICING_KEYS_BY_LENGTH:
-        if key in model_name:
-            return PRICING[key]
-    return {}
-
-
-def _compute_model_cost(
+def _compute_cost(
     model_name: str,
+    provider_name: str,
     input_tokens: int,
     output_tokens: int,
     cache_read_tokens: int,
     cache_write_tokens: int,
 ) -> float:
-    """Compute estimated USD cost for a model using the PRICING table."""
-    rates = _resolve_pricing(model_name)
-    return (
-        input_tokens * rates.get("input", 0.0)
-        + output_tokens * rates.get("output", 0.0)
-        + cache_read_tokens * rates.get("cache_read", 0.0)
-        + cache_write_tokens * rates.get("cache_write", 0.0)
-    ) / 1_000_000
+    """Estimate USD cost for a model via genai-prices (offline snapshot).
+
+    ``input_tokens`` already includes cached tokens; genai-prices splits the
+    total internally (cached portion at the cheaper cache-read rate, remainder
+    at the input rate), so cache reads are never double-charged.
+
+    An unknown ``model_ref`` makes ``calc_price`` raise ``LookupError``; that is
+    mapped to ``0.0`` so an unpriced model still aggregates its token counts.
+    ``provider_id`` is passed as ``None`` when empty so the lookup matches by
+    ``model_ref`` across providers instead of scoping to a non-existent one.
+    """
+    usage = Usage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+    )
+    try:
+        price = calc_price(usage, model_ref=model_name, provider_id=provider_name or None)
+    except LookupError:
+        return 0.0
+    return float(price.total_price)
 
 
 def _build_model_usage(
@@ -153,8 +143,13 @@ def _build_model_usage(
     requests: int,
 ) -> ModelUsage:
     """Build a ModelUsage with computed cost."""
-    cost = _compute_model_cost(
-        model_name, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+    cost = _compute_cost(
+        model_name,
+        provider_name,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
     )
     return ModelUsage(
         model_name=model_name,

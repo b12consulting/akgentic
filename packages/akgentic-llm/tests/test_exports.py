@@ -58,7 +58,6 @@ def test_key_exports_present():
     assert hasattr(akgentic.llm, "json_output_reminder_prompt")
 
     # Pricing & Aggregation
-    assert hasattr(akgentic.llm, "PRICING")
     assert hasattr(akgentic.llm, "AgentUsageSummary")
     assert hasattr(akgentic.llm, "ModelUsage")
     assert hasattr(akgentic.llm, "RunUsageSummary")

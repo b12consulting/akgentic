@@ -1,17 +1,19 @@
-"""Tests for pricing table, aggregation models, and aggregate_usage()."""
+"""Tests for aggregation models and aggregate_usage() (genai-prices cost path)."""
 
 from __future__ import annotations
 
 import dataclasses
 
+import pytest
+from genai_prices import Usage, calc_price
 from pydantic import BaseModel
 
 from akgentic.llm.event import LlmUsageEvent
 from akgentic.llm.pricing import (
-    PRICING,
     AgentUsageSummary,
     ModelUsage,
     RunUsageSummary,
+    _compute_cost,
     aggregate_usage,
 )
 
@@ -36,6 +38,32 @@ def _make_event(
         cache_write_tokens=cache_write_tokens,
         requests=requests,
     )
+
+
+def _expected_cost(
+    model_name: str,
+    provider_name: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+) -> float:
+    """Derive the genai-prices cost the same way the production path does.
+
+    Deterministic against the offline bundled snapshot, so the expected value
+    tracks the library rather than a hardcoded flat-formula number.
+    """
+    price = calc_price(
+        Usage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        ),
+        model_ref=model_name,
+        provider_id=provider_name or None,
+    )
+    return float(price.total_price)
 
 
 class TestModelUsage:
@@ -135,34 +163,8 @@ class TestAgentUsageSummary:
         assert restored.by_model == summary.by_model
 
 
-class TestPricingTable:
-    """AC-1: PRICING contains required model entries."""
-
-    def test_required_models_present(self) -> None:
-        required = [
-            "claude-sonnet-4-20250514",
-            "claude-opus-4-20250514",
-            "gpt-4o",
-            "gpt-5.2",
-        ]
-        for model in required:
-            assert model in PRICING, f"{model} missing from PRICING"
-
-    def test_required_keys(self) -> None:
-        required_keys = {"input", "output", "cache_read", "cache_write"}
-        for model, rates in PRICING.items():
-            assert set(rates.keys()) == required_keys, (
-                f"{model} has wrong keys: {set(rates.keys())}"
-            )
-
-    def test_values_are_floats(self) -> None:
-        for model, rates in PRICING.items():
-            for key, val in rates.items():
-                assert isinstance(val, (int, float)), f"{model}.{key} is not numeric"
-
-
 class TestAggregateUsageEmpty:
-    """AC-8: Empty event list returns zeroed summary."""
+    """AC-6: Empty event list returns zeroed summary."""
 
     def test_empty_list(self) -> None:
         result = aggregate_usage([])
@@ -177,7 +179,7 @@ class TestAggregateUsageEmpty:
 
 
 class TestAggregateUsageSingleModel:
-    """AC-5: Single-model aggregation with correct totals and cost."""
+    """AC-2/#3: Single-model aggregation with genai-prices cost."""
 
     def test_single_event(self) -> None:
         events = [
@@ -194,8 +196,14 @@ class TestAggregateUsageSingleModel:
         model = result.by_model["claude-sonnet-4-20250514"]
         assert model.input_tokens == 1_000_000
         assert model.output_tokens == 500_000
-        expected_cost = (1_000_000 * 3.0 + 500_000 * 15.0) / 1_000_000
-        assert model.estimated_cost_usd == expected_cost
+        expected_cost = _expected_cost(
+            "claude-sonnet-4-20250514",
+            "anthropic",
+            input_tokens=1_000_000,
+            output_tokens=500_000,
+        )
+        assert model.estimated_cost_usd == pytest.approx(expected_cost)
+        assert model.estimated_cost_usd > 0.0
         assert result.runs == []
 
     def test_multiple_events_same_model(self) -> None:
@@ -245,7 +253,7 @@ class TestAggregateUsageMultiModel:
 
 
 class TestAggregateUsageByRun:
-    """AC-6: by_run=True produces RunUsageSummary per run_id."""
+    """by_run=True produces RunUsageSummary per run_id."""
 
     def test_by_run(self) -> None:
         events = [
@@ -309,7 +317,7 @@ class TestAggregateUsageByRun:
 
 
 class TestUnknownModel:
-    """AC-7: Unknown model produces estimated_cost_usd == 0.0."""
+    """AC-4/#5: Unknown model produces estimated_cost_usd == 0.0."""
 
     def test_unknown_model_cost_zero(self) -> None:
         events = [
@@ -333,27 +341,90 @@ class TestUnknownModel:
         result = aggregate_usage(events)
         assert result.by_model["unknown-model"].estimated_cost_usd == 0.0
         assert result.by_model["claude-sonnet-4-20250514"].estimated_cost_usd > 0.0
+        # AC-5: totals include the unknown model's tokens and its 0.0 cost.
+        assert result.total_input_tokens == 1500
+        assert result.total_cost_usd == pytest.approx(
+            result.by_model["claude-sonnet-4-20250514"].estimated_cost_usd
+        )
+
+
+class TestComputeCost:
+    """NFR5: _compute_cost maps genai-prices LookupError to 0.0 (unknown model)."""
+
+    def test_unknown_model_returns_zero(self) -> None:
+        cost = _compute_cost(
+            model_name="definitely-not-a-real-model-xyz",
+            provider_name="anthropic",
+            input_tokens=1000,
+            output_tokens=500,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+        assert cost == 0.0
+
+    def test_known_model_returns_positive(self) -> None:
+        cost = _compute_cost(
+            model_name="claude-sonnet-4-20250514",
+            provider_name="anthropic",
+            input_tokens=1000,
+            output_tokens=500,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+        assert cost > 0.0
+
+    def test_empty_provider_still_resolves(self) -> None:
+        # provider_name="" must be passed as provider_id=None so genai-prices
+        # matches by model_ref across providers instead of a non-existent one.
+        cost = _compute_cost(
+            model_name="claude-sonnet-4-20250514",
+            provider_name="",
+            input_tokens=1000,
+            output_tokens=500,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+        assert cost > 0.0
 
 
 class TestCacheTokenPricing:
-    """Cache token pricing included in cost calculation."""
+    """Cache tokens affect cost, priced without double-counting cached reads."""
 
     def test_cache_tokens_affect_cost(self) -> None:
+        # genai-prices treats input_tokens as INCLUDING cached tokens, so a
+        # realistic cache-bearing event has input_tokens >= cache_read_tokens.
         events = [
             _make_event(
                 model_name="claude-sonnet-4-20250514",
-                input_tokens=0,
+                input_tokens=1_000_000,
                 output_tokens=0,
-                cache_read_tokens=1_000_000,
-                cache_write_tokens=1_000_000,
+                cache_read_tokens=400_000,
+                cache_write_tokens=0,
             ),
         ]
         result = aggregate_usage(events)
         model = result.by_model["claude-sonnet-4-20250514"]
-        expected_cost = (1_000_000 * 0.30 + 1_000_000 * 3.75) / 1_000_000
-        assert model.estimated_cost_usd == expected_cost
-        assert result.total_cache_read_tokens == 1_000_000
-        assert result.total_cache_write_tokens == 1_000_000
+        expected_cost = _expected_cost(
+            "claude-sonnet-4-20250514",
+            "anthropic",
+            input_tokens=1_000_000,
+            output_tokens=0,
+            cache_read_tokens=400_000,
+        )
+        assert model.estimated_cost_usd == pytest.approx(expected_cost)
+        assert result.total_cache_read_tokens == 400_000
+
+        # Cached reads are cheaper than full-price input: pricing the same 1M
+        # input with no cache costs strictly more, confirming cache tokens are
+        # priced at the cache rate (no double-count).
+        no_cache_cost = _expected_cost(
+            "claude-sonnet-4-20250514",
+            "anthropic",
+            input_tokens=1_000_000,
+            output_tokens=0,
+            cache_read_tokens=0,
+        )
+        assert model.estimated_cost_usd < no_cache_cost
 
 
 class TestTotalRequestsAccumulation:
@@ -372,7 +443,7 @@ class TestTotalRequestsAccumulation:
 
 
 class TestTotalCostConsistency:
-    """total_cost_usd equals sum of all model costs."""
+    """AC-5: total_cost_usd equals sum of all model costs (unknown contributes 0.0)."""
 
     def test_total_equals_sum(self) -> None:
         events = [
@@ -396,23 +467,29 @@ class TestTotalCostConsistency:
         result = aggregate_usage(events)
         expected_total = sum(m.estimated_cost_usd for m in result.by_model.values())
         assert result.total_cost_usd == expected_total
+        assert result.by_model["unknown-model"].estimated_cost_usd == 0.0
 
 
 class TestPublicApiExport:
-    """AC-9: All five exports importable from akgentic.llm and present in __all__."""
+    """AC-1: Aggregation exports importable from akgentic.llm and present in __all__."""
 
     def test_all_exports_importable(self) -> None:
         import akgentic.llm
 
-        assert hasattr(akgentic.llm, "PRICING")
         assert hasattr(akgentic.llm, "AgentUsageSummary")
         assert hasattr(akgentic.llm, "ModelUsage")
         assert hasattr(akgentic.llm, "RunUsageSummary")
         assert hasattr(akgentic.llm, "aggregate_usage")
 
+    def test_pricing_removed(self) -> None:
+        import akgentic.llm
+
+        assert not hasattr(akgentic.llm, "PRICING")
+        assert "PRICING" not in akgentic.llm.__all__
+
     def test_all_in_dunder_all(self) -> None:
         import akgentic.llm
 
-        names = ["PRICING", "AgentUsageSummary", "ModelUsage", "RunUsageSummary", "aggregate_usage"]
+        names = ["AgentUsageSummary", "ModelUsage", "RunUsageSummary", "aggregate_usage"]
         for name in names:
             assert name in akgentic.llm.__all__, f"{name} missing from __all__"
