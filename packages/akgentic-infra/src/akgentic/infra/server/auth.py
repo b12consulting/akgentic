@@ -12,11 +12,16 @@ class RequestUser(BaseModel):
     Deployment tiers adapt their own auth identity into this shape.
     Community supplies the anonymous default. Routes never see a
     tier-specific identity type.
+
+    ``scopes`` is the additive, default-empty inbound-authz axis: it carries
+    the principal's granted scopes for scope-based authorization, alongside the
+    coarser ``roles`` axis (ADR-035).
     """
 
     user_id: str
     email: str = ""
     roles: list[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
 
 
 def get_request_user(conn: HTTPConnection) -> RequestUser:

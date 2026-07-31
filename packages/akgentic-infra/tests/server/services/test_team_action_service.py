@@ -7,11 +7,14 @@ from datetime import UTC, datetime
 
 import pytest
 from akgentic.agent.config import AgentState
+from akgentic.core.messages.message import Message, UserMessage
 from akgentic.core.messages.orchestrator import SentMessage
 from akgentic.team.models import AgentStateSnapshot, PersistedEvent, TeamStatus
 
+from akgentic.infra.server.deps import CommunityServices
 from akgentic.infra.server.services.team_service import TeamService
 from tests.fixtures.events import build_sent_message
+from tests.server.conftest import append_synthetic_events
 
 
 def test_send_message_success(team_service: TeamService) -> None:
@@ -74,6 +77,59 @@ def test_send_message_from_to_stopped_team(team_service: TeamService) -> None:
     team_service.stop_team(process.team_id)
     with pytest.raises(ValueError, match="not running"):
         team_service.send_message_from_to(process.team_id, "@Human", "@Manager", "hello")
+
+
+def test_emit_message_success(team_service: TeamService) -> None:
+    """emit_message publishes to a running team without error."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    # Should not raise
+    team_service.emit_message(process.team_id, UserMessage(content="notice"))
+
+
+def test_emit_message_not_found(team_service: TeamService) -> None:
+    """emit_message raises ValueError for non-existent team."""
+    with pytest.raises(ValueError, match="not found"):
+        team_service.emit_message(uuid.uuid4(), UserMessage(content="notice"))
+
+
+def test_emit_message_stopped_team(team_service: TeamService) -> None:
+    """emit_message raises ValueError for stopped team."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    team_service.stop_team(process.team_id)
+    with pytest.raises(ValueError, match="not running"):
+        team_service.emit_message(process.team_id, UserMessage(content="notice"))
+
+
+def test_emit_message_forwards_same_instance(team_service: TeamService) -> None:
+    """emit_message forwards the exact Message instance to handle.emitMessage."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    emitted: list[Message] = []
+    handle = team_service.get_handle(process.team_id)
+    assert handle is not None
+    handle.emitMessage = (  # type: ignore[method-assign]
+        lambda message: emitted.append(message)
+    )
+
+    message = UserMessage(content="notice")
+    team_service.emit_message(process.team_id, message)
+
+    assert emitted == [message]
+    assert emitted[0] is message
+
+
+def test_send_message_forwards_message_untouched(team_service: TeamService) -> None:
+    """A Message passed to send_message reaches the handle untouched (delegation unchanged)."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    sent: list[object] = []
+    handle = team_service.get_handle(process.team_id)
+    assert handle is not None
+    handle.send = lambda content: sent.append(content)  # type: ignore[method-assign]
+
+    message = UserMessage(content="typed")
+    team_service.send_message(process.team_id, message)
+
+    assert sent == [message]
+    assert sent[0] is message
 
 
 def test_stop_team_success(team_service: TeamService) -> None:
@@ -164,6 +220,47 @@ def test_get_agent_states_not_found(team_service: TeamService) -> None:
     """get_agent_states raises ValueError for non-existent team."""
     with pytest.raises(ValueError, match="not found"):
         team_service.get_agent_states(uuid.uuid4())
+
+
+def test_get_events_without_cursor_returns_full_log(
+    team_service: TeamService,
+    community_services: CommunityServices,
+) -> None:
+    """get_events with no cursor returns the full log, sequence ASC."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    appended = append_synthetic_events(community_services.event_store, process.team_id, 3)
+
+    events = team_service.get_events(process.team_id)
+
+    sequences = [e.sequence for e in events]
+    assert sequences == sorted(sequences)
+    assert [e.event.id for e in events[-3:]] == [e.event.id for e in appended]
+
+
+def test_get_events_after_cursor_returns_strict_tail(
+    team_service: TeamService,
+    community_services: CommunityServices,
+) -> None:
+    """get_events with a mid-log cursor returns the tail, anchor excluded."""
+    process = team_service.create_team("test-team", user_id="anonymous")
+    appended = append_synthetic_events(community_services.event_store, process.team_id, 3)
+
+    tail = team_service.get_events(process.team_id, after_event_id=appended[0].event.id)
+
+    assert [e.event.id for e in tail] == [appended[1].event.id, appended[2].event.id]
+
+
+def test_get_events_unknown_team_raises_value_error_before_store_lookup(
+    team_service: TeamService,
+) -> None:
+    """The team-existence check precedes cursor resolution.
+
+    A bad team wins over a bad cursor: were the store consulted first, an
+    unresolvable cursor would surface as EventNotFoundError (a LookupError),
+    not the ValueError asserted here.
+    """
+    with pytest.raises(ValueError, match="not found"):
+        team_service.get_events(uuid.uuid4(), after_event_id=uuid.uuid4())
 
 
 def test_process_human_input_not_found_team(team_service: TeamService) -> None:

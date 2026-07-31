@@ -35,30 +35,42 @@ class TeamHandle(Protocol):
         """The unique identifier of the team this handle points to."""
         ...
 
-    def send(self, content: str) -> None:
+    def send(self, content: str | Message) -> None:
         """Send a message to the team's default entry point.
 
         Args:
-            content: The message content to send.
+            content: The message content — a ``str`` (wrapped in the team's
+                default type) or a pre-formed ``Message`` routed untouched.
         """
         ...
 
-    def send_to(self, agent_name: str, content: str) -> None:
+    def send_to(self, agent_name: str, content: str | Message) -> None:
         """Send a message to a specific agent within the team.
 
         Args:
             agent_name: Name of the target agent.
-            content: The message content to send.
+            content: The message content — a ``str`` or a pre-formed ``Message``.
         """
         ...
 
-    def send_from_to(self, sender_name: str, recipient_name: str, content: str) -> None:
+    def send_from_to(self, sender_name: str, recipient_name: str, content: str | Message) -> None:
         """Send a message from a specific agent to another agent.
 
         Args:
             sender_name: Name of the agent to send from.
             recipient_name: Name of the agent to send to.
-            content: The message content to send.
+            content: The message content — a ``str`` or a pre-formed ``Message``.
+        """
+        ...
+
+    def emitMessage(self, message: Message) -> None:  # noqa: N802
+        """Publish a pre-formed message to the team's subscribers.
+
+        Reaches the durable event store and the live stream with no agent
+        processing and no outbound channel dispatch. Rationale: ADR-22.
+
+        Args:
+            message: The pre-formed message to publish.
         """
         ...
 

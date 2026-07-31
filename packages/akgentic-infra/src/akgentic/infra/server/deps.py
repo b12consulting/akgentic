@@ -7,7 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 from akgentic.catalog import Catalog
 from akgentic.core import ActorSystem
 from akgentic.infra.adapters.shared.channel_parser_registry import ChannelParserRegistry
+from akgentic.infra.adapters.shared.owner_or_admin_policy import OwnerOrAdminPolicy
 from akgentic.infra.protocols.auth import AuthStrategy
+from akgentic.infra.protocols.authz import TeamAccessPolicy
 from akgentic.infra.protocols.channels import ChannelRegistry, InteractionChannelIngestion
 from akgentic.infra.protocols.event_stream import EventStream
 from akgentic.infra.protocols.placement import PlacementStrategy
@@ -29,6 +31,10 @@ class TierServices(BaseModel):
     placement: PlacementStrategy = Field(description="Strategy for placing teams on workers")
     worker_handle: WorkerHandle = Field(description="Worker-level team lifecycle operations")
     auth: AuthStrategy = Field(description="Authentication strategy for incoming requests")
+    team_access_policy: TeamAccessPolicy = Field(
+        default_factory=OwnerOrAdminPolicy,
+        description="Per-team authorization rule (owner-or-admin by default)",
+    )
     event_store: SkipValidation[EventStore] = Field(
         description="Persistence backend for team event sourcing"
     )
