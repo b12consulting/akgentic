@@ -10,13 +10,37 @@ import uuid
 
 import pytest
 
-from akgentic.team.ports import NullServiceRegistry, ServiceRegistry
+from akgentic.team.ports import EventNotFoundError, NullServiceRegistry, ServiceRegistry
 
 
 @pytest.fixture()
 def registry() -> NullServiceRegistry:
     """Shared NullServiceRegistry instance for tests."""
     return NullServiceRegistry()
+
+
+class TestEventNotFoundError:
+    """Verify the exception's base class, which is load-bearing (ADR-21 §2)."""
+
+    def test_is_a_lookup_error(self) -> None:
+        """``EventNotFoundError`` is catchable as the standard "key not here" category."""
+        assert issubclass(EventNotFoundError, LookupError)
+
+    def test_is_not_a_value_error(self) -> None:
+        """A stale cursor must not be swallowed by a corrupted-document handler.
+
+        The YAML and Mongo backends both ``except ValueError`` to skip corrupt
+        documents. If ``EventNotFoundError`` were a ``ValueError``, those
+        handlers would silently absorb it and degrade the cursored read back
+        into the full-log read the cursor exists to avoid.
+        """
+        assert not issubclass(EventNotFoundError, ValueError)
+
+        with pytest.raises(EventNotFoundError):
+            try:
+                raise EventNotFoundError("stale cursor")
+            except ValueError:  # pragma: no cover - must not catch
+                pytest.fail("EventNotFoundError was caught by `except ValueError`")
 
 
 class TestNullServiceRegistry:
