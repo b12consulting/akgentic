@@ -331,6 +331,34 @@ class TestCommunitySettingsDefaults:
             assert field_info.description is not None, f"Field {name} missing description"
 
 
+class TestCommunityAuthStrategySetting:
+    """CommunitySettings.auth_strategy selector (Story 39b.2)."""
+
+    def test_default_auth_strategy_is_noauth(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Default auth_strategy is 'noauth' (byte-identical community default)."""
+        monkeypatch.delenv("AKGENTIC_AUTH_STRATEGY", raising=False)
+        assert CommunitySettings().auth_strategy == "noauth"
+
+    def test_auth_strategy_from_env(self) -> None:
+        """AKGENTIC_AUTH_STRATEGY overrides the auth_strategy field."""
+        os.environ["AKGENTIC_AUTH_STRATEGY"] = "my-plugin"
+        try:
+            assert CommunitySettings().auth_strategy == "my-plugin"
+        finally:
+            del os.environ["AKGENTIC_AUTH_STRATEGY"]
+
+    def test_auth_strategy_is_plain_str_field(self) -> None:
+        """The selector is a plain serializable str (no runtime types)."""
+        field = CommunitySettings.model_fields["auth_strategy"]
+        assert field.annotation is str
+        assert field.description is not None
+
+    def test_auth_strategy_is_community_only(self) -> None:
+        """auth_strategy is a CommunitySettings field, not a base ServerSettings one."""
+        assert "auth_strategy" not in ServerSettings.model_fields
+        assert "auth_strategy" in CommunitySettings.model_fields
+
+
 class TestShutdownSettings:
     """Tests for shutdown_drain_timeout and shutdown_pre_drain_delay fields."""
 

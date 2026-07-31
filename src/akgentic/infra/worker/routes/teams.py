@@ -14,7 +14,13 @@ from pydantic import BaseModel, Field
 
 from akgentic.core.messages.orchestrator import SentMessage
 from akgentic.infra.adapters.community.local_team_handle import LocalTeamHandle
-from akgentic.infra.server.models import HumanInputRequest, SendMessageRequest, TeamResponse
+from akgentic.infra.server.models import (
+    EmitMessageRequest,
+    HumanInputRequest,
+    SendMessageRequest,
+    TeamResponse,
+)
+from akgentic.infra.server.routes._message_payload import decode_message, resolve_send_payload
 from akgentic.infra.worker.deps import WorkerServices
 from akgentic.infra.worker.state_keys import SERVICES
 from akgentic.team.models import Process, TeamCard, TeamRuntime
@@ -120,7 +126,7 @@ def send_message(
     if handle is None:
         raise HTTPException(status_code=404, detail="Team not found in worker cache")
     try:
-        handle.send(body.content)
+        handle.send(resolve_send_payload(body))
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -138,7 +144,7 @@ def send_message_to_agent(
     if handle is None:
         raise HTTPException(status_code=404, detail="Team not found in worker cache")
     try:
-        handle.send_to(agent_name, body.content)
+        handle.send_to(agent_name, resolve_send_payload(body))
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -160,7 +166,34 @@ def send_message_from_to(
     if handle is None:
         raise HTTPException(status_code=404, detail="Team not found in worker cache")
     try:
-        handle.send_from_to(sender_name, recipient_name, body.content)
+        handle.send_from_to(sender_name, recipient_name, resolve_send_payload(body))
+    except ValueError as exc:
+        _raise_action_error(exc)
+
+
+@router.post("/{team_id}/notification", status_code=204)
+def emit_notification(
+    team_id: uuid.UUID,
+    body: EmitMessageRequest,
+    services: WorkerServices = Depends(get_services),
+) -> None:
+    """Publish a pre-formed notification Message to a running team on this worker.
+
+    Mirrors the server-side ``/notification`` route (ADR-22) on the worker tier so
+    the department/enterprise deployments stop duplicating it. The ``__model__``-
+    tagged ``message`` envelope is decoded into the concrete typed ``Message`` (400
+    on a bad envelope) and handed to ``handle.emitMessage`` — durable store + live
+    stream, no agent processing. The wire envelope is the DICT form the merged
+    ``/message*`` routes use (``EmitMessageRequest.message`` is a serialized
+    ``model_dump(mode="json")`` dict; ``decode_message`` takes that dict).
+    """
+    logger.info("POST /teams/%s/notification", team_id)
+    message = decode_message(body.message)
+    handle = services.runtime_cache.get(team_id)
+    if handle is None:
+        raise HTTPException(status_code=404, detail="Team not found in worker cache")
+    try:
+        handle.emitMessage(message)
     except ValueError as exc:
         _raise_action_error(exc)
 

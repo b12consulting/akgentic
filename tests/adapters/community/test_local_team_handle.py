@@ -35,6 +35,15 @@ class TestLocalTeamHandleSend:
         handle.send("multi\nline\ncontent")
         runtime.send.assert_called_once_with("multi\nline\ncontent")
 
+    def test_send_forwards_message_instance_untouched(self) -> None:
+        """A pre-formed Message is passed through to runtime.send() untouched."""
+        runtime = MagicMock()
+        message = MagicMock()
+        handle = LocalTeamHandle(runtime)
+        handle.send(message)
+        runtime.send.assert_called_once_with(message)
+        assert runtime.send.call_args.args[0] is message
+
 
 class TestLocalTeamHandleSendTo:
     """AC1: send_to() delegates to TeamRuntime.send_to()."""
@@ -46,6 +55,15 @@ class TestLocalTeamHandleSendTo:
         handle.send_to("analyst", "do analysis")
         runtime.send_to.assert_called_once_with("analyst", "do analysis")
 
+    def test_send_to_forwards_message_instance_untouched(self) -> None:
+        """A pre-formed Message is passed through to runtime.send_to() untouched."""
+        runtime = MagicMock()
+        message = MagicMock()
+        handle = LocalTeamHandle(runtime)
+        handle.send_to("analyst", message)
+        runtime.send_to.assert_called_once_with("analyst", message)
+        assert runtime.send_to.call_args.args[1] is message
+
 
 class TestLocalTeamHandleSendFromTo:
     """AC2: send_from_to() delegates to TeamRuntime.send_from_to()."""
@@ -56,6 +74,28 @@ class TestLocalTeamHandleSendFromTo:
         handle = LocalTeamHandle(runtime)
         handle.send_from_to("@Developer", "@Manager", "hello")
         runtime.send_from_to.assert_called_once_with("@Developer", "@Manager", "hello")
+
+    def test_send_from_to_forwards_message_instance_untouched(self) -> None:
+        """A pre-formed Message is passed through to runtime.send_from_to() untouched."""
+        runtime = MagicMock()
+        message = MagicMock()
+        handle = LocalTeamHandle(runtime)
+        handle.send_from_to("@Developer", "@Manager", message)
+        runtime.send_from_to.assert_called_once_with("@Developer", "@Manager", message)
+        assert runtime.send_from_to.call_args.args[2] is message
+
+
+class TestLocalTeamHandleEmitMessage:
+    """emitMessage() delegates to TeamRuntime.emitMessage() (ADR-22)."""
+
+    def test_emit_message_delegates_to_runtime(self) -> None:
+        """emitMessage(message) calls runtime.emitMessage(message) once, same instance."""
+        runtime = MagicMock()
+        message = MagicMock()
+        handle = LocalTeamHandle(runtime)
+        handle.emitMessage(message)
+        runtime.emitMessage.assert_called_once_with(message)
+        assert runtime.emitMessage.call_args.args[0] is message
 
 
 class TestLocalTeamHandleProcessHumanInput:

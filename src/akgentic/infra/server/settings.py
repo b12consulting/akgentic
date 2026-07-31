@@ -111,3 +111,14 @@ class CommunitySettings(ServerSettings):
             "when unset, the channel registry is disabled (no-op lookups)"
         ),
     )
+    auth_strategy: str = Field(
+        default="noauth",
+        description=(
+            "Auth-strategy selector for community wiring. Defaults to 'noauth' "
+            "(the anonymous community strategy — byte-identical and "
+            "dependency-closure-clean: no entry-point lookup, no auth-library "
+            "import). Any other value is resolved at wire time via the "
+            "'akgentic.infra.auth.strategies' entry-point group and requires the "
+            "matching extra to be installed; an unknown name fails loud."
+        ),
+    )

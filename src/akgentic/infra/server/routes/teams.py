@@ -14,6 +14,7 @@ from akgentic.infra.server.models import (
     AgentStateListResponse,
     AgentStateResponse,
     CreateTeamRequest,
+    EmitMessageRequest,
     EventListResponse,
     EventResponse,
     HumanInputRequest,
@@ -21,9 +22,11 @@ from akgentic.infra.server.models import (
     TeamListResponse,
     TeamResponse,
 )
+from akgentic.infra.server.routes._message_payload import decode_message, resolve_send_payload
 from akgentic.infra.server.routes._team_access import get_team_service, require_team_access
 from akgentic.infra.server.services.team_service import TeamService
 from akgentic.infra.server.state_keys import CONNECTION_MANAGER
+from akgentic.team import EventNotFoundError
 from akgentic.team.models import Process
 
 logger = logging.getLogger(__name__)
@@ -130,10 +133,16 @@ def send_message(
     body: SendMessageRequest,
     service: TeamService = Depends(get_team_service),
 ) -> None:
-    """Send a message to a running team."""
+    """Send a message to a running team.
+
+    Accepts either a plain ``content`` string or a pre-formed typed ``Message``
+    (the ``message`` wire envelope, deserialized to the concrete type for agent
+    processing); a bad envelope is a 400 (ADR-22). Team-state errors map through
+    ``_raise_action_error``.
+    """
     logger.info("POST /teams/%s/message", team_id)
     try:
-        service.send_message(team_id, body.content)
+        service.send_message(team_id, resolve_send_payload(body))
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -149,10 +158,10 @@ def send_message_to_agent(
     body: SendMessageRequest,
     service: TeamService = Depends(get_team_service),
 ) -> None:
-    """Send a message to a specific agent in a running team."""
+    """Send a message (plain ``content`` or typed ``message`` envelope) to a specific agent."""
     logger.info("POST /teams/%s/message/%s", team_id, agent_name)
     try:
-        service.send_message_to(team_id, agent_name, body.content)
+        service.send_message_to(team_id, agent_name, resolve_send_payload(body))
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -169,10 +178,37 @@ def send_message_from_to(
     body: SendMessageRequest,
     service: TeamService = Depends(get_team_service),
 ) -> None:
-    """Send a message from a specific agent to another agent in a running team."""
+    """Send a message (plain ``content`` or typed ``message``) from one agent to another."""
     logger.info("POST /teams/%s/message/from/%s/to/%s", team_id, sender_name, recipient_name)
     try:
-        service.send_message_from_to(team_id, sender_name, recipient_name, body.content)
+        service.send_message_from_to(
+            team_id, sender_name, recipient_name, resolve_send_payload(body)
+        )
+    except ValueError as exc:
+        _raise_action_error(exc)
+
+
+@router.post(
+    "/{team_id}/notification",
+    status_code=204,
+    dependencies=[Depends(require_team_access)],
+)
+def emit_notification(
+    team_id: uuid.UUID,
+    body: EmitMessageRequest,
+    service: TeamService = Depends(get_team_service),
+) -> None:
+    """Inject a pre-formed notification Message into a running team.
+
+    Deserializes the ``__model__``-tagged payload back into the concrete
+    ``Message`` and publishes it to the team's subscribers with no agent
+    processing (ADR-22). A decode failure or a non-``Message`` payload is a
+    client error (400); team-state errors map through ``_raise_action_error``.
+    """
+    logger.info("POST /teams/%s/notification", team_id)
+    message = decode_message(body.message)
+    try:
+        service.emit_message(team_id, message)
     except ValueError as exc:
         _raise_action_error(exc)
 
@@ -246,14 +282,21 @@ def restore_team(
 )
 def get_events(
     team_id: uuid.UUID,
+    after_event_id: uuid.UUID | None = None,
     service: TeamService = Depends(get_team_service),
 ) -> EventListResponse:
-    """Get all persisted events for a team."""
-    logger.debug("GET /teams/%s/events", team_id)
+    """Get persisted events for a team, or only those after ``after_event_id``."""
+    logger.debug("GET /teams/%s/events after_event_id=%s", team_id, after_event_id)
     try:
-        events = service.get_events(team_id)
+        events = service.get_events(team_id, after_event_id=after_event_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Team not found") from None
+    except EventNotFoundError:
+        # A stale cursor is a bad cursor, not a missing team — 404 here would tell
+        # the client the team is gone and tear down a live team's view.
+        raise HTTPException(
+            status_code=400, detail=f"Unknown after_event_id cursor: {after_event_id}"
+        ) from None
     return EventListResponse(
         events=[
             EventResponse(

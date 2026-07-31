@@ -10,8 +10,23 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from akgentic.infra.protocols.authz import TeamAccessContext
 from akgentic.infra.server.auth import RequestUser, get_request_user
 from akgentic.infra.server.routes.ws import ConnectionManager
+
+
+class _DenyAllPolicy:
+    """Fake ``TeamAccessPolicy`` that denies every caller (wired onto app.state)."""
+
+    async def is_allowed(self, *, ctx: TeamAccessContext, user: RequestUser) -> bool:
+        return False
+
+
+class _AllowAllPolicy:
+    """Fake ``TeamAccessPolicy`` that allows every caller (wired onto app.state)."""
+
+    async def is_allowed(self, *, ctx: TeamAccessContext, user: RequestUser) -> bool:
+        return True
 
 
 class TestConnectionManager:
@@ -427,6 +442,43 @@ class TestWebSocketAuthorization:
         monkeypatch.setattr(
             "akgentic.infra.server.routes.ws.get_request_user",
             lambda conn: RequestUser(user_id="root", roles=["admin"]),
+        )
+        with client.websocket_connect(f"/ws/{team_id}") as ws:
+            _trigger_subscriber_event(client, team_id)
+            data = ws.receive_json(mode="text")
+            assert "__model__" in data
+
+    def test_ws_denying_policy_closes_1008_for_owner(self, app: FastAPI) -> None:
+        """A wired policy that denies closes 1008 even for the team owner — AC6/AC8.
+
+        Proves the WS route consults the wired ``TeamAccessPolicy`` rather than
+        hard-coding owner→allow: the community-anonymous caller owns the team,
+        yet the deny-all policy still yields a 1008 close before ``accept()``.
+        """
+        from starlette.websockets import WebSocketDisconnect
+
+        client = TestClient(app)
+        team_id = client.post(
+            "/teams/", json={"catalog_namespace": "test-team"}
+        ).json()["team_id"]
+        app.state.services.team_access_policy = _DenyAllPolicy()
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/ws/{team_id}"):
+                pass
+        assert exc_info.value.code == 1008
+
+    def test_ws_allowing_policy_accepts_non_owner(
+        self, app: FastAPI, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A wired policy that allows accepts a non-owner and streams — AC6/AC8."""
+        client = TestClient(app)
+        team_id = client.post(
+            "/teams/", json={"catalog_namespace": "test-team"}
+        ).json()["team_id"]
+        app.state.services.team_access_policy = _AllowAllPolicy()
+        monkeypatch.setattr(
+            "akgentic.infra.server.routes.ws.get_request_user",
+            lambda conn: RequestUser(user_id="mallory"),
         )
         with client.websocket_connect(f"/ws/{team_id}") as ws:
             _trigger_subscriber_event(client, team_id)

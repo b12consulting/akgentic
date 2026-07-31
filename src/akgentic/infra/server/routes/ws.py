@@ -20,6 +20,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from akgentic.core.messages import Message
+from akgentic.infra.protocols.authz import TeamAccessContext
 from akgentic.infra.protocols.event_stream import StreamClosed, StreamReader
 from akgentic.infra.server.auth import get_request_user
 from akgentic.infra.server.routes.frontend_adapter import FrontendAdapter
@@ -187,16 +188,17 @@ async def websocket_events(websocket: WebSocket, team_id: uuid.UUID) -> None:
         await websocket.close(code=4004, reason="Team not found")
         return
 
-    # Same owner-or-admin rule as the REST gate (require_team_access), applied
-    # in-handler since a WebSocket has no Depends 404 path. Identity resolves via
-    # the single get_request_user seam off the WS ``.state`` stash (ADR-034).
-    from akgentic.infra.server.routes._team_access import owner_or_admin
+    # Same per-team authorization rule as the REST gate (require_team_access),
+    # applied in-handler since a WebSocket has no Depends 404 path. The rule is
+    # the wired TeamAccessPolicy (owner-or-admin by default); identity resolves
+    # via the single get_request_user seam off the WS ``.state`` stash (ADR-034).
+    from akgentic.infra.server.state_keys import SERVICES
 
     user = get_request_user(websocket)
-    if not owner_or_admin(process, user):
-        logger.info(
-            "WebSocket rejected: team_id=%s (forbidden, user_id=%s)", team_id, user.user_id
-        )
+    policy = SERVICES.require(websocket).team_access_policy
+    ctx = TeamAccessContext(team_id=team_id, owner_user_id=process.user_id)
+    if not await policy.is_allowed(ctx=ctx, user=user):
+        logger.info("WebSocket rejected: team_id=%s (forbidden, user_id=%s)", team_id, user.user_id)
         await websocket.close(code=1008, reason="Forbidden")
         return
 
