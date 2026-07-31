@@ -45,11 +45,11 @@ export {
  */
 @Injectable()
 export class SystemPromptSelector {
-  private readonly messageService: IngestionService =
+  private readonly ingestionService: IngestionService =
     inject(IngestionService);
 
   latestSystemPrompt$(agentId: string): Observable<SystemPromptRow[]> {
-    return this.messageService.systemPrompt
+    return this.ingestionService.systemPrompt
       .forAgent(agentId)
       .pipe(map((value) => value?.rows ?? []));
   }

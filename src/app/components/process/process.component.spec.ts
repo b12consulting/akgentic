@@ -134,7 +134,7 @@ describe('ProcessComponent (Story 6.2 — log-driven presence)', () => {
     // Code review fix: `knowledgeGraphLoading$` deleted (dead state, never
     // `.next()`-ed and its `isLoading$` consumer was never read in the KG
     // component template — collapsed into the two-exceptions invariant purity).
-    const messageService = {
+    const ingestionService = {
       init: jasmine.createSpy('init').and.returnValue(Promise.resolve()),
     };
 
@@ -183,7 +183,7 @@ describe('ProcessComponent (Story 6.2 — log-driven presence)', () => {
         KGStateReducer,
         WorkspaceRegistryService,
         { provide: ContextService, useValue: contextService },
-        { provide: IngestionService, useValue: messageService },
+        { provide: IngestionService, useValue: ingestionService },
         { provide: AkgentService, useValue: akgentService },
         { provide: GraphDataService, useValue: graphDataService },
         { provide: ChatService, useValue: chatService },
@@ -360,7 +360,7 @@ function firstValue<T>(observable$: {
 }
 
 // =====================================================================
-// Story 10-2 — single-fetch navigation and messageService.init argument
+// Story 10-2 — single-fetch navigation and ingestionService.init argument
 // =====================================================================
 
 describe('ProcessComponent (Story 10-2 — single-fetch navigation)', () => {
@@ -380,7 +380,7 @@ describe('ProcessComponent (Story 10-2 — single-fetch navigation)', () => {
         .and.returnValue(Promise.resolve(options.fetchedTeam)),
     };
 
-    const messageService = {
+    const ingestionService = {
       init: jasmine.createSpy('init').and.returnValue(Promise.resolve()),
     };
 
@@ -416,7 +416,7 @@ describe('ProcessComponent (Story 10-2 — single-fetch navigation)', () => {
         KGStateReducer,
         WorkspaceRegistryService,
         { provide: ContextService, useValue: contextService },
-        { provide: IngestionService, useValue: messageService },
+        { provide: IngestionService, useValue: ingestionService },
         { provide: AkgentService, useValue: akgentService },
         { provide: GraphDataService, useValue: graphDataService },
         { provide: ChatService, useValue: chatService },
@@ -446,7 +446,7 @@ describe('ProcessComponent (Story 10-2 — single-fetch navigation)', () => {
       component,
       fixture,
       contextSpy: contextService,
-      messageSpy: messageService,
+      messageSpy: ingestionService,
       routerSpy: router,
     };
   }
@@ -461,19 +461,19 @@ describe('ProcessComponent (Story 10-2 — single-fetch navigation)', () => {
     expect(contextSpy.getCurrentTeam).toHaveBeenCalledWith('team-1', false);
   });
 
-  it('(AC6) messageService.init is called with (processId, true) for a running team', async () => {
+  it('(AC6) ingestionService.init is called with (processId, true) for a running team', async () => {
     const { messageSpy } = await setup({ fetchedTeam: makeTeam({ status: 'running' }) });
     expect(messageSpy.init).toHaveBeenCalledTimes(1);
     expect(messageSpy.init).toHaveBeenCalledWith('team-1', true);
   });
 
-  it('(AC6) messageService.init is called with (processId, false) for a stopped team', async () => {
+  it('(AC6) ingestionService.init is called with (processId, false) for a stopped team', async () => {
     const { messageSpy } = await setup({ fetchedTeam: makeTeam({ status: 'stopped' }) });
     expect(messageSpy.init).toHaveBeenCalledTimes(1);
     expect(messageSpy.init).toHaveBeenCalledWith('team-1', false);
   });
 
-  it('(AC6) null team short-circuits: router.navigate([/]) is called and messageService.init is NOT', async () => {
+  it('(AC6) null team short-circuits: router.navigate([/]) is called and ingestionService.init is NOT', async () => {
     const { messageSpy, routerSpy } = await setup({ fetchedTeam: null });
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/']);
     expect(messageSpy.init).not.toHaveBeenCalled();

@@ -28,25 +28,55 @@
       font-size: 1rem;
     }
 
-    // ADR-022 §Decision 5 — token-usage pill: compact, muted, non-interactive.
-    // Visually subordinate to Submit (small, muted). `white-space: nowrap`
-    // keeps `ctx … · ↑… ↓…` on one line; `default` cursor signals it is not a
-    // control. Shrinks before Submit at narrow widths so it never pushes the
-    // button off the row.
+    // ADR-024 §Decision 3 — token-usage trigger: compact, muted, but now an
+    // interactive `<button>` (supersedes ADR-022 §Decision 5's non-interactive
+    // pill). `white-space: nowrap` keeps `ctx … · ↑… ↓…` on one line; the button
+    // reset (border/font/background) keeps the visual weight subordinate to
+    // Submit. Shrinks before Submit at narrow widths so it never pushes the
+    // button off the row. `:disabled` (never-run agent, AC 3) reverts to the
+    // `default` cursor — inert, nothing to open.
     .usage-pill {
       flex: 0 1 auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      cursor: default;
+      border: none;
+      font: inherit;
+      cursor: pointer;
       color: #64748b;
       font-size: 0.75rem;
       font-variant-numeric: tabular-nums;
       padding: 0.15rem 0.5rem;
       border-radius: 999px;
       background-color: #f1f5f9;
+
+      &:disabled {
+        cursor: default;
+      }
     }
+  }
+}
+
+// ADR-024 §Decision 3 — the popover's key/value breakdown (member-chat pill and
+// team-tree footer share this layout). Exact counts via `| number`; the pill/
+// footer keep the compact `tokenCount` numbers.
+.usage-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  min-width: 14rem;
+
+  .usage-popover-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .usage-popover-label {
+    color: #64748b;
+    font-weight: 600;
   }
 }
 

@@ -55,14 +55,18 @@ export class AuthService {
   /**
    * Authenticate with an API key against the backend.
    *
-   * Drives `GET /auth/login/apikey?apikey=<key>` with `credentials: 'include'`
-   * so the backend's `Set-Cookie` session response is stored by the browser.
-   * The same endpoint contract is exposed by both the Department and Enterprise
-   * tiers, so this single code path covers both — no tier-specific branching.
+   * Drives `POST /auth/login/apikey` with a JSON body (`{"apikey": "<key>"}`)
+   * and `credentials: 'include'` so the backend's `Set-Cookie` session response
+   * is stored by the browser. One code path, no tier-specific branching: the
+   * endpoint is owned by the shared backend auth library, so every tier that
+   * adopts it serves the same contract. (Enterprise has not adopted it yet and
+   * still serves a legacy variant; that is tracked backend-side, and this client
+   * deliberately does not branch to accommodate it.)
    *
-   * The API key is sent once as a query parameter and is NEVER persisted in the
-   * browser; the session cookie set by the backend is the sole post-login
-   * credential, exactly as on the OAuth path.
+   * The API key is sent once in the request body — never in the URL, where it
+   * would be captured by access logs, browser history, and `Referer` headers —
+   * and is NEVER persisted in the browser; the session cookie set by the backend
+   * is the sole post-login credential, exactly as on the OAuth path.
    *
    * On an HTTP `2xx` response the backend returns a `200` JSON body
    * (`{"success": true, "user": {...}}`) — no redirect. The JSON body itself
@@ -72,8 +76,13 @@ export class AuthService {
    * the caller can surface the message.
    */
   loginWithApiKey(apiKey: string): Observable<any> {
-    const url = `${this.config.api}/auth/login/apikey?apikey=${encodeURIComponent(apiKey)}`;
-    const options: RequestInit = { credentials: 'include' };
+    const url = `${this.config.api}/auth/login/apikey`;
+    const options: RequestInit = {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apikey: apiKey }),
+    };
     return from(
       fetch(url, options).then(async (r) => {
         // A 401 (invalid/unknown/expired key) is not ok — error the observable.

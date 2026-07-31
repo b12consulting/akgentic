@@ -35,7 +35,7 @@ import { AkgentChatComponent } from './akgent-chat/akgent-chat.component';
 export class AgentTabsComponent implements OnInit {
   akgentService: AkgentService = inject(AkgentService);
   graphDataService: GraphDataService = inject(GraphDataService);
-  messageService: IngestionService = inject(IngestionService);
+  ingestionService: IngestionService = inject(IngestionService);
   private destroyRef = inject(DestroyRef);
 
   akgentId: string = '';
@@ -98,7 +98,7 @@ export class AgentTabsComponent implements OnInit {
           // `undefined` → the existing defaults (`[]` / `null`) so the template
           // guards (`(context$ | async)?.length`, `state$ | async`) behave
           // identically.
-          this.messageService.context
+          this.ingestionService.context
             .forAgent(akgent.agentId)
             .pipe(
               map((context) => context ?? []),
@@ -107,7 +107,7 @@ export class AgentTabsComponent implements OnInit {
             .subscribe((context) => {
               this.context$.next(context);
             });
-          this.messageService.state
+          this.ingestionService.state
             .forAgent(akgent.agentId)
             .pipe(
               map((state) => state ?? null),

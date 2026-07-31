@@ -45,7 +45,7 @@ export class ProcessUserInputComponent implements OnInit {
   chatService: ChatService = inject(ChatService);
   contextService: ContextService = inject(ContextService);
   graphDataService: GraphDataService = inject(GraphDataService);
-  messageService: IngestionService = inject(IngestionService);
+  ingestionService: IngestionService = inject(IngestionService);
   private config = inject(ConfigService);
   userInput: string = '';
   userInputEnterKeySubmit: boolean = this.config.userInputEnterKeySubmit;
@@ -265,7 +265,7 @@ export class ProcessUserInputComponent implements OnInit {
   }[] {
     const agentId = this.targetedAgentId();
     if (!agentId) return [];
-    const descriptors = this.messageService.commands.snapshot(agentId) ?? [];
+    const descriptors = this.ingestionService.commands.snapshot(agentId) ?? [];
     return descriptors
       // `_`-prefixed commands (e.g. `_expand_media_refs`) are internal, not
       // user-invocable — keep them out of the `/` dropdown.

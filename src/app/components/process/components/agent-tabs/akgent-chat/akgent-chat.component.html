@@ -140,30 +140,70 @@
       </ng-template>
       <div class="input-row-buttons">
         <!--
-          ADR-022 §Decision 5 — non-interactive token-usage pill, first child of
-          `.input-row-buttons` (left of Submit). Bound to
-          `tokenUsageSelector.perAgent$(agentId) | async`: a defined usage renders
-          `ctx <ctx> · ↑<sent> ↓<received>` (every number via `tokenCount`); a
-          never-run agent (`undefined`) renders the neutral `ctx — · ↑0 ↓0`
-          empty-state (the VIEW owns the empty-state, ADR-022 §OQ2). A native
-          `title` tooltip spells out the words + model, degrading to "No usage
-          yet" when never-run. Non-interactive `<span>` — no click, no routerLink.
+          ADR-024 §Decision 3 — interactive token-usage trigger, first child of
+          `.input-row-buttons` (left of Submit); supersedes ADR-022 §Decision 5's
+          non-interactive `[title]` pill. Bound to
+          `tokenUsageSelector.perAgent$(agentId) | async` ONCE via `*ngIf ... as
+          usage`: a defined usage renders a keyboard-focusable `<button>` —
+          `ctx <ctx> · ↑<sent> ↓<received>` (every number via `tokenCount`) plus a
+          `⚡` glyph when any cache tokens were used — that toggles
+          `<p-popover #usageOp>` with the full breakdown (model, true context
+          window with the fresh/cached split, sent/received, and cache read shown
+          as last/total — cache write is not surfaced since OpenAI reports cache
+          reads only — all via the exact `| number` pipe). A never-run agent
+          (`undefined`) renders
+          the neutral `ctx — · ↑0 ↓0` with the trigger DISABLED — inert, no
+          popover to open (the VIEW owns the empty-state, ADR-022 §OQ2).
         -->
-        <span
-          *ngIf="usage$ | async as usage; else emptyPill"
-          class="usage-pill"
-          [title]="
-            'Context window ' + (usage.lastContextWindow | number) +
-            ' · Sent ' + (usage.totalSent | number) +
-            ' · Received ' + (usage.totalReceived | number) +
-            ' · ' + usage.lastModelName
-          "
-        >
-          ctx {{ usage.lastContextWindow | tokenCount }} ·
-          ↑{{ usage.totalSent | tokenCount }} ↓{{ usage.totalReceived | tokenCount }}
-        </span>
+        <ng-container *ngIf="usage$ | async as usage; else emptyPill">
+          <button
+            type="button"
+            class="usage-pill"
+            [attr.aria-label]="
+              'Token usage: context window ' + (usage.lastContextWindow | number) +
+              ', sent ' + (usage.totalSent | number) +
+              ', received ' + (usage.totalReceived | number) +
+              ', model ' + usage.lastModelName
+            "
+            aria-haspopup="dialog"
+            [attr.aria-expanded]="usageOp.overlayVisible"
+            (click)="usageOp.toggle($event)"
+          >
+            ctx {{ usage.lastContextWindow | tokenCount }} ·
+            ↑{{ usage.totalSent | tokenCount }} ↓{{ usage.totalReceived | tokenCount }}
+            <span *ngIf="usage.totalCacheRead + usage.totalCacheWrite > 0">⚡</span>
+          </button>
+          <p-popover #usageOp>
+            <div class="usage-popover">
+              <div class="usage-popover-row">
+                <span class="usage-popover-label">Model</span>
+                <span>{{ usage.lastModelName }}</span>
+              </div>
+              <div class="usage-popover-row">
+                <span class="usage-popover-label">Context window</span>
+                <span>
+                  {{ usage.lastContextWindow | number }} 
+                </span>
+              </div>
+              <div class="usage-popover-row">
+                <span class="usage-popover-label">Sent</span>
+                <span>{{ usage.totalSent | number }}</span>
+              </div>
+              <div class="usage-popover-row">
+                <span class="usage-popover-label">Received</span>
+                <span>{{ usage.totalReceived | number }}</span>
+              </div>
+              <div class="usage-popover-row">
+                <span class="usage-popover-label">Cache ⚡</span>
+                <span>{{ usage.lastCacheRead | number }} / {{ usage.totalCacheRead | number }}</span>
+              </div>
+            </div>
+          </p-popover>
+        </ng-container>
         <ng-template #emptyPill>
-          <span class="usage-pill" title="No usage yet">ctx — · ↑0 ↓0</span>
+          <button type="button" class="usage-pill" aria-label="No token usage yet" disabled>
+            ctx — · ↑0 ↓0
+          </button>
         </ng-template>
         <button
           pButton

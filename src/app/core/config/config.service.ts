@@ -5,7 +5,8 @@ import { environment } from '../../../environments/environment';
 /**
  * Runtime configuration service.
  *
- * Fetches `/config.json` at app startup (via APP_INITIALIZER) and merges it
+ * Fetches `config.json` relative to the document base href at app startup
+ * (via APP_INITIALIZER) and merges it
  * over the build-time `environment.ts` defaults. In local dev (no config.json
  * served), the build-time defaults are used as-is.
  *
@@ -19,7 +20,7 @@ export class ConfigService {
   /** Called once by APP_INITIALIZER before the app renders. */
   async load(): Promise<void> {
     try {
-      const response = await fetch('/config.json');
+      const response = await fetch(new URL('config.json', document.baseURI));
       if (response.ok) {
         const runtime = await response.json();
         this.config = { ...this.config, ...runtime };

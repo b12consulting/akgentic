@@ -433,14 +433,22 @@ describe('AkgentChatComponent — head system block (Story 16-2)', () => {
       systemPromptEnvelope(AGENT, [{ dynamic_ref: null, content: 'A backstory' }]),
       systemPromptEnvelope(OTHER, [{ dynamic_ref: null, content: 'B backstory' }]),
     ]);
+    // Route the INITIAL `agentId` bind through Angular's own input-change
+    // tracking too: `setup()` assigns `agentId` via a raw property write,
+    // which Ivy's `NgOnChangesFeature` never observes, so without this the
+    // upcoming switch would be mis-detected as the *first* change.
+    fixture.componentRef.setInput('agentId', AGENT);
     fixture.detectChanges();
     expect(headBodies(fixture)).toEqual(['A backstory']);
 
     // The agent-tabs dropdown REUSES this component when switching members, so
     // ngOnInit does not re-run — ngOnChanges must re-point systemPrompt$ at the
     // new agent. Without the fix the head block stays pinned to 'A backstory'.
-    component.agentId = OTHER;
-    component.ngOnChanges({ agentId: new SimpleChange(AGENT, OTHER, false) });
+    // Story 30-3 (OnPush): `fixture.componentRef.setInput(...)` — not a bare
+    // `component.ngOnChanges(...)` call — is what a real host rebind does; it
+    // both dispatches `ngOnChanges` AND marks the component dirty the way
+    // Angular's own `@Input` diff detection would.
+    fixture.componentRef.setInput('agentId', OTHER);
     fixture.detectChanges();
 
     expect(headBodies(fixture)).toEqual(['B backstory']);
@@ -1061,6 +1069,10 @@ describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
       lastModelName: 'gpt-4o',
       totalSent: 0,
       totalReceived: 0,
+      totalCacheRead: 0,
+      totalCacheWrite: 0,
+      lastCacheRead: 0,
+      lastCacheWrite: 0,
       ...partial,
     };
   }
@@ -1148,7 +1160,7 @@ describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
     return (pill(fixture)?.textContent ?? '').replace(/\s+/g, ' ').trim();
   }
 
-  it('(a) renders left of Submit inside `.input-row-buttons` with the populated `ctx … · ↑… ↓…` format', () => {
+  it('(a) renders left of Submit inside `.input-row-buttons` with the populated `ctx … · ↑… ↓…` format, as an interactive trigger', () => {
     const { fixture } = setup(
       usage({
         lastContextWindow: 12_300,
@@ -1165,19 +1177,21 @@ describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
     // The pill is the FIRST child of the buttons row, and Submit comes after it.
     const row = buttonsRow(fixture);
     expect(row.firstElementChild?.classList.contains('usage-pill')).toBeTrue();
-    const children = Array.from(row.children);
-    const pillIdx = children.findIndex((c) => c.classList.contains('usage-pill'));
-    const submitIdx = children.findIndex((c) => c.tagName.toLowerCase() === 'button');
+    const buttons = Array.from(row.querySelectorAll('button'));
+    const pillIdx = buttons.findIndex((b) => b.classList.contains('usage-pill'));
+    const submitIdx = buttons.findIndex((b) => !b.classList.contains('usage-pill'));
     expect(pillIdx).toBeLessThan(submitIdx);
 
-    // Non-interactive: a <span>, not a <button>, no routerLink.
+    // ADR-024 §Decision 3 — interactive: a keyboard-focusable <button>, not a
+    // <span>, enabled (there is a popover to open).
     const p = pill(fixture)!;
-    expect(p.tagName.toLowerCase()).toBe('span');
-    expect(p.getAttribute('href')).toBeNull();
+    expect(p.tagName.toLowerCase()).toBe('button');
+    expect(p.hasAttribute('disabled')).toBeFalse();
 
-    // Tooltip spells out the words + model (full grouped numbers).
-    expect(p.getAttribute('title')).toBe(
-      'Context window 12,300 · Sent 45,000 · Received 12,100 · gpt-4o',
+    // aria-label spells out the words + model (full grouped numbers) — the
+    // trigger no longer relies on a non-interactive `title` tooltip.
+    expect(p.getAttribute('aria-label')).toBe(
+      'Token usage: context window 12,300, sent 45,000, received 12,100, model gpt-4o',
     );
   });
 
@@ -1198,15 +1212,16 @@ describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
     expect(pillText(fixture)).toBe('ctx 8.0k · ↑38.0k ↓11.5k');
   });
 
-  it('(c) never-run agent (`perAgent$` emits undefined) renders the neutral `ctx — · ↑0 ↓0` empty-state', () => {
+  it('(c) never-run agent (`perAgent$` emits undefined) renders the neutral `ctx — · ↑0 ↓0` empty-state with an inert (disabled) trigger', () => {
     const { fixture } = setup(undefined);
     fixture.detectChanges();
 
     expect(pillText(fixture)).toBe('ctx — · ↑0 ↓0');
-    // Still non-interactive, and its tooltip must not render undefined/null.
+    // AC 3 — the trigger is a <button>, DISABLED: no popover to open.
     const p = pill(fixture)!;
-    expect(p.tagName.toLowerCase()).toBe('span');
-    expect(p.getAttribute('title')).toBe('No usage yet');
+    expect(p.tagName.toLowerCase()).toBe('button');
+    expect(p.hasAttribute('disabled')).toBeTrue();
+    expect(p.getAttribute('aria-label')).toBe('No token usage yet');
   });
 
   it('the pill follows an agent switch (perAgent$ re-bound in ngOnChanges)', () => {
@@ -1232,14 +1247,220 @@ describe('AkgentChatComponent — token-usage pill (Story 26-2)', () => {
     );
     fixture.detectChanges();
 
-    const submit = buttonsRow(fixture).querySelector('button') as HTMLButtonElement;
+    // The usage pill is ALSO a <button> now (ADR-024 §Decision 3) — exclude it
+    // to find Submit specifically.
+    const submit = buttonsRow(fixture).querySelector(
+      'button:not(.usage-pill)',
+    ) as HTMLButtonElement;
     // Empty input → Submit disabled (existing rule unchanged).
     expect(submit.disabled).toBeTrue();
 
-    // Typing enables it (team is running in this harness).
-    component.userInput = 'hello';
+    // Typing enables it (team is running in this harness). Story 30-3
+    // (OnPush): a bare `component.userInput = 'hello'` field write is not an
+    // `@Input`, DOM event, or async-pipe emission — it would never mark the
+    // component dirty. Dispatch a real native `input` event on the textarea,
+    // the way `[(ngModel)]="userInput"` actually updates in production; the
+    // event fires from the component's OWN template, so Angular marks it
+    // dirty automatically (no explicit markForCheck needed, per AC2).
+    const textarea: HTMLTextAreaElement =
+      fixture.nativeElement.querySelector('textarea');
+    textarea.value = 'hello';
+    textarea.dispatchEvent(new Event('input'));
     fixture.detectChanges();
+    expect(component.userInput).toBe('hello');
     expect(submit.disabled).toBeFalse();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 30-2 (ADR-024 §Decision 3) — the pill becomes an interactive trigger
+// for a `<p-popover>` carrying the usage breakdown (model, context window,
+// sent/received, cache read as last/total under a "Cache ⚡" label). Cache write
+// is intentionally not surfaced (see story usage-display-cleanup: OpenAI reports
+// cache reads only). Driven
+// through the same fake `TokenUsageSelector` pattern as Story 26-2: a
+// controllable `usage$` BehaviorSubject makes glyph / toggle / live-update /
+// empty-state deterministic. `p-popover` renders in place (no `appendTo`
+// override) so its content is queryable straight off `fixture.nativeElement`.
+// ---------------------------------------------------------------------------
+describe('AkgentChatComponent — usage popover (Story 30-2)', () => {
+  const AGENT = 'a-mgr';
+
+  function usage(partial: Partial<AgentTokenUsage>): AgentTokenUsage {
+    return {
+      lastContextWindow: 0,
+      lastRunId: 'run-1',
+      lastModelName: 'gpt-4o',
+      totalSent: 0,
+      totalReceived: 0,
+      totalCacheRead: 0,
+      totalCacheWrite: 0,
+      lastCacheRead: 0,
+      lastCacheWrite: 0,
+      ...partial,
+    };
+  }
+
+  function setup(initial: AgentTokenUsage | undefined): {
+    fixture: ComponentFixture<AkgentChatComponent>;
+    usage$: BehaviorSubject<AgentTokenUsage | undefined>;
+  } {
+    const usage$ = new BehaviorSubject<AgentTokenUsage | undefined>(initial);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AkgentChatComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            sendMessage: jasmine.createSpy('sendMessage').and.resolveTo(undefined),
+          },
+        },
+        {
+          provide: UtilService,
+          useValue: { copyToClipboard: () => {}, formatJSON: (v: any) => v },
+        },
+        {
+          provide: ContextService,
+          useValue: {
+            currentTeamRunning$: new BehaviorSubject<boolean>(true),
+            currentProcessId$: new BehaviorSubject<string>('proc-1'),
+          },
+        },
+        MessageLogService,
+        PerAgentStoreRegistry,
+        {
+          provide: IngestionService,
+          useFactory: (registry: PerAgentStoreRegistry) => ({
+            commands: { snapshot: (_id: string) => undefined },
+            systemPrompt: registry.register<SystemPromptValue>({
+              name: 'systemPrompt',
+              match: systemPromptMatch,
+              reduce: systemPromptReduce,
+            }),
+          }),
+          deps: [PerAgentStoreRegistry],
+        },
+        SystemPromptSelector,
+        {
+          provide: TokenUsageSelector,
+          useValue: {
+            perAgent$: (_id: string) => usage$.asObservable(),
+          },
+        },
+        provideNoopAnimations(),
+      ],
+    });
+
+    const fixture = TestBed.createComponent(AkgentChatComponent);
+    const component = fixture.componentInstance;
+    component.context$ = new BehaviorSubject<any[]>([]);
+    component.agentId = AGENT;
+    component.agentName = '@' + AGENT;
+    return { fixture, usage$ };
+  }
+
+  function pill(fixture: ComponentFixture<AkgentChatComponent>): HTMLButtonElement {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      '.usage-pill',
+    ) as HTMLButtonElement;
+  }
+
+  /** Each `.usage-popover-row`'s two cells joined with a single space (e.g.
+   *  "Cache read 4,000 / 9,000") — empty array when the popover isn't open. */
+  function popoverRows(fixture: ComponentFixture<AkgentChatComponent>): string[] {
+    const rows = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '.usage-popover-row',
+    );
+    return Array.from(rows).map((row) =>
+      Array.from(row.children)
+        .map((c) => (c.textContent ?? '').trim())
+        .join(' '),
+    );
+  }
+
+  it('shows the ⚡ glyph when cache tokens were used', () => {
+    const { fixture } = setup(usage({ totalCacheRead: 500, totalCacheWrite: 0 }));
+    fixture.detectChanges();
+    expect(pill(fixture).textContent).toContain('⚡');
+  });
+
+  it('shows no glyph when both cache totals are 0', () => {
+    const { fixture } = setup(usage({ totalCacheRead: 0, totalCacheWrite: 0 }));
+    fixture.detectChanges();
+    expect(pill(fixture).textContent).not.toContain('⚡');
+  });
+
+  it('clicking the trigger toggles open the popover with Model / Context window / Sent / Received / Cache (no Cache write row)', () => {
+    const { fixture } = setup(
+      usage({
+        lastContextWindow: 12_300,
+        lastCacheRead: 4_000,
+        lastCacheWrite: 300,
+        totalSent: 45_000,
+        totalReceived: 12_100,
+        totalCacheRead: 9_000,
+        totalCacheWrite: 300,
+        lastModelName: 'claude-opus-4-8',
+      }),
+    );
+    fixture.detectChanges();
+
+    // No popover content before the trigger is clicked, and the trigger
+    // announces itself as a closed disclosure control to assistive tech.
+    expect(popoverRows(fixture)).toEqual([]);
+    expect(pill(fixture).getAttribute('aria-haspopup')).toBe('dialog');
+    expect(pill(fixture).getAttribute('aria-expanded')).toBe('false');
+
+    pill(fixture).click();
+    fixture.detectChanges();
+
+    const rows = popoverRows(fixture);
+    expect(rows).toContain('Model claude-opus-4-8');
+    expect(rows).toContain('Context window 12,300');
+    expect(rows).toContain('Sent 45,000');
+    expect(rows).toContain('Received 12,100');
+    expect(rows).toContain('Cache ⚡ 4,000 / 9,000');
+    // Cache write is not surfaced (OpenAI reports cache reads only).
+    expect(rows.some((r) => r.startsWith('Cache write'))).toBeFalse();
+    // aria-expanded flips once the popover is actually open.
+    expect(pill(fixture).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('popover content updates live when usage$ re-emits a new value (no re-toggle needed)', () => {
+    const { fixture, usage$ } = setup(
+      usage({
+        lastContextWindow: 1_000,
+        totalSent: 1_000,
+        totalReceived: 200,
+      }),
+    );
+    fixture.detectChanges();
+    pill(fixture).click();
+    fixture.detectChanges();
+    expect(popoverRows(fixture)).toContain('Context window 1,000');
+
+    usage$.next(
+      usage({
+        lastContextWindow: 9_000,
+        lastCacheRead: 3_000,
+        totalSent: 10_000,
+        totalReceived: 2_200,
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(popoverRows(fixture)).toContain('Context window 9,000');
+    expect(popoverRows(fixture)).toContain('Sent 10,000');
+  });
+
+  it('empty-state (usage$ → undefined) renders a disabled trigger with no popover to open', () => {
+    const { fixture } = setup(undefined);
+    fixture.detectChanges();
+
+    const trigger = pill(fixture);
+    expect(trigger.disabled).toBeTrue();
+    expect(popoverRows(fixture)).toEqual([]);
   });
 });
 
@@ -1376,5 +1597,139 @@ describe('AkgentChatComponent — folded compaction summary (Story 29-3)', () =>
     expect(allText).not.toContain('verbatim question two');
     expect(allText).not.toContain('verbatim question three');
     expect(allText).not.toContain(CONVERSATION_SUMMARY_PREFIX);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 30-3 — component-level OnPush on the usage-display host components.
+// AkgentChatComponent now runs under `ChangeDetectionStrategy.OnPush`; the
+// writes below (the `context$` and `currentTeamRunning$` subscriptions in
+// `ngOnInit`) come from MANUAL RxJS subscriptions, not the `async` pipe, so
+// only an explicit `ChangeDetectorRef.markForCheck()` at each site keeps them
+// repainting. A plain repeated `fixture.detectChanges()` call — with NO
+// further `@Input` change and NO DOM event between the emission and the
+// assertion — genuinely exercises the OnPush + `markForCheck()` plumbing
+// (verified by temporarily removing each `markForCheck()` call and confirming
+// these tests fail — see Dev Agent Record). These tests deliberately avoid
+// `fakeAsync`'s `tick()` between the emission and the assertion: flushing the
+// fake-timer queue re-arms Angular's zone-driven auto-refresh scheduler,
+// which repaints the view regardless of `markForCheck()` and would silently
+// mask a missing call — confirmed empirically (see Dev Agent Record).
+// ---------------------------------------------------------------------------
+describe('AkgentChatComponent — OnPush regression (Story 30-3)', () => {
+  const AGENT = 'a-mgr';
+
+  function setup(): {
+    fixture: ComponentFixture<AkgentChatComponent>;
+    component: AkgentChatComponent;
+    running$: BehaviorSubject<boolean>;
+  } {
+    const running$ = new BehaviorSubject<boolean>(true);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AkgentChatComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            sendMessage: jasmine.createSpy('sendMessage').and.resolveTo(undefined),
+          },
+        },
+        {
+          provide: UtilService,
+          useValue: { copyToClipboard: () => {}, formatJSON: (v: any) => v },
+        },
+        {
+          provide: ContextService,
+          useValue: {
+            currentTeamRunning$: running$,
+            currentProcessId$: new BehaviorSubject<string>('proc-1'),
+          },
+        },
+        MessageLogService,
+        PerAgentStoreRegistry,
+        {
+          provide: IngestionService,
+          useFactory: (registry: PerAgentStoreRegistry) => ({
+            commands: { snapshot: (_id: string) => undefined },
+            systemPrompt: registry.register<SystemPromptValue>({
+              name: 'systemPrompt',
+              match: systemPromptMatch,
+              reduce: systemPromptReduce,
+            }),
+          }),
+          deps: [PerAgentStoreRegistry],
+        },
+        SystemPromptSelector,
+        NEUTRAL_TOKEN_USAGE_SELECTOR,
+        provideNoopAnimations(),
+      ],
+    });
+
+    const fixture = TestBed.createComponent(AkgentChatComponent);
+    const component = fixture.componentInstance;
+    component.context$ = new BehaviorSubject<any[]>([]);
+    component.agentId = AGENT;
+    component.agentName = '@' + AGENT;
+    return { fixture, component, running$ };
+  }
+
+  /** Install a mock trace-scroll element with controllable geometry (mirrors
+   *  the "follow mode" describe block's helper above). */
+  function installScroll(
+    component: AkgentChatComponent,
+    scrollHeight: number,
+    clientHeight: number,
+    scrollTop = 0,
+  ): void {
+    (component as any).traceScroll = {
+      nativeElement: {
+        scrollHeight,
+        clientHeight,
+        scrollTop,
+        scrollTo(o: { top: number }) {
+          this.scrollTop = o.top;
+        },
+      },
+    };
+  }
+
+  it('AC4: a mid-stream context$ emission (no @Input change, no DOM event) renders an added trace row', fakeAsync(() => {
+    const { fixture, component } = setup();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('first reply');
+
+    // Pushing onto `context$` is NOT an @Input *reference* change (it's the
+    // same BehaviorSubject instance) and not a DOM event — only the manual
+    // `ngOnInit` subscription + its `markForCheck()` can repaint this. Assert
+    // BEFORE flushing the pending post-render setTimeout (below) so this test
+    // isolates the subscription's OWN `markForCheck()` from the *different*
+    // AC2 site inside `updateContext()`'s trailing setTimeout.
+    component.context$.next([{ type: 'ai', name: 'x', content: 'first reply' }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('first reply');
+
+    tick(0); // flush the pending post-render setTimeout (fakeAsync requires it)
+  }));
+
+  it('AC4: a mid-stream currentTeamRunning$ emission (no @Input change, no DOM event) updates the status pill', () => {
+    const { fixture, component, running$ } = setup();
+    fixture.detectChanges();
+
+    installScroll(component, 2000, 500, 0); // newest message far below the fold
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('.jump-to-latest'),
+    ).toBeNull();
+
+    // Emitting on `currentTeamRunning$` is NOT an @Input change and not a DOM
+    // event — only the manual `ngOnInit` subscription + its `markForCheck()`
+    // can repaint the pill.
+    running$.next(false); // process stops — following exits, pill recomputed
+    fixture.detectChanges();
+    const pill = (fixture.nativeElement as HTMLElement).querySelector(
+      '.jump-to-latest',
+    );
+    expect(pill?.textContent).toContain('Messages');
   });
 });

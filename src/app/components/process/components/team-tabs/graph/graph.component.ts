@@ -22,7 +22,6 @@ import { NgxEchartsDirective, provideEchartsCore } from 'ngx-echarts';
 import { AkgentService } from '../../../../../core/ui/akgent.service';
 import { ApiService } from '../../../../../core/http/api.service';
 import { CategoryService } from '../../../../../core/ui/category.service';
-import { IngestionService } from '../../../event/ingestion.service';
 
 // Import the shared GraphDataService
 import { makeAgentNameUserFriendly } from '../../../../../shared/util/util';
@@ -62,7 +61,6 @@ export class GraphComponent {
   apiService: ApiService = inject(ApiService);
   akgentService: AkgentService = inject(AkgentService);
   categoryService: CategoryService = inject(CategoryService);
-  messageService: IngestionService = inject(IngestionService);
   graphDataService: GraphDataService = inject(GraphDataService);
   selectionService: SelectionService = inject(SelectionService);
 

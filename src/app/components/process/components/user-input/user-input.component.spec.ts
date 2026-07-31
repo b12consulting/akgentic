@@ -76,7 +76,7 @@ describe('ProcessUserInputComponent', () => {
     };
 
     commandsById = {};
-    const messageServiceStub = {
+    const ingestionServiceStub = {
       commands: {
         snapshot: (id: string): CommandDescriptor[] | undefined =>
           commandsById[id],
@@ -90,7 +90,7 @@ describe('ProcessUserInputComponent', () => {
         { provide: ChatService, useValue: chatServiceMock },
         { provide: ContextService, useValue: contextServiceStub },
         { provide: GraphDataService, useValue: graphDataService },
-        { provide: IngestionService, useValue: messageServiceStub },
+        { provide: IngestionService, useValue: ingestionServiceStub },
       ],
     }).compileComponents();
 
