@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git tree cloc curl bash coreutils ca-certificates \
+        git tree cloc curl wget bash coreutils findutils grep ca-certificates \
         build-essential gnupg && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 

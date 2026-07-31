@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import importlib.resources
+import logging
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from akgentic.tool.sandbox.actor import ExecResult, SandboxActor
+
+logger = logging.getLogger(__name__)
 
 SANDBOX_IMAGE: str = "akgentic-sandbox:latest"
 DOCKER_EXEC_TIMEOUT: int = 60
@@ -25,12 +30,45 @@ class DockerSandboxActor(SandboxActor):
     uses ``team_id`` — containers are per-team execution resources.
     """
 
+    def _resolved_image(self) -> str:
+        """Image name for docker run: AKGENTIC_SANDBOX_IMAGE override or the default."""
+        return os.environ.get("AKGENTIC_SANDBOX_IMAGE", SANDBOX_IMAGE)
+
+    def _ensure_image(self) -> None:
+        """Build SANDBOX_IMAGE from the bundled Dockerfile if not present locally.
+
+        Skipped entirely when AKGENTIC_SANDBOX_IMAGE is set — the caller owns the image.
+        """
+        if os.environ.get("AKGENTIC_SANDBOX_IMAGE"):
+            return
+        check = subprocess.run(
+            ["docker", "images", "-q", SANDBOX_IMAGE], capture_output=True, text=True
+        )
+        if check.stdout.strip():
+            return
+        logger.info("Building %s from bundled Dockerfile (first use)...", SANDBOX_IMAGE)
+        dockerfile_text = (
+            importlib.resources.files("akgentic.tool.sandbox")
+            .joinpath("sandbox.Dockerfile")
+            .read_text(encoding="utf-8")
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "Dockerfile").write_text(dockerfile_text, encoding="utf-8")
+            result = subprocess.run(["docker", "build", "-t", SANDBOX_IMAGE, tmpdir])
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to build {SANDBOX_IMAGE}. Check the docker build output above. "
+                "Set AKGENTIC_SANDBOX_IMAGE to use a pre-built image instead."
+            )
+        logger.info("Built %s successfully.", SANDBOX_IMAGE)
+
     def _start_sandbox(self) -> None:
         container_name = f"sandbox-{self.config.team_id}"
         if shutil.which("docker") is None:
             raise RuntimeError(
                 "docker CLI not found on PATH — cannot start DockerSandboxActor"
             )
+        self._ensure_image()
         base = os.environ.get("AKGENTIC_WORKSPACES_ROOT", "./workspaces")
         ws_name = self.config.workspace_id or self.config.team_id
         volume = f"{(Path(base) / ws_name).resolve()}:/workspace"
@@ -67,7 +105,7 @@ class DockerSandboxActor(SandboxActor):
                     volume,
                     "-w",
                     "/workspace",
-                    SANDBOX_IMAGE,
+                    self._resolved_image(),
                     "sleep",
                     "infinity",
                 ],

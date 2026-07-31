@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-tool"
-version = "1.5.0"
+version = "1.6.0"
 description = "Tool interface and factory for Akgentic agent systems"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -47,6 +47,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akgentic"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/akgentic/tool/sandbox/sandbox.Dockerfile" = "akgentic/tool/sandbox/sandbox.Dockerfile"
 
 # Tool configurations inherit from root workspace pyproject.toml
 # Only override when package-specific behavior is needed

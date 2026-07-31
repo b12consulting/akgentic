@@ -451,6 +451,25 @@ backend was found.
   may be removed in a future macOS release. The seatbelt mode is intended for macOS developer
   workstations only.
 
+**Docker sandbox image:** The `docker` mode (and `auto` when it resolves to Docker) runs containers
+from the image `akgentic-sandbox:latest` (the `SANDBOX_IMAGE` constant in `sandbox/docker.py`). The
+image is **built automatically on first use** by `DockerSandboxActor._ensure_image()` from the bundled
+`sandbox.Dockerfile` (Python 3.12 + pytest/ruff/mypy, uv, Node.js 18) — no manual step is required.
+The build runs once; Docker's layer cache makes later container starts instant.
+
+**Pre-built / CI image (`AKGENTIC_SANDBOX_IMAGE`):** Set `AKGENTIC_SANDBOX_IMAGE=<name>` to use a
+pre-built or registry image. When set, the auto-build check is skipped and that image is used directly
+— recommended for CI and production, where the image is pre-built and pushed to a registry.
+
+To pre-build the image manually (optional — e.g. to warm the cache before first use):
+
+```bash
+docker build \
+  -f packages/akgentic-tool/src/akgentic/tool/sandbox/sandbox.Dockerfile \
+  -t akgentic-sandbox:latest \
+  packages/akgentic-tool/src/akgentic/tool/sandbox
+```
+
 **Error handling:** All errors from the sandbox backend surface as a `SandboxError` string
 returned to the LLM (never raised). Disallowed commands return a `CommandNotAllowedError`
 string listing the allowed commands.
@@ -602,7 +621,7 @@ src/akgentic/tool/
         seatbelt.py           # SeatbeltSandboxActor (macOS Apple Seatbelt)
         bwrap.py              # BwrapSandboxActor (Linux bubblewrap)
         tool.py               # ExecTool ToolCard, SANDBOX_ACTOR_CLASSES registry
-        └── Dockerfile        # Bundled image definition for akgentic-sandbox:latest
+        └── sandbox.Dockerfile # Bundled image definition for akgentic-sandbox:latest
 tests/                        # Tests organised by domain
 ```
 
