@@ -62,7 +62,6 @@ def _make_minimal_agent(name: str = "@TestAgent", media_cmd: Any = None) -> Base
     - _react_agent: MagicMock
     - _current_message: mock AgentMessage
     - config: mock with .name
-    - get_team / get_available_roles: return empty lists
     """
     agent: BaseAgent = object.__new__(BaseAgent)
 
@@ -71,14 +70,9 @@ def _make_minimal_agent(name: str = "@TestAgent", media_cmd: Any = None) -> Base
     agent._react_agent = MagicMock()  # type: ignore[attr-defined]
     agent._current_message = _make_mock_message()  # type: ignore[attr-defined]
 
-    # config.name is used by _build_structured_output_type to exclude self
     mock_config = MagicMock(spec=AgentConfig)
     mock_config.name = name
     agent.config = mock_config  # type: ignore[attr-defined]
-
-    # get_team() and get_available_roles() are called inside act()
-    agent.get_team = MagicMock(return_value=[])  # type: ignore[method-assign]
-    agent.get_available_roles = MagicMock(return_value=[])  # type: ignore[method-assign]
 
     return agent
 
@@ -268,95 +262,36 @@ class TestBaseAgentMediaExpansion:
 
 
 # =============================================================================
-# _build_structured_output_type: team filtering and recipient constraints
+# AC-1/AC-2: act() reasons against the static StructuredOutput type
 # =============================================================================
 
 
-class TestBuildStructuredOutputType:
-    """Test that _build_structured_output_type filters team members correctly."""
+class TestActUsesStaticStructuredOutput:
+    """Story 5-5: act() uses the static StructuredOutput schema, no per-call subclass."""
 
-    def _get_valid_recipients(self, agent: BaseAgent) -> list[str]:
-        """Extract the recipient enum from the built output type's schema."""
-        output_type = agent._build_structured_output_type(StructuredOutput)
-        schema = output_type.model_json_schema()
-        # The Request schema is in $defs, referenced via $ref from messages.items
-        request_schema = schema["$defs"]["Request"]
-        return request_schema["properties"]["recipient"]["enum"]
-
-    def test_excludes_self_from_valid_recipients(self) -> None:
-        """Agent's own name must not appear in valid recipients."""
+    def test_act_calls_run_sync_with_static_structured_output(self) -> None:
+        """AC-1: act() passes output_type=StructuredOutput to run_sync."""
         agent = _make_minimal_agent(name="@Manager")
 
-        team_members = [
-            _make_mock_sender("@Manager"),
-            _make_mock_sender("@Assistant"),
-            _make_mock_sender("@Human"),
-        ]
-        agent.get_team = MagicMock(return_value=team_members)  # type: ignore[method-assign]
+        captured_kwargs: dict[str, Any] = {}
 
-        recipients = self._get_valid_recipients(agent)
+        def capture_run_sync(prompt: Any, **kwargs: Any) -> StructuredOutput:
+            captured_kwargs.update(kwargs)
+            return StructuredOutput()
 
-        assert "@Manager" not in recipients
-        assert "@Assistant" in recipients
-        assert "@Human" in recipients
+        agent._react_agent.run_sync.side_effect = capture_run_sync  # type: ignore[attr-defined]
 
-    def test_excludes_hash_prefixed_names(self) -> None:
-        """Names starting with '#' (internal/system actors) must be excluded."""
-        agent = _make_minimal_agent(name="@Manager")
+        agent.act("do something", output_type=StructuredOutput)
 
-        team_members = [
-            _make_mock_sender("@Assistant"),
-            _make_mock_sender("#internal"),
-            _make_mock_sender("#system-bus"),
-        ]
-        agent.get_team = MagicMock(return_value=team_members)  # type: ignore[method-assign]
+        assert captured_kwargs["output_type"] is StructuredOutput
 
-        recipients = self._get_valid_recipients(agent)
+    def test_no_build_structured_output_type_method(self) -> None:
+        """AC-1: the per-call subclass builder no longer exists on BaseAgent."""
+        assert not hasattr(BaseAgent, "_build_structured_output_type")
 
-        assert "@Assistant" in recipients
-        assert "#internal" not in recipients
-        assert "#system-bus" not in recipients
-
-    def test_includes_available_roles(self) -> None:
-        """Available roles (for hire-on-demand) must appear in valid recipients."""
-        agent = _make_minimal_agent(name="@Manager")
-
-        agent.get_team = MagicMock(  # type: ignore[method-assign]
-            return_value=[_make_mock_sender("@Human")]
-        )
-        agent.get_available_roles = MagicMock(  # type: ignore[method-assign]
-            return_value=["Developer", "QA"]
-        )
-
-        recipients = self._get_valid_recipients(agent)
-
-        assert "@Human" in recipients
-        assert "Developer" in recipients
-        assert "QA" in recipients
-
-    def test_empty_team_and_no_roles(self) -> None:
-        """With no team members and no roles, valid recipients is empty."""
-        agent = _make_minimal_agent(name="@Solo")
-
-        agent.get_team = MagicMock(return_value=[])  # type: ignore[method-assign]
-        agent.get_available_roles = MagicMock(return_value=[])  # type: ignore[method-assign]
-
-        recipients = self._get_valid_recipients(agent)
-
-        assert recipients == []
-
-    def test_self_and_hash_both_excluded(self) -> None:
-        """Both self-exclusion and hash-exclusion apply together."""
-        agent = _make_minimal_agent(name="@Expert")
-
-        team_members = [
-            _make_mock_sender("@Expert"),
-            _make_mock_sender("#bus"),
-            _make_mock_sender("@Human"),
-        ]
-        agent.get_team = MagicMock(return_value=team_members)  # type: ignore[method-assign]
-        agent.get_available_roles = MagicMock(return_value=["Analyst"])  # type: ignore[method-assign]
-
-        recipients = self._get_valid_recipients(agent)
-
-        assert recipients == ["@Human", "Analyst"]
+    def test_recipient_carries_no_enum_in_schema(self) -> None:
+        """AC-2: the static Request schema exposes recipient as a plain string (no enum)."""
+        request_schema = StructuredOutput.model_json_schema()["$defs"]["Request"]
+        recipient = request_schema["properties"]["recipient"]
+        assert recipient["type"] == "string"
+        assert "enum" not in recipient

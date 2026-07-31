@@ -25,17 +25,11 @@ from datetime import datetime, timezone
 from time import sleep
 from typing import Any, TypeVar, cast
 
-from pydantic import Field
 from pydantic_ai import BinaryContent, ModelRetry, RunContext
 
 from akgentic.agent.config import AgentConfig, AgentState
 from akgentic.agent.messages import AgentMessage
-from akgentic.agent.output_models import (
-    REPLY_PROTOCOLS,
-    Request,
-    StructuredOutput,
-    structured_output,
-)
+from akgentic.agent.output_models import REPLY_PROTOCOLS, StructuredOutput
 from akgentic.core import ActorAddress, Akgent, Orchestrator
 from akgentic.core.agent import WarningError
 from akgentic.core.messages import Message
@@ -304,22 +298,26 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
     # ============================================================================
 
     def act(self, user_content: str, output_type: type[T]) -> T:
-        """Execute LLM reasoning with optional structured output.
+        """Execute one LLM REACT loop against the static StructuredOutput schema.
 
         Delegates entirely to ReactAgent.run_sync(), which:
         - Manages context history via ContextManager
         - Enforces usage limits
-        - Wraps output_type with get_output_type() for provider-aware structured
-          output (NativeOutput for OpenAI/Anthropic, raw type for others)
+        - Wraps StructuredOutput with get_output_type() for provider-aware
+          structured output (NativeOutput for OpenAI/Anthropic, raw type otherwise)
         - Runs the full REACT loop (tools, retries, system prompts)
+
+        Recipient validity is NOT constrained in the schema — it is enforced at
+        routing time in process_message(). Reply-protocol guidance is carried in
+        the prompt (see receiveMsg_AgentMessage), not the output-schema docstring.
 
         Args:
             user_content: User message to process.
-            output_type: Optional Pydantic model for structured output.
-                        When None, returns str (ReactAgent's default result_type).
+            output_type: Retained for call-site/signature stability; the REACT loop
+                always reasons against the static StructuredOutput type.
 
         Returns:
-            output_type
+            StructuredOutput (cast to the caller's output_type).
 
         Raises:
             LLMUsageLimitError: When usage limits exceeded; sends help request
@@ -338,93 +336,9 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
                     for p in parts
                 ]
         # ── End media expansion ─────────────────────────────────────────────────
-
-        local_output_type = self._build_structured_output_type(output_type)
-
-        output = self._react_agent.run_sync(prompt, deps=self, output_type=local_output_type)
+        output = self._react_agent.run_sync(prompt, deps=self, output_type=StructuredOutput)
 
         return cast(T, output)
-
-    def _build_structured_output_type(self, output_type: type[T]) -> type[T]:
-        """Build a per-call StructuredOutput subclass with schema-constrained recipients.
-
-        Creates dynamic Pydantic subclasses of Request and the given output_type that:
-
-        1. **Constrain the recipient field** — The Request subclass restricts ``recipient``
-           to an enum of valid values (``@member`` names + available role names) via
-           ``json_schema_extra``. This enum is included in the JSON schema sent to the LLM,
-           preventing invalid routing at generation time rather than catching it after.
-
-        2. **Inject per-call context into the docstring** — The output_type subclass gets a
-           dynamic ``__doc__`` that tells the LLM who sent the current message, what type it
-           is, the reply protocol to follow, and the available team/roles. pydantic-ai passes
-           this docstring as part of the structured output schema description.
-
-        A new subclass is created on every call to ensure thread-safety: multiple agents run
-        ``act()`` concurrently on separate Pykka threads, each with its own subclass.
-
-        Args:
-            output_type: The base StructuredOutput class to subclass.
-
-        Returns:
-            A per-call subclass of output_type with constrained recipients and injected
-            context in the docstring.
-        """
-        assert self._current_message is not None
-        assert self._current_message.sender is not None
-
-        sender = self._current_message.sender.name
-        team = [
-            agent.name
-            for agent in self.get_team()
-            if agent.name != self.config.name and not agent.name.startswith("#")
-        ]
-        roles = self.get_available_roles()
-
-        # Valid recipients: @members for direct sends, role names for hire-on-demand
-        valid_recipients = team + roles
-
-        # Per-call Request subclass with recipient constrained to valid values
-        recipient_schema: dict[str, Any] = {"enum": valid_recipients}
-        local_request = type(
-            "Request",
-            (Request,),
-            {
-                "__annotations__": {
-                    "recipient": str,
-                },
-                "recipient": Field(
-                    ...,
-                    description="The recipient by name or role",
-                    json_schema_extra=recipient_schema,
-                ),
-            },
-        )
-
-        local_output_type = type(
-            output_type.__name__,
-            (output_type,),
-            {
-                "__annotations__": {
-                    "messages": list[local_request],  # type: ignore[valid-type]
-                },
-                "messages": Field(
-                    default_factory=list,
-                    description="Requests to send to team members; empty if no delegation needed",
-                ),
-                "__doc__": structured_output.format(
-                    sender=sender,
-                    message_type=self._current_message.type,
-                    reply_protocol=REPLY_PROTOCOLS.get(self._current_message.type, "").format(
-                        sender=sender
-                    ),
-                    team=", ".join(team) or "no other members",
-                    roles=", ".join(roles) or "no roles available",
-                ),
-            },
-        )
-
-        return local_output_type  # pyright: ignore[reportReturnType]
 
     def process_message(self, message_content: str, sender: ActorAddress) -> None:
 
@@ -479,7 +393,9 @@ class BaseAgent(Akgent[AgentConfig, AgentState]):
             sender_name = message.sender.name if message.sender else "unknown"
             article = "an" if message.type[0] in "aeiou" else "a"
             prefixed_content = (
-                f"You received {article} {message.type} from {sender_name}:\n\n{message.content}"
+                f"You received {article} {message.type} from {sender_name}. "
+                f"{REPLY_PROTOCOLS.get(message.type, '').format(sender=sender_name)}"
+                f"\n\n{message.content}"
             )
             self.process_message(prefixed_content, sender)
 

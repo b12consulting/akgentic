@@ -76,7 +76,6 @@ def _make_minimal_agent(
     agent.config = mock_config  # type: ignore[attr-defined]
 
     agent.get_team = MagicMock(return_value=[])  # type: ignore[method-assign]
-    agent.get_available_roles = MagicMock(return_value=[])  # type: ignore[method-assign]
     agent.send = MagicMock()  # type: ignore[method-assign]
     agent.get_team_member = MagicMock(return_value=None)  # type: ignore[method-assign]
 
@@ -206,7 +205,7 @@ class TestReceiveAgentMessage:
 
     @patch("akgentic.agent.agent.sleep")
     def test_calls_process_message_with_reconstructed_prefix(self, mock_sleep: MagicMock) -> None:
-        """Normal path: calls process_message with reconstructed prefix from metadata."""
+        """AC-3: prompt carries the reply protocol inline with the raw content."""
         agent = _make_minimal_agent()
         agent.process_message = MagicMock()  # type: ignore[method-assign]
 
@@ -218,7 +217,11 @@ class TestReceiveAgentMessage:
 
         agent.receiveMsg_AgentMessage(message, sender)
 
-        expected = "You received a request from @Alice:\n\nhello world"
+        expected = (
+            "You received a request from @Alice. "
+            "Carry out the task, then respond to @Alice. You may also delegate to others."
+            "\n\nhello world"
+        )
         agent.process_message.assert_called_once_with(expected, sender)
 
     @patch("akgentic.agent.agent.sleep")
@@ -244,7 +247,7 @@ class TestReceiveAgentMessage:
 
     @patch("akgentic.agent.agent.sleep")
     def test_reconstructs_prefix_with_a_for_consonant_type(self, mock_sleep: MagicMock) -> None:
-        """type='request' (consonant) → prefix uses 'a request'."""
+        """type='request' (consonant) → prefix uses 'a request' + reply protocol."""
         agent = _make_minimal_agent()
         agent.process_message = MagicMock()  # type: ignore[method-assign]
 
@@ -254,7 +257,11 @@ class TestReceiveAgentMessage:
         sender = _make_mock_sender("@Bob")
         agent.receiveMsg_AgentMessage(message, sender)
 
-        expected = "You received a request from @Bob:\n\ndo this"
+        expected = (
+            "You received a request from @Bob. "
+            "Carry out the task, then respond to @Bob. You may also delegate to others."
+            "\n\ndo this"
+        )
         agent.process_message.assert_called_once_with(expected, sender)
 
     @patch("akgentic.agent.agent.sleep")
@@ -269,12 +276,14 @@ class TestReceiveAgentMessage:
         agent.receiveMsg_AgentMessage(message, _make_mock_sender("@Carol"))
 
         called_content = agent.process_message.call_args[0][0]
-        assert called_content.startswith("You received an acknowledgment from @Carol:")
+        assert called_content.startswith(
+            "You received an acknowledgment from @Carol. No further action needed."
+        )
         assert called_content.endswith("ack")
 
     @patch("akgentic.agent.agent.sleep")
     def test_reconstructs_prefix_with_an_for_instruction(self, mock_sleep: MagicMock) -> None:
-        """type='instruction' (vowel) → prefix uses 'an instruction'."""
+        """type='instruction' (vowel) → prefix uses 'an instruction' + reply protocol."""
         agent = _make_minimal_agent()
         agent.process_message = MagicMock()  # type: ignore[method-assign]
 
@@ -284,7 +293,10 @@ class TestReceiveAgentMessage:
         agent.receiveMsg_AgentMessage(message, _make_mock_sender("@Manager"))
 
         called_content = agent.process_message.call_args[0][0]
-        assert called_content.startswith("You received an instruction from @Manager:")
+        assert called_content.startswith(
+            "You received an instruction from @Manager. "
+            "Carry out the task, then acknowledge to @Manager if requested."
+        )
         assert called_content.endswith("step 1")
 
     @patch("akgentic.agent.agent.sleep")
@@ -301,7 +313,7 @@ class TestReceiveAgentMessage:
         agent.receiveMsg_AgentMessage(message, _make_mock_sender("@Somewhere"))
 
         called_content = agent.process_message.call_args[0][0]
-        assert "from unknown:" in called_content
+        assert "from unknown. " in called_content
         assert called_content.endswith("hello")
 
 
@@ -428,7 +440,7 @@ class TestSlashCommandDispatch:
         agent.process_message.assert_called_once()
         prefixed = agent.process_message.call_args[0][0]
         assert prefixed.endswith("/etc/passwd")
-        assert "You received a request from @Human:" in prefixed
+        assert "You received a request from @Human. " in prefixed
 
     @patch("akgentic.agent.agent.sleep")
     def test_post_identification_failure_returns_string_no_llm(self, mock_sleep: MagicMock) -> None:
