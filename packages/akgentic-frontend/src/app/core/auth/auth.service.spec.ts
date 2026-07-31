@@ -4,11 +4,12 @@ import { AuthService } from './auth.service';
 import { ConfigService } from '../config/config.service';
 
 /**
- * Specs for {@link AuthService.loginWithApiKey} (Stories 1.8, 1.9).
+ * Specs for {@link AuthService.loginWithApiKey} (Stories 1.8, 1.9, 30.1).
  *
  * The network boundary is the global `fetch`, which is stubbed via a Jasmine
- * spy — no real server is contacted. The backend returns a `200` JSON body
- * (`{"success": true, "user": {...}}`) on success; the body itself is the
+ * spy — no real server is contacted. The key travels in a `POST` JSON body
+ * (`{"apikey": "<key>"}`), never in the URL. The backend returns a `200` JSON
+ * body (`{"success": true, "user": {...}}`) on success; the body itself is the
  * success signal — no redirect is followed and no `/auth/me` round-trip is
  * issued.
  */
@@ -43,19 +44,31 @@ describe('AuthService', () => {
   });
 
   describe('loginWithApiKey — success path (AC #2, #4, #5)', () => {
-    it('calls /auth/login/apikey with the key URL-encoded and credentials: include', async () => {
+    it('POSTs the key in a JSON body to a URL that never carries it', async () => {
       // One call only — the 200 JSON body is the success signal, no /auth/me.
       fetchSpy.and.returnValue(
         Promise.resolve(makeResponse(true, { success: true, user: { user_id: 'u1', name: 'Op' } })),
       );
 
-      await firstValueFrom(service.loginWithApiKey('secret key/+&'));
+      const key = 'secret key/+&';
+      await firstValueFrom(service.loginWithApiKey(key));
 
       const loginCall = fetchSpy.calls.argsFor(0);
-      expect(loginCall[0]).toBe(
-        `${API}/auth/login/apikey?apikey=${encodeURIComponent('secret key/+&')}`,
-      );
-      expect((loginCall[1] as RequestInit).credentials).toBe('include');
+      const url = loginCall[0] as string;
+      const init = loginCall[1] as RequestInit;
+
+      // The key never reaches the URL — raw or URL-encoded.
+      expect(url).toBe(`${API}/auth/login/apikey`);
+      expect(url).not.toContain(key);
+      expect(url).not.toContain(encodeURIComponent(key));
+
+      expect(init.method).toBe('POST');
+      // Load-bearing: the backend binds the session via Set-Cookie.
+      expect(init.credentials).toBe('include');
+      expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+
+      // Parse rather than string-match: key order in JSON.stringify is incidental.
+      expect(JSON.parse(init.body as string)).toEqual({ apikey: key });
     });
 
     it('reads the 200 JSON body so currentUser$ reflects the response user', async () => {

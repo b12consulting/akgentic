@@ -212,8 +212,9 @@ export interface LlmSystemPromptEvent {
  * / `CommandsAnnouncedEvent`. The serializer tags the dataclass with the
  * fully-qualified `__model__` and preserves integer token counts (no
  * stringification). Terminology (ADR-022 §Decision 4): `input_tokens` is "sent",
- * `output_tokens` is "received". `cache_*` and `requests` ride the wire but are
- * excluded from the v1 headline figures.
+ * `output_tokens` is "received". `cache_read_tokens` / `cache_write_tokens` fold
+ * into the true context-window figure (ADR-024 §Decision 2); `requests` still
+ * rides the wire unused.
  */
 export interface LlmUsageEvent {
   __model__: string; // contains 'LlmUsageEvent'

@@ -1,9 +1,18 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject, NgZone, OnDestroy, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  NgZone,
+  OnDestroy,
+  OnInit,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TreeNode } from 'primeng/api';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
+import { PopoverModule } from 'primeng/popover';
 import { TabViewModule } from 'primeng/tabview';
 import { TextareaModule } from 'primeng/textarea';
 import { TreeModule } from 'primeng/tree';
@@ -30,14 +39,19 @@ import { EdgeInterface, NodeInterface } from '../../../models/types';
     DialogModule,
     FormsModule,
     ButtonModule,
+    PopoverModule,
     TabViewModule,
     TextareaModule,
     HumanRequestComponent,
     TokenCountPipe,
   ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TreeComponent implements OnInit, OnDestroy {
   selectionService: SelectionService = inject(SelectionService);
+  // Story 30-3 — OnPush: the graph subscriptions below (ngOnInit) mutate
+  // template-bound state imperatively; markForCheck() keeps them repainting.
+  private cdr = inject(ChangeDetectorRef);
 
   // Epic 26 (ADR-022 §Decision 6): the team-wide token total shown in the
   // footer strip below the tree. Bare inject — resolves the SAME
@@ -46,6 +60,9 @@ export class TreeComponent implements OnInit, OnDestroy {
   // Bound via `async` in the template; never `undefined` (empty team → zeros).
   private readonly tokenUsageSelector = inject(TokenUsageSelector);
   readonly teamTotals$ = this.tokenUsageSelector.teamTotals$;
+  // Per-model breakdown feeding the footer popover (grouped by each agent's
+  // current model — see TokenUsageSelector.groupByModel approximation note).
+  readonly teamByModel$ = this.tokenUsageSelector.teamByModel$;
 
   treeNodes: TreeNode[] = []; // Correct initialization as an array of TreeNode
   expandedKeys: { [key: string]: boolean } = {};
@@ -68,14 +85,17 @@ export class TreeComponent implements OnInit, OnDestroy {
         this.nodes = nodes;
         this.treeNodes = this.buildTree(nodes);
         this.expandAll();
+        this.cdr.markForCheck();
       }
     );
     this.edgesSub = this.graphDataService.edges$.subscribe((updatedEdges) => {
       this.edges = updatedEdges;
+      this.cdr.markForCheck();
     });
     this.categoriesSub = this.graphDataService.categories$.subscribe(
       (updatedCats) => {
         this.categories = updatedCats;
+        this.cdr.markForCheck();
       }
     );
   }

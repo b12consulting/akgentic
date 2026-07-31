@@ -99,7 +99,7 @@ export class ProcessComponent implements OnDestroy {
 
   akgentService: AkgentService = inject(AkgentService);
   contextService: ContextService = inject(ContextService);
-  messageService: IngestionService = inject(IngestionService);
+  ingestionService: IngestionService = inject(IngestionService);
   graphDataService: GraphDataService = inject(GraphDataService);
   viewService: ViewService = inject(ViewService);
   toolPresenceService: ToolPresenceService = inject(ToolPresenceService);
@@ -213,7 +213,7 @@ export class ProcessComponent implements OnDestroy {
     // `StartMessage` / `StopMessage` on the replay + live streams. Workspace
     // presence remains static until a future story reactivates it.
 
-    await this.messageService.init(this.processId, isRunning(currentProcess));
+    await this.ingestionService.init(this.processId, isRunning(currentProcess));
   }
 
   ngOnDestroy() {

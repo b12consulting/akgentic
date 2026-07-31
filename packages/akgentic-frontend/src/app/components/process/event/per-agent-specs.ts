@@ -471,17 +471,25 @@ export const systemPromptSpec: PerAgentSpec<SystemPromptValue> = {
 // ===========================================================================
 
 /**
- * Per-agent reduced token-usage value (Epic 26 / ADR-022 §Decision 2). Derived
- * by folding every `EventMessage(LlmUsageEvent)` for the agent (keyed by the
- * outer `sender.agent_id`, which IS the agent that ran the model). Terminology
+ * Per-agent reduced token-usage value (Epic 26 / ADR-022 §Decision 2, extended
+ * by Epic 30 / ADR-024 §Decision 1-2). Derived by folding every
+ * `EventMessage(LlmUsageEvent)` for the agent (keyed by the outer
+ * `sender.agent_id`, which IS the agent that ran the model). Terminology
  * (ADR-022 §Decision 4): `totalSent` Σ `input_tokens`, `totalReceived` Σ
- * `output_tokens`. `lastContextWindow` is the NEWEST event's `input_tokens`
- * (ADR-022 §Decision 3 — there is no context-window field on the wire, so the
- * most-recent prompt size is the proxy). `lastRunId` / `lastModelName` are labels
- * only. Cache / `requests` fields ride the wire but are excluded from v1.
+ * `output_tokens`. `lastContextWindow` is the NEWEST event's TRUE prompt size —
+ * `input_tokens`, which pydantic-ai already reports as the FULL prompt, cache
+ * included (ADR-024 §Decision 2). `cache_read_tokens` / `cache_write_tokens` are
+ * a breakdown OF `input_tokens`, not additions to it, so the window is
+ * `input_tokens` alone — adding the cache counters would double-count.
+ * `lastCacheRead` / `lastCacheWrite` keep the fresh/cached split recoverable
+ * (`fresh = lastContextWindow − lastCacheRead − lastCacheWrite`); `totalCacheRead`
+ * / `totalCacheWrite` are the running Σ, mirroring `totalSent` / `totalReceived`.
+ * `lastRunId` / `lastModelName` are labels only. `requests` rides the wire but is
+ * excluded from v1.
  */
 export interface AgentTokenUsage {
-  /** input_tokens of the most-recent event (overwritten each event). */
+  /** input_tokens of the most-recent event — the TRUE context window (already
+   *  the full prompt, cache included; overwritten each event). */
   lastContextWindow: number;
   /** run_id of that most-recent event (label only). */
   lastRunId: string;
@@ -491,6 +499,14 @@ export interface AgentTokenUsage {
   totalSent: number;
   /** running Σ of output_tokens across all this agent's events. */
   totalReceived: number;
+  /** running Σ of cache_read_tokens across all this agent's events. */
+  totalCacheRead: number;
+  /** running Σ of cache_write_tokens across all this agent's events. */
+  totalCacheWrite: number;
+  /** cache_read_tokens of the most-recent event (overwritten each event). */
+  lastCacheRead: number;
+  /** cache_write_tokens of the most-recent event (overwritten each event). */
+  lastCacheWrite: number;
 }
 
 /** Read the inner `LlmUsageEvent` off an `EventMessage`, or `undefined`. */
@@ -510,20 +526,28 @@ const ZERO_TOKEN_USAGE: AgentTokenUsage = {
   lastModelName: '',
   totalSent: 0,
   totalReceived: 0,
+  totalCacheRead: 0,
+  totalCacheWrite: 0,
+  lastCacheRead: 0,
+  lastCacheWrite: 0,
 };
 
 /**
  * Incremental per-message reducer (the store's `(prev, msg) => next` contract,
- * ADR-022 §Decision 2). NOT a stock factory:
- *   - `LlmUsageEvent` → accumulate (sum sent/received) AND overwrite (context
- *     window + labels); numeric reads coalesce a missing field to `0` (no NaN).
+ * ADR-022 §Decision 2, extended by ADR-024 §Decision 1-2). NOT a stock factory:
+ *   - `LlmUsageEvent` → accumulate (sum sent/received/cache) AND overwrite
+ *     (TRUE context window + last-run cache split + labels); numeric reads
+ *     coalesce a missing field to `0` (no NaN). `lastContextWindow` is
+ *     `input_tokens` — already the full prompt (cache included), so the cache
+ *     counters are NOT added on top (that would double-count).
  *   - `LlmContextCompactedEvent` (Epic 29 / ADR-010 §4) → re-point
  *     `lastContextWindow` to `event.tokens_after` when it is a number; leave it
  *     unchanged when `tokens_after` is null/absent (defensive — no NaN, no reset).
  *   - `LlmContextClearedEvent` (§8) → reset `lastContextWindow` to `0`.
- * The two context events leave the cumulative I/O totals and run labels untouched
- * (neither is a model run) and seed from `prev ?? zero`. Every change returns a
- * FRESH object (OnPush safety); any other message passes `prev` through.
+ * The two context events leave the cumulative I/O + cache totals, last-run cache
+ * split, and run labels untouched (neither is a model run) and seed from
+ * `prev ?? ZERO_TOKEN_USAGE`. Every change returns a FRESH object (OnPush
+ * safety); any other message passes `prev` through.
  */
 export function tokenUsageReduce(
   prev: AgentTokenUsage | undefined,
@@ -533,12 +557,18 @@ export function tokenUsageReduce(
   if (ev !== undefined) {
     const input = ev.input_tokens ?? 0;
     const output = ev.output_tokens ?? 0;
+    const cacheRead = ev.cache_read_tokens ?? 0;
+    const cacheWrite = ev.cache_write_tokens ?? 0;
     return {
       lastContextWindow: input,
       lastRunId: ev.run_id,
       lastModelName: ev.model_name,
       totalSent: (prev?.totalSent ?? 0) + input,
       totalReceived: (prev?.totalReceived ?? 0) + output,
+      totalCacheRead: (prev?.totalCacheRead ?? 0) + cacheRead,
+      totalCacheWrite: (prev?.totalCacheWrite ?? 0) + cacheWrite,
+      lastCacheRead: cacheRead,
+      lastCacheWrite: cacheWrite,
     };
   }
   if (!isEventMessage(msg)) return prev;

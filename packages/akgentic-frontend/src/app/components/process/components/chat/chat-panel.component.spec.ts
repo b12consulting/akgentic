@@ -132,7 +132,7 @@ describe('ChatPanelComponent', () => {
     // stub mirrors the current surface — a `commands`-shaped object exposing
     // `snapshot(id)` (returns `[]` here: the empty-selection scenarios in this
     // spec short-circuit before any command lookup).
-    const messageService = {
+    const ingestionService = {
       commands: { snapshot: (_id: string) => [] as any[] },
       // Epic 18 (ADR-015 §2): the spinner state moved off ChatService onto
       // IngestionService; the component now reads `loadingProcess$` from here.
@@ -148,7 +148,7 @@ describe('ChatPanelComponent', () => {
         { provide: ApiService, useValue: apiService },
         { provide: AkgentService, useValue: akgentService },
         { provide: GraphDataService, useValue: graphDataService },
-        { provide: IngestionService, useValue: messageService },
+        { provide: IngestionService, useValue: ingestionService },
       ],
     }).compileComponents();
 

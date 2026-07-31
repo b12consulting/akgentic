@@ -14,8 +14,8 @@ import { ApiService } from '../../../../core/http/api.service';
 
 /**
  * Story 17-2 (ADR-014) — the agent-state panel and agent-chat context view are
- * now sourced from `messageService.state.forAgent(id)` /
- * `messageService.context.forAgent(id)` (PerAgentStore instances) instead of the
+ * now sourced from `ingestionService.state.forAgent(id)` /
+ * `ingestionService.context.forAgent(id)` (PerAgentStore instances) instead of the
  * deleted `stateDict$` / `contextDict$`. These specs verify the host wiring:
  * the local `state$` / `context$` bridge subjects reflect the store values, with
  * `undefined` mapped to the existing defaults (`null` / `[]`) so the template
@@ -24,7 +24,7 @@ import { ApiService } from '../../../../core/http/api.service';
 describe('AgentTabsComponent — store-backed state/context wiring (Story 17-2)', () => {
   let component: AgentTabsComponent;
   let log: MessageLogService;
-  let messageService: IngestionService;
+  let ingestionService: IngestionService;
   let selectedAkgent$: BehaviorSubject<Akgent | null>;
   let nodes$: BehaviorSubject<any[]>;
   let categories$: BehaviorSubject<any[]>;
@@ -113,13 +113,13 @@ describe('AgentTabsComponent — store-backed state/context wiring (Story 17-2)'
       ],
     });
 
-    messageService = TestBed.inject(IngestionService);
+    ingestionService = TestBed.inject(IngestionService);
     log = TestBed.inject(MessageLogService);
-    spyOn<any>(messageService, 'createWebSocket').and.returnValue(
+    spyOn<any>(ingestionService, 'createWebSocket').and.returnValue(
       fakeSocket as unknown as WebSocketSubject<any>,
     );
     // Wire the WS pipeline so the registry's log$ subscription is live.
-    await messageService.init('proc-1', true);
+    await ingestionService.init('proc-1', true);
 
     component = TestBed.createComponent(AgentTabsComponent).componentInstance;
     component.ngOnInit();
