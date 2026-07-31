@@ -77,10 +77,11 @@ def test_docker_exec_timeout_constant() -> None:
 # ---------------------------------------------------------------------------
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_creates_container_when_absent(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """AC1: _start_sandbox() runs docker run -d when container does not exist."""
     # First call: docker ps -a → returns empty stdout (container not found)
@@ -98,10 +99,14 @@ def test_start_sandbox_creates_container_when_absent(
     assert second_call_args[1] == "run"
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_docker_run_uses_correct_flags(
-    mock_run: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    mock_run: MagicMock,
+    mock_which: MagicMock,
+    mock_ensure: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC1: docker run uses -d, --name, --network none, -v, -w, sleep infinity (default root)."""
     monkeypatch.delenv("AKGENTIC_WORKSPACES_ROOT", raising=False)
@@ -130,10 +135,14 @@ def test_start_sandbox_docker_run_uses_correct_flags(
     ]
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_docker_run_uses_custom_workspaces_root(
-    mock_run: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    mock_run: MagicMock,
+    mock_which: MagicMock,
+    mock_ensure: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Story 6.5: docker run -v uses AKGENTIC_WORKSPACES_ROOT when set."""
     monkeypatch.setenv("AKGENTIC_WORKSPACES_ROOT", "/workspaces")
@@ -149,10 +158,14 @@ def test_start_sandbox_docker_run_uses_custom_workspaces_root(
     assert run_call_args[volume_arg_idx] == "/workspaces/team-1:/workspace"
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_docker_run_normalizes_trailing_slash_in_root(
-    mock_run: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    mock_run: MagicMock,
+    mock_which: MagicMock,
+    mock_ensure: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Story 6.5: AKGENTIC_WORKSPACES_ROOT with trailing slash must NOT produce double-slash volume.
 
@@ -175,10 +188,11 @@ def test_start_sandbox_docker_run_normalizes_trailing_slash_in_root(
     )
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_sets_container_name_in_state(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """AC1/AC8: After _start_sandbox(), state.container_name is set to 'sandbox-{team_id}'."""
     mock_run.side_effect = [
@@ -196,10 +210,11 @@ def test_start_sandbox_sets_container_name_in_state(
 # ---------------------------------------------------------------------------
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_reuses_existing_container(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """AC2: _start_sandbox() runs docker start when container already exists (any state)."""
     # First call: docker ps -a → container name in stdout
@@ -216,10 +231,11 @@ def test_start_sandbox_reuses_existing_container(
     assert actor.state.container_name == "sandbox-team-1"
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_docker_start_uses_correct_args(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """AC2: docker start is called with the correct container name."""
     mock_run.side_effect = [
@@ -233,10 +249,11 @@ def test_start_sandbox_docker_start_uses_correct_args(
     assert start_call_args == ["docker", "start", "sandbox-team-1"]
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_no_false_positive_on_prefix_container_name(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """AC1: container name prefix in stdout does not trigger false reuse.
 
@@ -326,10 +343,11 @@ def test_stop_sandbox_only_one_subprocess_call(mock_run: MagicMock) -> None:
 # ---------------------------------------------------------------------------
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_on_stop_swallows_stop_sandbox_exception(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """AC5: on_stop() swallows exceptions raised by _stop_sandbox() — base class behavior."""
     # Start sandbox first to set container_name
@@ -461,10 +479,11 @@ def test_exec_timeout_propagates(mock_run: MagicMock) -> None:
 # ---------------------------------------------------------------------------
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_integration_container_name_set_after_start(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """AC8: After _start_sandbox(), state.container_name is set — volume mount ensures sharing."""
     mock_run.side_effect = [
@@ -484,10 +503,11 @@ def test_integration_container_name_set_after_start(
 # ---------------------------------------------------------------------------
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_calls_notify_state_change(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """_start_sandbox() calls state.notify_state_change() after setting container_name."""
     mock_run.side_effect = [
@@ -506,10 +526,14 @@ def test_start_sandbox_calls_notify_state_change(
 # ---------------------------------------------------------------------------
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_workspace_id_overrides_volume_mount(
-    mock_run: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    mock_run: MagicMock,
+    mock_which: MagicMock,
+    mock_ensure: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """FR-SB-34: workspace_id='test' makes volume mount use 'test', not team_id."""
     monkeypatch.delenv("AKGENTIC_WORKSPACES_ROOT", raising=False)
@@ -525,10 +549,11 @@ def test_start_sandbox_workspace_id_overrides_volume_mount(
     assert run_call_args[volume_arg_idx] == f"{Path('./workspaces/test').resolve()}:/workspace"
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_container_name_uses_team_id_not_workspace_id(
-    mock_run: MagicMock, mock_which: MagicMock
+    mock_run: MagicMock, mock_which: MagicMock, mock_ensure: MagicMock
 ) -> None:
     """FR-SB-34: container name is sandbox-{team_id}, NOT sandbox-{workspace_id}."""
     mock_run.side_effect = [
@@ -545,10 +570,14 @@ def test_start_sandbox_container_name_uses_team_id_not_workspace_id(
     assert run_call_args[name_idx] == "sandbox-t1"
 
 
+@patch.object(DockerSandboxActor, "_ensure_image")
 @patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
 @patch("akgentic.tool.sandbox.docker.subprocess.run")
 def test_start_sandbox_workspace_id_none_uses_team_id_for_volume(
-    mock_run: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    mock_run: MagicMock,
+    mock_which: MagicMock,
+    mock_ensure: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """FR-SB-34: workspace_id=None falls back to team_id for volume mount (unchanged default)."""
     monkeypatch.delenv("AKGENTIC_WORKSPACES_ROOT", raising=False)
@@ -562,3 +591,132 @@ def test_start_sandbox_workspace_id_none_uses_team_id_for_volume(
     run_call_args = mock_run.call_args_list[1][0][0]
     volume_arg_idx = run_call_args.index("-v") + 1
     assert run_call_args[volume_arg_idx] == f"{Path('./workspaces/team-1').resolve()}:/workspace"
+
+
+# ---------------------------------------------------------------------------
+# Story 6.7: _resolved_image() — AKGENTIC_SANDBOX_IMAGE override (AC #3)
+# ---------------------------------------------------------------------------
+
+
+def test_resolved_image_defaults_to_sandbox_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC3: _resolved_image() returns SANDBOX_IMAGE when AKGENTIC_SANDBOX_IMAGE is unset."""
+    monkeypatch.delenv("AKGENTIC_SANDBOX_IMAGE", raising=False)
+    actor = make_actor()
+    assert actor._resolved_image() == SANDBOX_IMAGE
+
+
+def test_resolved_image_uses_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC3: _resolved_image() returns AKGENTIC_SANDBOX_IMAGE when set."""
+    monkeypatch.setenv("AKGENTIC_SANDBOX_IMAGE", "ghcr.io/myorg/akgentic-sandbox:v1.2")
+    actor = make_actor()
+    assert actor._resolved_image() == "ghcr.io/myorg/akgentic-sandbox:v1.2"
+
+
+@patch.object(DockerSandboxActor, "_ensure_image")
+@patch("akgentic.tool.sandbox.docker.shutil.which", return_value="/usr/bin/docker")
+@patch("akgentic.tool.sandbox.docker.subprocess.run")
+def test_start_sandbox_docker_run_uses_env_override_image(
+    mock_run: MagicMock,
+    mock_which: MagicMock,
+    mock_ensure: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC3: docker run uses the AKGENTIC_SANDBOX_IMAGE value as the image name."""
+    monkeypatch.setenv("AKGENTIC_SANDBOX_IMAGE", "ghcr.io/myorg/akgentic-sandbox:v1.2")
+    mock_run.side_effect = [
+        MagicMock(stdout="", returncode=0),  # docker ps -a
+        MagicMock(stdout="abc123", returncode=0),  # docker run
+    ]
+    actor = make_actor(team_id="team-1")
+    actor._start_sandbox()
+
+    run_call_args = mock_run.call_args_list[1][0][0]
+    # image name sits between "-w /workspace" and the "sleep infinity" command
+    assert "ghcr.io/myorg/akgentic-sandbox:v1.2" in run_call_args
+    assert SANDBOX_IMAGE not in run_call_args
+
+
+# ---------------------------------------------------------------------------
+# Story 6.7: _ensure_image() — lazy auto-build (AC #1, #2, #3, #5)
+# ---------------------------------------------------------------------------
+
+
+@patch("akgentic.tool.sandbox.docker.subprocess.run")
+def test_ensure_image_env_override_skips_all_docker(
+    mock_run: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC3: AKGENTIC_SANDBOX_IMAGE set → _ensure_image() runs no docker command at all."""
+    monkeypatch.setenv("AKGENTIC_SANDBOX_IMAGE", "ghcr.io/myorg/akgentic-sandbox:v1.2")
+    actor = make_actor()
+
+    actor._ensure_image()
+
+    assert mock_run.call_count == 0
+
+
+@patch("akgentic.tool.sandbox.docker.subprocess.run")
+def test_ensure_image_skips_build_when_image_present(
+    mock_run: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC2: image present (docker images -q non-empty) → only the images check, no docker build."""
+    monkeypatch.delenv("AKGENTIC_SANDBOX_IMAGE", raising=False)
+    mock_run.return_value = MagicMock(stdout="cached-id\n", returncode=0)
+    actor = make_actor()
+
+    actor._ensure_image()
+
+    assert mock_run.call_count == 1
+    images_call = mock_run.call_args_list[0][0][0]
+    assert images_call == ["docker", "images", "-q", SANDBOX_IMAGE]
+    # No docker build invoked
+    for call_item in mock_run.call_args_list:
+        assert "build" not in call_item[0][0]
+
+
+@patch("akgentic.tool.sandbox.docker.importlib.resources.files")
+@patch("akgentic.tool.sandbox.docker.subprocess.run")
+def test_ensure_image_builds_when_absent(
+    mock_run: MagicMock, mock_files: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC1: image absent → docker build -t {SANDBOX_IMAGE} is invoked from bundled Dockerfile."""
+    monkeypatch.delenv("AKGENTIC_SANDBOX_IMAGE", raising=False)
+    mock_files.return_value.joinpath.return_value.read_text.return_value = (
+        "FROM python:3.12-slim\n"
+    )
+    mock_run.side_effect = [
+        MagicMock(stdout="", returncode=0),  # docker images -q → absent
+        MagicMock(returncode=0),  # docker build → success
+    ]
+    actor = make_actor()
+
+    actor._ensure_image()
+
+    build_call = mock_run.call_args_list[1][0][0]
+    assert build_call[:4] == ["docker", "build", "-t", SANDBOX_IMAGE]
+    # Build output must NOT be captured (visible to the user — AC #1)
+    build_kwargs = mock_run.call_args_list[1][1]
+    assert "capture_output" not in build_kwargs
+
+
+@patch("akgentic.tool.sandbox.docker.importlib.resources.files")
+@patch("akgentic.tool.sandbox.docker.subprocess.run")
+def test_ensure_image_build_failure_raises_runtime_error(
+    mock_run: MagicMock, mock_files: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC5: build failure (returncode != 0) → RuntimeError naming image + env-var hint."""
+    monkeypatch.delenv("AKGENTIC_SANDBOX_IMAGE", raising=False)
+    mock_files.return_value.joinpath.return_value.read_text.return_value = (
+        "FROM python:3.12-slim\n"
+    )
+    mock_run.side_effect = [
+        MagicMock(stdout="", returncode=0),  # docker images -q → absent
+        MagicMock(returncode=1),  # docker build → failure
+    ]
+    actor = make_actor()
+
+    with pytest.raises(RuntimeError) as exc_info:
+        actor._ensure_image()
+
+    message = str(exc_info.value)
+    assert SANDBOX_IMAGE in message
+    assert "AKGENTIC_SANDBOX_IMAGE" in message
