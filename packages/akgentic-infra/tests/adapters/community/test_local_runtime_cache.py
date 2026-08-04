@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from unittest.mock import MagicMock
+
+import pytest
 
 from akgentic.infra.adapters.community.local_runtime_cache import LocalRuntimeCache
 from akgentic.infra.protocols.runtime_cache import RuntimeCache
@@ -98,6 +101,26 @@ def _make_process(
     )
 
 
+def _filtering_store(*seeded: Process) -> MagicMock:
+    """Event-store stub whose ``list_teams`` actually applies its filters.
+
+    A bare ``MagicMock`` returns its canned list whatever the arguments, so it
+    cannot tell a pushed-down filter from an ignored one — an accept-and-ignore
+    fake would let a broken push-down go green. This stub models the store
+    contract instead: ``None`` means "do not filter on this axis", the two
+    filters combine with AND.
+    """
+    rows = list(seeded)
+
+    def list_teams(user_id: str | None = None, status: TeamStatus | None = None) -> list[Process]:
+        matched = rows if user_id is None else [p for p in rows if p.user_id == user_id]
+        return matched if status is None else [p for p in matched if p.status == status]
+
+    store = MagicMock()
+    store.list_teams.side_effect = list_teams
+    return store
+
+
 class TestLocalRuntimeCacheWarm:
     """warm() auto-restores running teams on startup."""
 
@@ -119,14 +142,25 @@ class TestLocalRuntimeCacheWarm:
         worker.resume_team.assert_called_once_with(team_id)
         assert cache.get(team_id) is handle
 
+    def test_warm_pushes_running_filter_to_store(self) -> None:
+        """The RUNNING filter is asked of the store, not applied in memory."""
+        cache = LocalRuntimeCache()
+
+        worker = MagicMock()
+        event_store = MagicMock()
+        event_store.list_teams.return_value = []
+
+        cache.warm(worker, event_store)
+
+        event_store.list_teams.assert_called_once_with(status=TeamStatus.RUNNING)
+
     def test_warm_skips_stopped_teams(self) -> None:
-        """Stopped teams are not restored."""
+        """Stopped teams are not restored — the store filters them out."""
         cache = LocalRuntimeCache()
         team_id = uuid.uuid4()
 
         worker = MagicMock()
-        event_store = MagicMock()
-        event_store.list_teams.return_value = [_make_process(team_id, TeamStatus.STOPPED)]
+        event_store = _filtering_store(_make_process(team_id, TeamStatus.STOPPED))
 
         cache.warm(worker, event_store)
 
@@ -149,6 +183,35 @@ class TestLocalRuntimeCacheWarm:
 
         assert cache.get(team_id) is None
 
+    def test_warm_continues_after_failed_team(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A broken team is skipped and reported; the rest of the batch is still restored."""
+        cache = LocalRuntimeCache()
+        broken_id, healthy_id = uuid.uuid4(), uuid.uuid4()
+        handle = MagicMock()
+
+        worker = MagicMock()
+        worker.resume_team.side_effect = [ValueError("broken"), handle]
+
+        event_store = _filtering_store(
+            _make_process(broken_id, TeamStatus.RUNNING),
+            _make_process(healthy_id, TeamStatus.RUNNING),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            cache.warm(worker, event_store)  # should not raise
+
+        assert cache.get(broken_id) is None
+        assert cache.get(healthy_id) is handle
+
+        # The skip must be reported, with the traceback attached — a swallowed
+        # failure that logs nothing is indistinguishable from a team that was
+        # never in the batch.
+        failures = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(failures) == 1
+        assert failures[0].getMessage() == f"Failed to restore team {broken_id}, skipping"
+        assert failures[0].exc_info is not None
+        assert failures[0].exc_info[0] is ValueError
+
     def test_warm_no_running_teams(self) -> None:
         """No running teams → no calls to worker."""
         cache = LocalRuntimeCache()
@@ -161,3 +224,39 @@ class TestLocalRuntimeCacheWarm:
 
         worker.stop_team.assert_not_called()
         worker.resume_team.assert_not_called()
+
+    def test_warm_logs_restore_count(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The restore count is logged once, before the restore loop."""
+        cache = LocalRuntimeCache()
+
+        worker = MagicMock()
+        event_store = _filtering_store(
+            _make_process(uuid.uuid4(), TeamStatus.RUNNING),
+            _make_process(uuid.uuid4(), TeamStatus.RUNNING),
+            _make_process(uuid.uuid4(), TeamStatus.STOPPED),
+        )
+
+        with caplog.at_level(logging.INFO):
+            cache.warm(worker, event_store)
+
+        announcements = [
+            i
+            for i, m in enumerate(caplog.messages)
+            if m == "Warming cache: restoring 2 running team(s)"
+        ]
+        per_team = [i for i, m in enumerate(caplog.messages) if m.startswith("Restored team:")]
+        assert len(announcements) == 1
+        assert len(per_team) == 2
+        assert announcements[0] < min(per_team)  # announced before the loop, not inside it
+
+    def test_warm_empty_result_emits_no_warming_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An empty store returns early — no restore announcement is logged."""
+        cache = LocalRuntimeCache()
+
+        worker = MagicMock()
+        event_store = _filtering_store()
+
+        with caplog.at_level(logging.INFO):
+            cache.warm(worker, event_store)
+
+        assert not [m for m in caplog.messages if m.startswith("Warming cache")]

@@ -72,15 +72,19 @@ class TeamService:
         logger.info("Team created: team_id=%s, catalog_entry=%s", process.team_id, catalog_entry_id)
         return process
 
-    def list_teams(self, user_id: str) -> list[Process]:
-        """List all teams for a given user.
+    def list_teams(self, user_id: str, status: TeamStatus | None = None) -> list[Process]:
+        """List a user's teams, optionally narrowed to one lifecycle state.
 
-        Pushes the ``user_id`` filter into the EventStore rather than loading
-        every team into Python and filtering here. Per-request cost scales with
-        the requesting user's team count, not with total teams across all
-        users. See team-package ADR-16 / Epic 19 for the Protocol change.
+        Both filters push into the EventStore rather than loading every team
+        into Python and filtering here. Per-request cost scales with the
+        requesting user's team count, not with total teams across all users.
+        ``status=None`` is *no status filter* — every state is returned,
+        ``DELETED`` included — so a caller that passes no status gets exactly
+        the result set it got before. ``status`` only narrows *within* the
+        user's teams; it never replaces the owner filter. See team-package
+        ADR-16 (owner) and ADR-23 (lifecycle state) for the Protocol changes.
         """
-        return self._services.event_store.list_teams(user_id=user_id)
+        return self._services.event_store.list_teams(user_id=user_id, status=status)
 
     def get_team(self, team_id: uuid.UUID) -> Process | None:
         """Get a single team by ID."""

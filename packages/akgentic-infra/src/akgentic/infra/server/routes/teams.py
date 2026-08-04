@@ -23,7 +23,7 @@ from akgentic.infra.server.models import (
 from akgentic.infra.server.routes._message_payload import decode_message, resolve_send_payload
 from akgentic.infra.server.services.team_service import TeamService
 from akgentic.team import EventNotFoundError
-from akgentic.team.models import Process
+from akgentic.team.models import Process, TeamStatus
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +69,19 @@ def create_team(
 
 @router.get("", response_model=TeamListResponse)
 def list_teams(
+    status: TeamStatus | None = None,
     user: RequestUser = Depends(get_request_user),
     service: TeamService = Depends(get_team_service),
 ) -> TeamListResponse:
-    """List all teams for the current user."""
-    logger.debug("GET /teams")
-    processes = service.list_teams(user_id=user.user_id)
+    """List the current user's teams, optionally filtered by lifecycle status.
+
+    ``status`` is validated by FastAPI against ``TeamStatus``; an unknown value
+    is a 422 raised by the framework, not handled here. Omitting it returns
+    every status, ``DELETED`` included. A status only narrows within the
+    caller's own teams — it never widens the set beyond them.
+    """
+    logger.debug("GET /teams status=%s", status)
+    processes = service.list_teams(user_id=user.user_id, status=status)
     return TeamListResponse(teams=[_process_to_response(p) for p in processes])
 
 
