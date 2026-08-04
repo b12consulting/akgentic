@@ -9,6 +9,7 @@ from akgentic.team.models import (
     AgentStateSnapshot,
     PersistedEvent,
     Process,
+    TeamStatus,
 )
 
 
@@ -90,19 +91,24 @@ class EventStore(Protocol):
         """
         ...
 
-    def list_teams(self, user_id: str | None = None) -> list[Process]:
+    def list_teams(
+        self, user_id: str | None = None, status: TeamStatus | None = None
+    ) -> list[Process]:
         """Load team process snapshots.
 
         Args:
             user_id: If provided, return only snapshots whose ``Process.user_id``
-                matches. If ``None`` (default), return all snapshots — used by
-                the CLI to enumerate every team in the store.
+                matches. If ``None`` (default), do not filter on the owner.
+            status: If provided, return only snapshots whose ``Process.status``
+                matches. If ``None`` (default), do not filter on the lifecycle
+                state — every status is returned, including ``DELETED``.
 
-        Implementations MUST push the filter down to the backend (SQL WHERE,
-        Mongo find filter, directory-walk skip) rather than load-all-then-filter
-        in Python — the multi-tenant infra layer calls this on every request.
+        Both filters are independent and combine with AND. Implementations MUST
+        push BOTH filters down to the backend (SQL WHERE, Mongo find filter,
+        directory-walk skip) rather than load-all-then-filter in Python — the
+        infra boot path lists RUNNING teams across the whole store.
 
-        See ADR-16 §1 for the additive, backwards-compatible Protocol change.
+        See ADR-23 §1 for the additive, backwards-compatible Protocol change.
         """
         ...
 

@@ -6,7 +6,7 @@ import logging
 import uuid
 from typing import Any
 
-from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process, TeamStatus
 from akgentic.team.ports import EventNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -92,9 +92,23 @@ class InMemoryEventStore:
         """Persist an agent state snapshot."""
         self.agent_states[(snapshot.team_id, snapshot.agent_id)] = snapshot
 
-    def list_teams(self) -> list[Process]:
-        """Load all team process snapshots."""
-        return list(self.teams.values())
+    def list_teams(
+        self, user_id: str | None = None, status: TeamStatus | None = None
+    ) -> list[Process]:
+        """Load team process snapshots, honouring both Protocol filters.
+
+        Kept at the full current Protocol shape so this fake cannot drift
+        from the real backends it stands in for: ``user_id`` and ``status``
+        are independent and combine with AND, and ``None`` on either means
+        "do not filter on that dimension" — so the no-arg call still returns
+        every team, ``DELETED`` ones included.
+        """
+        teams = list(self.teams.values())
+        if user_id is not None:
+            teams = [t for t in teams if t.user_id == user_id]
+        if status is not None:
+            teams = [t for t in teams if t.status == status]
+        return teams
 
     def get_max_sequence(self, team_id: uuid.UUID) -> int:
         """Return the highest event sequence number for a team, or 0."""

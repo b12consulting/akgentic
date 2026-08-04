@@ -3,7 +3,11 @@ name: CI
 on:
   push:
   pull_request:
-    branches: [master]
+    # version-1.3.x only, matching akgentic-infra's 1.3.x workflow. For
+    # pull_request GitHub loads the workflow from the BASE branch, so a PR
+    # targeting master runs master's ci.yml, never this file — listing master
+    # here would be dead config implying a trigger that cannot fire.
+    branches: [version-1.3.x]
   workflow_dispatch:
 
 env:
@@ -34,29 +38,15 @@ jobs:
       POSTGRES_DB: akgentic_test
       DB_CONN_STRING_PERSISTENCE: postgresql://akgentic:akgentic@localhost:5432/akgentic_test
     steps:
-      - name: Checkout workspace
+      # Self-contained checkout of this repo only. The previous 1.3.x workflow
+      # checked out b12consulting/akgentic-quick-start at a pinned ref and then
+      # cd'd into packages/akgentic-team to override it. That ref carries only
+      # the three enterprise-tier submodules (infra-enterprise, infra-department,
+      # infra-auth) — packages/akgentic-team does not exist there — so the
+      # override step died with "No such file or directory" before a single test
+      # ran. This model has no cross-repo dependency to go stale.
+      - name: Checkout akgentic-team
         uses: actions/checkout@v6
-        with:
-          repository: b12consulting/akgentic-quick-start
-          # Pin to the 1.x-compatible workspace; the default branch (master) is
-          # stale and not compatible with the enterprise alpha line.
-          ref: feat/enterprise-alpha-release-4
-          submodules: recursive
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Override team submodule with current branch
-        working-directory: packages/akgentic-team
-        run: |
-          git fetch origin ${{ github.head_ref || github.ref_name }}
-          git checkout FETCH_HEAD
-
-      - name: Ensure team package in workspace
-        run: |
-          if ! grep -q 'akgentic-team' pyproject.toml; then
-            sed -i 's/"akgentic-catalog",/"akgentic-catalog",\n    "akgentic-team",/' pyproject.toml
-            sed -i 's|"packages/akgentic-catalog",|"packages/akgentic-catalog",\n    "packages/akgentic-team",|' pyproject.toml
-            sed -i 's/akgentic-catalog = { workspace = true }/akgentic-catalog = { workspace = true }\nakgentic-team = { workspace = true }/' pyproject.toml
-          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -66,23 +56,34 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install dependencies
-        run: uv sync --all-packages --all-extras
+      - name: Create virtual environment
+        run: uv venv
 
+      # akgentic-core resolves from PyPI under the bounds in pyproject.toml.
+      # All extras are listed so mypy can analyze their imports.
+      - name: Install dependencies
+        run: uv pip install -e ".[dev,mongo,postgres,cli]"
+
+      # --no-sync: run in the venv built above without re-resolving from a
+      # lockfile (there is no project lockfile in this install model).
       - name: Type checking
-        run: uv run mypy packages/akgentic-team/src/
+        run: uv run --no-sync mypy src/
 
       - name: Linting
-        run: uv run ruff check packages/akgentic-team/src/
+        run: uv run --no-sync ruff check src/
 
+      # pyproject's addopts already carries -m 'not integration', so the
+      # LLM/API-key suite stays deselected without a flag here.
       - name: Run tests with coverage
         run: >
-          uv run pytest packages/akgentic-team/tests/
+          uv run --no-sync pytest tests/
           --cov=akgentic.team
           --cov-report=term-missing
           --cov-report=json:coverage.json
           --cov-fail-under=80
 
+      # Deliberately master-only: the badge gist reflects the mainline, and a
+      # 1.3.x push must not overwrite it. This step is inert on this branch.
       - name: Update coverage badge
         if: github.ref_name == 'master' && github.event_name == 'push'
         run: |

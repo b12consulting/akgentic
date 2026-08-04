@@ -21,10 +21,11 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 import yaml
 
-from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process, TeamStatus
 from akgentic.team.ports import EventNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,86 @@ class YamlEventStore:
         self._atomic_write(team_path, process.model_dump())
         logger.debug("Saved team %s to %s", process.team_id, team_path)
 
+    def _load_team_data(self, team_id: uuid.UUID) -> Any:
+        """Read and parse team.yaml WITHOUT validating it.
+
+        Splitting the read from the validation is what lets ``list_teams``
+        decide whether it wants a team before paying for
+        ``Process.model_validate`` — see ADR-23 §3.
+
+        Args:
+            team_id: Unique identifier of the team.
+
+        Returns:
+            The raw parsed document — normally a mapping, but any YAML shape
+            is possible — or None if the file is absent or unparseable.
+        """
+        team_path = self._team_dir(team_id) / "team.yaml"
+        if not team_path.exists():
+            return None
+        try:
+            with open(team_path) as f:
+                return yaml.safe_load(f)
+        except (yaml.YAMLError, ValueError) as exc:
+            # ValueError is load-bearing, not defensive padding: a file that
+            # is not valid UTF-8 fails in the text stream's decode inside
+            # safe_load and surfaces as UnicodeDecodeError, a ValueError that
+            # is NOT a yaml.YAMLError. Together with the ValueError clause in
+            # _validate_team_data this reproduces exactly the one
+            # (yaml.YAMLError, ValueError) clause load_team used to have, so
+            # unreadable bytes stay a skip and never escape a list_teams call.
+            logger.error("Corrupted team.yaml for team %s: %s", team_id, exc)
+            return None
+
+    def _validate_team_data(self, team_id: uuid.UUID, data: Any) -> Process | None:
+        """Hydrate a raw parsed document into a Process.
+
+        Args:
+            team_id: Unique identifier of the team, for the error log.
+            data: Raw parsed document as returned by ``_load_team_data``.
+
+        Returns:
+            The validated Process, or None if the document is corrupted.
+            Pydantic's ValidationError is a ValueError subclass, which is
+            why the clause is not narrowed to ValidationError.
+        """
+        try:
+            return Process.model_validate(data)
+        except ValueError as exc:
+            logger.error("Corrupted team.yaml for team %s: %s", team_id, exc)
+            return None
+
+    @staticmethod
+    def _matches(data: Any, user_id: str | None, status: TeamStatus | None) -> bool:
+        """Test a RAW parsed team.yaml mapping against the requested filters.
+
+        ``TeamStatus`` is a ``StrEnum`` and ``save_team`` persists
+        ``model_dump()`` output, so the stored values are plain strings that
+        already compare equal to the enum members — no round-trip needed.
+        A document that is not a mapping cannot match a filter, so it is
+        skipped one step ahead of the corrupted-document skip that catches
+        it today. With no filter at all it is passed through untouched, so
+        the unfiltered result set — corrupted-document log line included —
+        does not move (ADR-23 §3).
+
+        Args:
+            data: Raw parsed document as returned by ``_load_team_data``.
+            user_id: Owning-user filter, or None for no user filter.
+            status: Lifecycle-state filter, or None for no status filter.
+
+        Returns:
+            True if the document should be hydrated and returned.
+        """
+        if user_id is None and status is None:
+            return True
+        if not isinstance(data, dict):
+            return False
+        if user_id is not None and data.get("user_id") != user_id:
+            return False
+        if status is not None and data.get("status") != status:
+            return False
+        return True
+
     def load_team(self, team_id: uuid.UUID) -> Process | None:
         """Load a team process snapshot from team.yaml.
 
@@ -96,39 +177,51 @@ class YamlEventStore:
             team_id: Unique identifier of the team.
 
         Returns:
-            The deserialized Process, or None if no team.yaml exists.
+            The deserialized Process, or None if no team.yaml exists or the
+            document is corrupted.
         """
-        team_path = self._team_dir(team_id) / "team.yaml"
-        if not team_path.exists():
+        data = self._load_team_data(team_id)
+        if data is None:
+            # Also the empty-file case: an empty team.yaml parses to None.
+            # It used to reach Process.model_validate and emit the corrupted-
+            # document error log before returning None. The return value is
+            # unchanged; only that log line is gone. Deliberate, ADR-23 §6.
             return None
-        try:
-            with open(team_path) as f:
-                data = yaml.safe_load(f)
-            process = Process.model_validate(data)
-        except (yaml.YAMLError, ValueError) as exc:
-            logger.error("Corrupted team.yaml for team %s: %s", team_id, exc)
+        process = self._validate_team_data(team_id, data)
+        if process is None:
             return None
-        logger.debug("Loaded team %s from %s", team_id, team_path)
+        logger.debug("Loaded team %s from %s", team_id, self._team_dir(team_id) / "team.yaml")
         return process
 
-    def list_teams(self, user_id: str | None = None) -> list[Process]:
-        """Load all team process snapshots from the data directory.
+    def list_teams(
+        self, user_id: str | None = None, status: TeamStatus | None = None
+    ) -> list[Process]:
+        """Load matching team process snapshots from the data directory.
 
         Iterates subdirectories of ``data_dir``, attempts to parse each
-        directory name as a UUID, and loads the team snapshot for valid
+        directory name as a UUID, and reads the team snapshot for valid
         team directories. Non-UUID directories are skipped with a warning.
-        When ``user_id`` is provided, non-matching snapshots are skipped
-        in-memory during the iteration (skip-on-load) rather than after
-        the loop — see ADR-16 §3.
+
+        BOTH filters are evaluated on the raw parsed mapping, ahead of
+        ``Process.model_validate``, so a team that will not be returned is
+        never hydrated into a full ``TeamCard`` object graph (ADR-23 §3).
+        That is why this reads through ``_load_team_data`` instead of
+        calling ``load_team``: going back through ``load_team`` for the
+        survivors would re-read and re-parse each file. The walk itself is
+        still O(total teams) — this is a constant-factor win, nothing more.
 
         Args:
             user_id: If provided, return only snapshots whose
                 ``Process.user_id`` matches. If ``None`` (default), return all
                 snapshots. See ADR-16 §1.
+            status: If provided, return only snapshots whose
+                ``Process.status`` matches. If ``None`` (default), every
+                lifecycle state is returned, including ``DELETED``. Combines
+                with ``user_id`` by AND. See ADR-23 §1.
 
         Returns:
             List of all loadable Process snapshots (filtered by ``user_id``
-            when provided).
+            and ``status`` when provided).
         """
         if not self._data_dir.exists():
             return []
@@ -141,13 +234,13 @@ class YamlEventStore:
             except ValueError:
                 logger.warning("Skipping non-team directory: %s", child.name)
                 continue
-            process = self.load_team(team_id)
-            if process is None:
+            data = self._load_team_data(team_id)
+            if data is None or not self._matches(data, user_id, status):
                 continue
-            # Skip-on-load user_id filter (ADR-16 §3): discard non-matching
-            # snapshots in-memory before appending. No new I/O — the load
-            # already happened; we just don't keep the result.
-            if user_id is not None and process.user_id != user_id:
+            # A survivor that fails validation is still dropped rather than
+            # raised on, exactly as it was when load_team returned None.
+            process = self._validate_team_data(team_id, data)
+            if process is None:
                 continue
             teams.append(process)
         return teams
