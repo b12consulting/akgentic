@@ -8,9 +8,24 @@ authors = [
     { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
 ]
 keywords = ["agents", "ai", "akgentic"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
+# akgentic-* bounds: floor = the version this release was developed against,
+# ceiling = next major. Loose-but-capped keeps each package independently
+# releasable (a core patch does not force a rebump here) while stopping a
+# breaking major from being installed silently. Exact coherence for a release
+# set is the meta-package's job, not this file's — see scripts/build_bundle.py.
 dependencies = [
-    "akgentic-core",
+    "akgentic-core>=1.5.0,<2",
     "pydantic>=2.0.0",
     "tavily-python>=0.7.12",
     "pydantic-ai>=1.107.0,<2",
