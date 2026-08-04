@@ -129,3 +129,12 @@ jobs:
                 && 'https://test.pypi.org/legacy/'
                 || 'https://upload.pypi.org/legacy/' }}
           print-hash: true
+          # Subpackages version independently, so any given run only has new
+          # versions for *some* of the 8. PyPI rejects a re-upload of an
+          # existing version, which would fail every run after the first
+          # without this. The effect is "publish whatever is new".
+          #
+          # Trade-off: a forgotten version bump is skipped silently rather
+          # than reported as an error. The per-project job names and
+          # print-hash output are what make it visible in the run log.
+          skip-existing: true
