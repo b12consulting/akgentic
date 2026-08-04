@@ -25,6 +25,57 @@ This root package serves as the **quick-start entry point** for the Akgentic fra
 
 ### Installation
 
+Akgentic is on PyPI. To install the whole framework:
+
+```bash
+pip install "akgentic-framework[all]"
+```
+
+Add the optional backends and heavier tool extras (Mongo persistence, vector
+search, document parsing, …):
+
+```bash
+pip install "akgentic-framework[all-extras]"
+```
+
+`akgentic-framework` is a meta-distribution: it contains no code of its own,
+only a pinned set of requirements, so an extra installs the exact subpackage
+versions that were built and tested together for that release.
+
+#### À la carte
+
+Extras compose, and each pulls its own transitive akgentic dependencies —
+`[agent]` brings `akgentic-llm` and `akgentic-tool` with it, `[infra]` brings
+the whole set.
+
+| Extra | Installs |
+|---|---|
+| `llm` | `akgentic-llm` |
+| `tool` | `akgentic-tool` |
+| `agent` | `akgentic-agent` |
+| `team` | `akgentic-team` |
+| `catalog` | `akgentic-catalog` |
+| `infra` | `akgentic-infra` |
+
+```bash
+pip install "akgentic-framework[agent,catalog]"
+```
+
+The base install is the actor framework alone (`akgentic.core`), so it stays a
+usable minimal floor:
+
+```bash
+pip install akgentic-framework
+```
+
+Subpackages can also be installed directly — `pip install akgentic-agent` —
+which is the right choice when you depend on one part and do not want a
+release-wide pin.
+
+#### From source
+
+For contributing, or to run the examples below:
+
 ```bash
 # 1. Clone the repository with submodules
 git clone https://github.com/b12consulting/akgentic-framework.git
