@@ -37,7 +37,7 @@ except ImportError as exc:
 
 from pymongo.errors import PyMongoError
 
-from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process, TeamStatus
 from akgentic.team.ports import EventNotFoundError
 
 if TYPE_CHECKING:
@@ -58,6 +58,83 @@ _DEFAULT_TEAMS_COLLECTION = "teams"
 _DEFAULT_EVENTS_COLLECTION = "events"
 _DEFAULT_AGENT_STATES_COLLECTION = "agent_states"
 
+_AUTO_INDEX_ENV = "MONGO_TEAM_AUTO_INDEX"
+# Values that switch the boot-time build off. Anything else — including an
+# unset or empty variable — leaves it on.
+_AUTO_INDEX_DISABLING_VALUES = frozenset({"0", "false", "no"})
+
+# (key, index name) for the teams-collection indexes backing list_teams.
+# The name and key spec of teams_status_idx are load-bearing — see the
+# docstring of ensure_indexes.
+_TEAM_INDEX_SPECS: tuple[tuple[str, str], ...] = (
+    ("user_id", "teams_user_id_idx"),
+    ("status", "teams_status_idx"),
+)
+
+
+def _teams_collection_name() -> str:
+    """Resolve the teams collection name from the environment."""
+    return os.environ.get(_TEAMS_COLLECTION_ENV) or _DEFAULT_TEAMS_COLLECTION
+
+
+def _resolve_auto_index(explicit: bool | None) -> bool:
+    """Decide whether construction should provision the teams indexes.
+
+    An explicit ``True``/``False`` wins outright; ``None`` consults
+    ``MONGO_TEAM_AUTO_INDEX``, where ``0`` / ``false`` / ``no``
+    (case-insensitive) disable and anything else — unset or empty included —
+    leaves the default on.
+    """
+    if explicit is not None:
+        return explicit
+    raw = os.environ.get(_AUTO_INDEX_ENV)
+    if not raw:
+        return True
+    return raw.strip().lower() not in _AUTO_INDEX_DISABLING_VALUES
+
+
+def ensure_indexes(
+    db: pymongo.database.Database,  # type: ignore[type-arg]
+) -> None:
+    """Create the teams-collection indexes backing the list_teams push-downs.
+
+    Creates ``teams_user_id_idx`` (``{"user_id": 1}``) and ``teams_status_idx``
+    (``{"status": 1}``) on the collection named by ``MONGO_TEAMS_COLLECTION``
+    (default ``teams``). The name and key spec of ``teams_status_idx`` are
+    load-bearing: the enterprise orphan reconciler probes for exactly that name
+    and stays fail-closed while it is absent, so a rename leaves its sweeps
+    silently suspended.
+
+    Idempotent — ``create_index`` returns silently when an index of the same
+    name and key spec already exists, so this is safe across redeploys and safe
+    to call from a constructor, an init container or a migration job alike. It
+    is guarded per index: a backend that rejects a spec is logged at WARNING and
+    skipped, never raised, and a rejection of one index does not skip the other.
+    An index is an optimization; refusing to start is the worse outcome
+    (ADR-16 §5, ADR-23 §5).
+
+    This covers the **teams** collection only. The ``events`` and
+    ``agent_states`` indexes stay in :meth:`MongoEventStore.__init__` and are
+    not affected by ``MONGO_TEAM_AUTO_INDEX``.
+
+    Args:
+        db: Database holding the teams collection.
+    """
+    teams = db[_teams_collection_name()]
+    for key, name in _TEAM_INDEX_SPECS:
+        try:
+            teams.create_index(key, name=name)
+        except PyMongoError:
+            logger.warning(
+                "Could not create index '%s' on '%s.%s'; list_teams filters fall back "
+                "to a collection scan and degrade on large team collections. "
+                "Results stay correct.",
+                name,
+                teams.name,
+                key,
+                exc_info=True,
+            )
+
 
 class MongoEventStore:
     """MongoDB-backed EventStore using pymongo collections.
@@ -76,11 +153,26 @@ class MongoEventStore:
 
     Args:
         db: A pymongo Database instance connected to the target MongoDB server.
+        auto_create_indexes: Whether construction provisions the teams-collection
+            indexes via :func:`ensure_indexes`. Defaults to ``None``, which
+            consults ``MONGO_TEAM_AUTO_INDEX`` (``0`` / ``false`` / ``no``,
+            case-insensitive, disable; unset, empty or anything else leaves it
+            on). An explicit ``True``/``False`` beats the environment. Both the
+            argument and the env var cover the **teams** collection only — the
+            ``events`` and ``agent_states`` indexes below are always created.
+            Switch it off where the teams collection is too large to absorb a
+            foreground build at boot, and run
+            ``python -m akgentic.team.scripts.init_mongo`` out of band instead.
     """
 
-    def __init__(self, db: pymongo.database.Database) -> None:  # type: ignore[type-arg]
+    def __init__(
+        self,
+        db: pymongo.database.Database,  # type: ignore[type-arg]
+        *,
+        auto_create_indexes: bool | None = None,
+    ) -> None:
         self._db = db
-        teams_name = os.environ.get(_TEAMS_COLLECTION_ENV) or _DEFAULT_TEAMS_COLLECTION
+        teams_name = _teams_collection_name()
         events_name = os.environ.get(_EVENTS_COLLECTION_ENV) or _DEFAULT_EVENTS_COLLECTION
         agent_states_name = (
             os.environ.get(_AGENT_STATES_COLLECTION_ENV) or _DEFAULT_AGENT_STATES_COLLECTION
@@ -94,11 +186,6 @@ class MongoEventStore:
         self._agent_states.create_index(
             [("team_id", 1), ("agent_id", 1)], unique=True
         )
-        # ADR-16 §5: B-tree index backing the ``list_teams(user_id=...)`` push-down.
-        # ``create_index`` is idempotent — re-running the constructor against the
-        # same database returns silently when an index with the same key spec
-        # already exists, so this is safe across redeploys.
-        self._teams.create_index("user_id", name="teams_user_id_idx")
         # ADR-21 §5: backs the load_events(after_event_id=...) anchor lookup.
         # Single-field on the nested path, NOT compound with team_id: Cosmos for
         # MongoDB rejects compound indexes on nested paths unless the account sets
@@ -120,6 +207,14 @@ class MongoEventStore:
                 events_name,
                 exc_info=True,
             )
+        # Teams-collection indexes, on by default (parity with how
+        # teams_user_id_idx behaved before the opt-out existed) and suppressible
+        # for a deployment whose teams collection cannot absorb a foreground
+        # build. Scoped to the teams collection: the three calls above are NOT
+        # gated. Passing db, not self._teams, so the same routine serves the
+        # constructor and the init container.
+        if _resolve_auto_index(auto_create_indexes):
+            ensure_indexes(db)
         logger.debug("Initialized MongoEventStore with database '%s'", db.name)
 
     def save_team(self, process: Process) -> None:
@@ -182,26 +277,40 @@ class MongoEventStore:
         logger.debug("Loaded team %s", team_id)
         return process
 
-    def list_teams(self, user_id: str | None = None) -> list[Process]:
+    def list_teams(
+        self, user_id: str | None = None, status: TeamStatus | None = None
+    ) -> list[Process]:
         """Load team process snapshots from the teams collection.
 
-        When ``user_id`` is provided, the filter is pushed down into the
-        Mongo ``find`` call as ``{"user_id": user_id}`` and runs in MongoDB
-        against the ``teams_user_id_idx`` B-tree index (created in
-        ``__init__``) — not in Python after hydration. When ``user_id`` is
-        ``None``, the call issues ``find({})`` and returns every team.
-        Corrupted documents are skipped with a warning. See ADR-16 §5.
+        Both filters are pushed into the same Mongo ``find`` filter dict —
+        ``{"user_id": ...}`` and ``{"status": ...}``. A parameter left at
+        ``None`` contributes no key, so ``list_teams()`` issues ``find({})``
+        and returns every team; supplying both yields one query whose terms
+        AND. The selection happens in MongoDB, never in Python after
+        hydration. The indexes (``teams_user_id_idx`` and
+        ``teams_status_idx``, both provisioned by :func:`ensure_indexes`)
+        only make the scan cheaper — an unindexed filter still returns the
+        right teams. Corrupted documents are skipped with a warning. See
+        ADR-16 §5 and ADR-23 §§5-6.
 
         Args:
             user_id: If provided, return only snapshots whose
-                ``Process.user_id`` matches via a Mongo backend filter.
-                If ``None`` (default), return all snapshots. See ADR-16 §1.
+                ``Process.user_id`` matches. If ``None`` (default), the
+                filter carries no ``user_id`` key. See ADR-16 §1.
+            status: If provided, return only snapshots whose
+                ``Process.status`` matches. If ``None`` (default), every
+                lifecycle state is returned, including ``DELETED``. Combines
+                with ``user_id`` by AND. See ADR-23 §1.
 
         Returns:
-            List of loadable Process snapshots (filtered by ``user_id``
-            at the database level when provided).
+            List of loadable Process snapshots, filtered at the database
+            level by whichever of ``user_id`` and ``status`` were given.
         """
-        query: dict[str, str] = {"user_id": user_id} if user_id is not None else {}
+        query: dict[str, str] = {}
+        if user_id is not None:
+            query["user_id"] = user_id
+        if status is not None:
+            query["status"] = status
         teams: list[Process] = []
         for doc in self._teams.find(query):
             doc.pop("_id", None)

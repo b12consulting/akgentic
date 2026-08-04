@@ -137,6 +137,105 @@ class TestEventStoreContract:
         assert {p.team_id for p in result} == {p_empty.team_id}
         assert len(result) == 1
 
+    def test_list_teams_status_none_equals_no_arg_and_includes_deleted(
+        self, event_store: EventStore
+    ) -> None:
+        """``status=None`` means *no status filter*, not "not deleted".
+
+        A backend that quietly excluded ``DELETED`` from the unfiltered
+        result would move the default result set — the one thing the
+        additive parameter must never do. A caller that wants only live
+        teams asks for them explicitly.
+        """
+        running = make_process(status=TeamStatus.RUNNING)
+        stopped = make_process(status=TeamStatus.STOPPED)
+        deleted = make_process(status=TeamStatus.DELETED)
+        for process in (running, stopped, deleted):
+            event_store.save_team(process)
+
+        no_arg_ids = {p.team_id for p in event_store.list_teams()}
+        with_none_ids = {p.team_id for p in event_store.list_teams(status=None)}
+
+        assert with_none_ids == no_arg_ids
+        assert deleted.team_id in with_none_ids
+        assert with_none_ids == {running.team_id, stopped.team_id, deleted.team_id}
+
+    def test_list_teams_filters_by_status(self, event_store: EventStore) -> None:
+        """``list_teams(status=...)`` returns exactly the snapshots in that state."""
+        r1 = make_process(status=TeamStatus.RUNNING)
+        r2 = make_process(status=TeamStatus.RUNNING)
+        stopped = make_process(status=TeamStatus.STOPPED)
+        deleted = make_process(status=TeamStatus.DELETED)
+        for process in (r1, r2, stopped, deleted):
+            event_store.save_team(process)
+
+        running_result = event_store.list_teams(status=TeamStatus.RUNNING)
+        assert {p.team_id for p in running_result} == {r1.team_id, r2.team_id}
+        assert all(p.status == TeamStatus.RUNNING for p in running_result)
+
+        deleted_result = event_store.list_teams(status=TeamStatus.DELETED)
+        assert {p.team_id for p in deleted_result} == {deleted.team_id}
+        assert len(deleted_result) == 1
+
+    def test_list_teams_user_id_still_accepts_a_positional_argument(
+        self, event_store: EventStore
+    ) -> None:
+        """``status`` was appended, not inserted: ``list_teams("u1")`` still works.
+
+        The whole point of appending the parameter is that no existing
+        call site moves. Pinned across all three backends because stories
+        26.2 / 26.3 / 26.5 rewrite each of these method bodies — reordering
+        the parameters, or making them keyword-only, would break positional
+        callers silently and no other test would notice.
+        """
+        p1 = make_process(user_id="u1")
+        p2 = make_process(user_id="u2")
+        event_store.save_team(p1)
+        event_store.save_team(p2)
+
+        positional = event_store.list_teams("u1")
+        keyword = event_store.list_teams(user_id="u1")
+
+        assert {p.team_id for p in positional} == {p.team_id for p in keyword}
+        assert {p.team_id for p in positional} == {p1.team_id}
+
+    def test_list_teams_user_id_and_status_return_the_intersection(
+        self, event_store: EventStore
+    ) -> None:
+        """``user_id`` and ``status`` together select the intersection.
+
+        Each user owns one running and one stopped team, so every single
+        term matches two teams and only the conjunction narrows to one. A
+        backend that ORed the terms, or honoured just one of them, would
+        return two or three teams here.
+        """
+        u1_running = make_process(user_id="u1", status=TeamStatus.RUNNING)
+        u1_stopped = make_process(user_id="u1", status=TeamStatus.STOPPED)
+        u2_running = make_process(user_id="u2", status=TeamStatus.RUNNING)
+        u2_stopped = make_process(user_id="u2", status=TeamStatus.STOPPED)
+        for process in (u1_running, u1_stopped, u2_running, u2_stopped):
+            event_store.save_team(process)
+
+        result = event_store.list_teams(user_id="u1", status=TeamStatus.RUNNING)
+        assert {p.team_id for p in result} == {u1_running.team_id}
+
+        stopped = event_store.list_teams(user_id="u2", status=TeamStatus.STOPPED)
+        assert {p.team_id for p in stopped} == {u2_stopped.team_id}
+
+    def test_list_teams_user_id_and_status_with_no_common_team_returns_empty(
+        self, event_store: EventStore
+    ) -> None:
+        """A combination no single team satisfies returns ``[]``, never a union.
+
+        ``u2`` owns a team and a running team exists, so both terms match
+        something on their own — but no one team matches both. AND yields
+        ``[]``; OR would yield two.
+        """
+        event_store.save_team(make_process(user_id="u1", status=TeamStatus.RUNNING))
+        event_store.save_team(make_process(user_id="u2", status=TeamStatus.STOPPED))
+
+        assert event_store.list_teams(user_id="u2", status=TeamStatus.RUNNING) == []
+
     # --- save_event / load_events ordering --------------------------------
 
     def test_save_and_load_events_in_sequence_order(self, event_store: EventStore) -> None:

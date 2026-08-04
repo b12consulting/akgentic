@@ -1,6 +1,6 @@
 [project]
 name = "akgentic-team"
-version = "1.3.5"
+version = "1.3.6"
 description = "Team lifecycle management — create, resume, stop, delete teams with event-sourced persistence"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -8,10 +8,28 @@ authors = [
     { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
 ]
 keywords = ["agents", "ai", "akgentic", "teams", "lifecycle"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
+# akgentic-* bounds: floor = version on this maintenance line, ceiling = next
+# minor. The ceiling is what stops a 1.3.x install from resolving to a 2.x-line
+# subpackage release already on PyPI.
 dependencies = [
     "pydantic>=2.0.0",
-    "akgentic-core",
+    # YamlEventStore and the CLI import `yaml` directly. Undeclared until now:
+    # it resolved only because a sibling package pulled PyYAML into the shared
+    # workspace environment, so a standalone install raised ImportError at
+    # first use. Standalone CI is what surfaced it.
+    "pyyaml>=6.0",
+    "akgentic-core>=1.3.3,<1.4",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +47,7 @@ dev = [
     "nagra>=0.5",
     "psycopg[binary]>=3.1",
     "testcontainers[postgres]>=4.0.0",
+    "types-PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -38,8 +57,12 @@ ak-team = "akgentic.team.cli.main:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv.sources]
-akgentic-core = { workspace = true }
+# Note: akgentic-* dependencies have NO [tool.uv.sources] entry here.
+# - Inside the akgentic-quick-start workspace, the workspace root's
+#   [tool.uv.sources] resolves them as editable workspace members.
+# - In standalone CI, they resolve from PyPI under the bounds declared above.
+# A `akgentic-core = { workspace = true }` entry here is fatal standalone:
+# uv rejects a workspace source whose member does not exist.
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akgentic"]
@@ -59,7 +82,18 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 markers = ["integration: Full lifecycle tests requiring real LLM and API keys"]
-addopts = "-m 'not integration'"
+# --ignore: test_llm_lifecycle.py imports akgentic.agent at module scope, which
+# is not a dependency of akgentic-team. Collection therefore fails with
+# ModuleNotFoundError before the 'not integration' marker filter can deselect
+# it — a marker filters at run time, it does not prevent import. This went
+# unnoticed while CI installed the whole akgentic-quick-start workspace, where
+# akgentic-agent is present; standalone CI surfaced it.
+# DELIBERATE DIVERGENCE FROM master, which ignores all of tests/integration.
+# Only test_llm_lifecycle.py imports akgentic.agent; the other four modules in
+# that directory import akgentic.core only and contribute 16 passing tests
+# (factory, lifecycle, persistence, process_human_input). Ignoring the whole
+# directory would drop them silently.
+addopts = "-m 'not integration' --ignore=tests/integration/test_llm_lifecycle.py"
 
 [tool.ruff]
 target-version = "py312"

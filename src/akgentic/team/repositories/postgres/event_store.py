@@ -20,7 +20,7 @@ import uuid
 
 from nagra import Transaction  # type: ignore[import-untyped]
 
-from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process
+from akgentic.team.models import AgentStateSnapshot, PersistedEvent, Process, TeamStatus
 from akgentic.team.ports import EventNotFoundError
 from akgentic.team.repositories.postgres._queries import decode_jsonb_column
 
@@ -70,7 +70,9 @@ class NagraEventStore:
             return None
         return Process.model_validate(decode_jsonb_column(row[0]))
 
-    def list_teams(self, user_id: str | None = None) -> list[Process]:
+    def list_teams(
+        self, user_id: str | None = None, status: TeamStatus | None = None
+    ) -> list[Process]:
         """Return persisted team processes. Order is unspecified.
 
         When ``user_id`` is provided, the filter is pushed down to the
@@ -79,11 +81,17 @@ class NagraEventStore:
         expression index ``team_process_user_id_idx`` created by
         :func:`init_db`. ``user_id`` is bound through psycopg's ``%s``
         placeholder — no f-strings, no string concatenation. See ADR-16 §4.
+        ``status`` is filtered on the hydrated rows instead; see the comment
+        at the filter for why that is the shipped behaviour here.
 
         Args:
             user_id: If provided, return only snapshots whose
                 ``Process.user_id`` matches. If ``None`` (default), return all
                 snapshots. See ADR-16 §1.
+            status: If provided, return only snapshots whose
+                ``Process.status`` matches. If ``None`` (default), every
+                lifecycle state is returned, including ``DELETED``. Combines
+                with ``user_id`` by AND. See ADR-23 §1.
         """
         with Transaction(self._conn_string) as trn:
             if user_id is None:
@@ -95,7 +103,16 @@ class NagraEventStore:
                     (user_id,),
                 )
             rows = cursor.fetchall()
-        return [Process.model_validate(decode_jsonb_column(r[0])) for r in rows]
+        teams = [Process.model_validate(decode_jsonb_column(r[0])) for r in rows]
+        # In-memory status filter, applied after hydration rather than as a
+        # ``WHERE`` term. The Postgres push-down (accumulated WHERE clauses
+        # plus the status expression index, story 26.5) is DEFERRED, so this
+        # discard is the current shipped behaviour of this backend and not a
+        # placeholder awaiting replacement. Results are correct either way;
+        # what is missing is only the row-count reduction at the database.
+        if status is not None:
+            teams = [t for t in teams if t.status == status]
+        return teams
 
     def delete_team(self, team_id: uuid.UUID) -> None:
         """Cascade-delete a team across all three tables in ONE transaction.
