@@ -22,6 +22,7 @@ Two modes, one source of truth for versions and pins:
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import tarfile
@@ -140,62 +141,75 @@ def render_extras_table() -> str:
     return "| Subpackage | Available extras |\n|---|---|\n" + "\n".join(rows)
 
 
+# Where relative README paths have to point once the README is rendered on PyPI,
+# which serves none of the repository's files.
+GITHUB_REPO = "https://github.com/b12consulting/akgentic-framework"
+GITHUB_RAW = "https://raw.githubusercontent.com/b12consulting/akgentic-framework/master"
+# Tracked with the README rather than pinned to a tag: the publish workflow runs
+# after the release tag on a normal release, but not necessarily on a re-run, and
+# a broken image is worse than one that follows master.
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg")
+
+
+def absolutize_readme_links(markdown: str) -> str:
+    """Rewrite the README's repo-relative links and images to absolute URLs.
+
+    PyPI renders the long description outside the repository, so `akgents.png`
+    or `packages/akgentic-core/README.md` would 404. Images need raw.github,
+    everything else needs the blob/tree view.
+    """
+
+    def repo_url(path: str) -> str:
+        clean = path.split("#", 1)[0]
+        if clean.endswith(IMAGE_SUFFIXES):
+            return f"{GITHUB_RAW}/{path}"
+        # A trailing slash means a directory listing, which is `tree`, not `blob`.
+        view = "tree" if clean.endswith("/") else "blob"
+        return f"{GITHUB_REPO}/{view}/master/{path}"
+
+    def sub_markdown(match: re.Match[str]) -> str:
+        text, target = match.group(1), match.group(2)
+        if re.match(r"^(https?:|mailto:|#)", target):
+            return match.group(0)
+        return f"[{text}]({repo_url(target)})"
+
+    def sub_html_src(match: re.Match[str]) -> str:
+        target = match.group(1)
+        if re.match(r"^(https?:|data:)", target):
+            return match.group(0)
+        return f'src="{repo_url(target)}"'
+
+    # `[text](target)` — the text may itself contain brackets (nested images in
+    # badge links), so match it non-greedily rather than excluding `]`.
+    out = re.sub(r"\[(.*?)\]\(([^)\s]+)\)", sub_markdown, markdown)
+    return re.sub(r'src="([^"]+)"', sub_html_src, out)
+
+
+def check_readme_documents_extras(markdown: str, extras: dict[str, list[str]]) -> None:
+    """Fail the build if README.md's extras table has drifted from the real extras.
+
+    The table used to be generated, which made drift impossible. It now lives in
+    the README so that PyPI and the repository show the same page — this check is
+    what keeps the old guarantee.
+    """
+    expected = {name for name in extras if name not in {"all", "all-extras"}}
+    documented = set(re.findall(r"^\| `([a-z-]+)` \| `akgentic-", markdown, re.MULTILINE))
+    if documented != expected:
+        missing = ", ".join(sorted(expected - documented)) or "—"
+        extra = ", ".join(sorted(documented - expected)) or "—"
+        raise SystemExit(
+            "::error::README.md's extras table is out of sync with the real extras.\n"
+            f"  missing from README: {missing}\n"
+            f"  in README but not real: {extra}\n"
+            "  Update the 'À la carte' table in README.md."
+        )
+
+
 def render_framework_readme(version: str, extras: dict[str, list[str]]) -> str:
-    """Long description for the `akgentic-framework` meta-distribution (shown on PyPI)."""
-    rows = "\n".join(
-        f"| `{name}` | " + ", ".join(f"`{d}`" for d in deps) + " |"
-        for name, deps in extras.items()
-        if name not in {"all", "all-extras"}
-    )
-    return f"""# akgentic-framework {version}
-
-Meta-distribution for the akgentic framework. It contains no code — only a
-pinned, coherent set of requirements. Installing an extra pulls the exact
-subpackage versions that were built and tested together for release {version}.
-
-## Install
-
-Everything:
-
-```bash
-pip install "akgentic-framework[all]"
-```
-
-Everything, including the optional backends and heavier tool extras
-(Mongo persistence, vector search, document parsing, …):
-
-```bash
-pip install "akgentic-framework[all-extras]"
-```
-
-Just the actor framework (`akgentic.core`):
-
-```bash
-pip install akgentic-framework
-```
-
-## À la carte
-
-Extras compose, and each one pulls its own transitive akgentic dependencies —
-`[agent]` brings `akgentic-llm` and `akgentic-tool` with it, and `[infra]`
-brings the whole set.
-
-| Extra | Installs |
-|---|---|
-{rows}
-
-```bash
-pip install "akgentic-framework[agent,catalog]"
-```
-
-## Notes
-
-- Pins are exact by design. To move a single subpackage independently, depend
-  on it directly instead of through this meta-distribution.
-- `akgentic-all` and `akgentic-all-extras` are deprecated aliases for
-  `akgentic-framework[all]` and `akgentic-framework[all-extras]`.
-- Licensed under AGPL-3.0-only.
-"""
+    """Long description for `akgentic-framework` (shown on PyPI): the repo README."""
+    markdown = (ROOT / "README.md").read_text()
+    check_readme_documents_extras(markdown, extras)
+    return absolutize_readme_links(markdown)
 
 
 def write_readme(bundle_dir: Path, version: str) -> None:
