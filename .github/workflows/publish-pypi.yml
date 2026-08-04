@@ -7,16 +7,30 @@ name: Publish to PyPI
 # The deprecated aliases (akgentic-all, akgentic-all-extras) are NOT published.
 # They ship in the release bundle only — see scripts/build_bundle.py.
 #
-# PyPI-side setup, required once per project BEFORE the first run (8 forms):
+# PyPI-side setup, required once per project BEFORE its first publish:
 #   PyPI → Publishing → "Add a new pending publisher"
 #     Owner:            b12consulting
 #     Repository name:  akgentic-framework
 #     Workflow name:    publish-pypi.yml      <- this file's name; renaming it
 #                                                breaks every publisher config
 #     Environment:      pypi                  (or testpypi on TestPyPI)
-#   ...repeated for each of: akgentic-core, akgentic-llm, akgentic-tool,
-#   akgentic-agent, akgentic-team, akgentic-catalog, akgentic-infra,
-#   akgentic-framework
+#
+# All 8 projects name this same repo and workflow — a publisher declares which
+# workflow may publish a project, and one workflow may be authorized by many
+# projects. That is the monorepo pattern; nothing needs duplicating into the
+# per-subpackage repos.
+#
+# BUT: PyPI/TestPyPI cap how many *pending* publishers an account may hold at
+# once (observed: 3). A project that already exists takes a normal publisher
+# instead, which is not capped. So the first bootstrap has to go in batches —
+# hence the `projects` input:
+#
+#   1. register up to 3 pending publishers
+#   2. run this workflow with projects = that batch
+#   3. those projects now exist; register the next batch and repeat
+#
+# Bootstrap order matters: akgentic-framework pins its dependencies with `==`,
+# so publish it last, once the versions it names are on the index.
 #
 # A "pending" publisher does not reserve the project name — the name is only
 # claimed on the first successful upload.
@@ -35,8 +49,63 @@ on:
           - testpypi
           - pypi
         default: testpypi
+      projects:
+        description: "Distributions to publish: 'all', or a comma-separated subset"
+        type: string
+        default: all
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Resolve projects to publish
+        id: plan
+        env:
+          PROJECTS: ${{ inputs.projects }}
+        run: |
+          python3 <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, sys
+
+          # Canonical dependency order: a distribution is only published after
+          # everything it depends on, so akgentic-framework's `==` pins always
+          # resolve against an index that already has them.
+          ORDER = [
+              "akgentic-core",
+              "akgentic-llm",
+              "akgentic-tool",
+              "akgentic-agent",
+              "akgentic-team",
+              "akgentic-catalog",
+              "akgentic-infra",
+              "akgentic-framework",
+          ]
+
+          raw = os.environ["PROJECTS"].strip()
+          if raw == "all":
+              selected = ORDER
+          else:
+              asked = [p.strip() for p in raw.split(",") if p.strip()]
+              unknown = [p for p in asked if p not in ORDER]
+              if unknown:
+                  print(
+                      f"::error::Unknown distribution(s): {', '.join(unknown)}. "
+                      f"Valid: {', '.join(ORDER)}",
+                      file=sys.stderr,
+                  )
+                  raise SystemExit(1)
+              if not asked:
+                  print("::error::No distributions selected.", file=sys.stderr)
+                  raise SystemExit(1)
+              # Filter the canonical list rather than trusting input order, so
+              # dependency order holds however the batch was typed.
+              selected = [p for p in ORDER if p in set(asked)]
+
+          print(f"matrix={json.dumps(selected)}")
+          print(f"Publishing: {', '.join(selected)}", file=sys.stderr)
+          PY
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +136,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [plan, build]
     runs-on: ubuntu-latest
     # Gates the upload behind the environment's protection rules, and is part
     # of the identity PyPI checks. Must match the "Environment" field of the
@@ -86,15 +155,7 @@ jobs:
       # distributions that already exist on the index when it lands.
       max-parallel: 1
       matrix:
-        project:
-          - akgentic-core
-          - akgentic-llm
-          - akgentic-tool
-          - akgentic-agent
-          - akgentic-team
-          - akgentic-catalog
-          - akgentic-infra
-          - akgentic-framework
+        project: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v4
