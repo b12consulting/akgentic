@@ -53,17 +53,18 @@ class LocalRuntimeCache:
         """Auto-restore teams that were running before a server restart.
 
         Community tier only: runtimes are in-process and lost on restart.
-        For each team marked RUNNING in the event store, stop it first
-        (RUNNING → STOPPED) then resume (STOPPED → RUNNING) to create
-        live actors and store the handle in the cache.
+        The RUNNING filter is pushed into the event store, so boot no longer
+        hydrates the whole archive just to discard the stopped and deleted
+        teams. Each team the store returns is stopped first (RUNNING →
+        STOPPED) then resumed (STOPPED → RUNNING) to create live actors and
+        store the handle in the cache.
 
         Failures are logged and skipped — one broken team must not block
         server startup.
         """
         from akgentic.team.models import TeamStatus
 
-        all_teams = event_store.list_teams()
-        running = [t for t in all_teams if t.status == TeamStatus.RUNNING]
+        running = event_store.list_teams(status=TeamStatus.RUNNING)
         if not running:
             return
         logger.info("Warming cache: restoring %d running team(s)", len(running))

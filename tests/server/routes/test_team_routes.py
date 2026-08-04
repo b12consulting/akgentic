@@ -120,3 +120,57 @@ def test_list_teams_filters_by_overridden_identity(
     teams = resp.json()["teams"]
     assert len(teams) == 1
     assert teams[0]["user_id"] == "alice"
+
+
+# --- Optional ?status= lifecycle filter (Epic 49) ---
+#
+# The filtered requests use "/teams" with no trailing slash: that is the
+# registered path, so the query string never depends on Starlette's
+# slash-redirect preserving it.
+
+
+def test_list_teams_status_running_excludes_stopped(client: TestClient) -> None:
+    """?status=running returns only the running team; omitting it returns both."""
+    running = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    stopped = client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    assert running.status_code == 201
+    assert stopped.status_code == 201
+    running_id = running.json()["team_id"]
+    stopped_id = stopped.json()["team_id"]
+    assert client.post(f"/teams/{stopped_id}/stop").status_code == 204
+
+    filtered = client.get("/teams", params={"status": "running"})
+    assert filtered.status_code == 200
+    assert [t["team_id"] for t in filtered.json()["teams"]] == [running_id]
+
+    unfiltered = client.get("/teams")
+    assert unfiltered.status_code == 200
+    assert {t["team_id"] for t in unfiltered.json()["teams"]} == {running_id, stopped_id}
+
+
+def test_list_teams_unknown_status_returns_422(client: TestClient) -> None:
+    """An unknown status is rejected by FastAPI's own enum validation."""
+    resp = client.get("/teams", params={"status": "bogus"})
+    assert resp.status_code == 422
+
+
+def test_list_teams_status_does_not_reach_across_users(app: FastAPI) -> None:
+    """?status=running narrows within the caller's teams — it never widens past them.
+
+    Another user's *running* team is the case that would surface a bypassed
+    owner filter, so one is created under a second identity first.
+    """
+    app.dependency_overrides[get_request_user] = lambda: RequestUser(
+        user_id="alice", email="alice@example.com"
+    )
+    alice_resp = TestClient(app).post("/teams/", json={"catalog_entry_id": "test-team"})
+    assert alice_resp.status_code == 201
+    app.dependency_overrides.clear()
+
+    default_client = TestClient(app)
+    own_resp = default_client.post("/teams/", json={"catalog_entry_id": "test-team"})
+    assert own_resp.status_code == 201
+
+    resp = default_client.get("/teams", params={"status": "running"})
+    assert resp.status_code == 200
+    assert [t["team_id"] for t in resp.json()["teams"]] == [own_resp.json()["team_id"]]
