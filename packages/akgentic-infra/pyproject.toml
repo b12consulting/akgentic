@@ -8,14 +8,27 @@ authors = [
     { name = "B12 Consulting", email = "info@b12consulting.com" }
 ]
 keywords = ["agents", "ai", "akgentic", "infrastructure"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
+# akgentic-* bounds: floor = version on this maintenance line, ceiling = next
+# minor. The ceiling is what stops a 1.3.x install from resolving to a 2.x-line
+# subpackage release already on PyPI.
 dependencies = [
-    "akgentic-core",
-    "akgentic-team",
-    "akgentic-catalog",
-    "akgentic-agent",
-    "akgentic-llm",
-    "akgentic-tool",
+    "akgentic-core>=1.3.3,<1.4",
+    "akgentic-team>=1.3.5,<1.4",
+    "akgentic-catalog>=1.2.0,<1.3",
+    "akgentic-agent>=1.2.1,<1.3",
+    "akgentic-llm>=1.2.0,<1.3",
+    "akgentic-tool>=1.2.2,<1.3",
     # Standalone CI has no lockfile, so these bounds are the resolution guard.
     # fastapi/starlette: Starlette 1.3 wraps mounted routers lazily, breaking
     # the app.routes introspection the tests rely on. pydantic-ai: not imported
@@ -27,7 +40,10 @@ dependencies = [
     "pydantic-ai>=1.107.0,<2",
     "pydantic-settings>=2.0.0",
     "logfire>=0.1.0",
-    "typer[all]>=0.9.0",
+    # Not typer[all]: the `all` extra was removed upstream, so it resolves with a
+    # "does not provide the extra" warning on every install. Modern typer bundles
+    # rich + shellingham directly, so the plain requirement is equivalent.
+    "typer>=0.9.0",
     "httpx>=0.27.0",
     "pyyaml>=6.0",
     "websockets>=12.0",

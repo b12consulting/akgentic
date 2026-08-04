@@ -8,9 +8,22 @@ authors = [
     { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
 ]
 keywords = ["agents", "ai", "akgentic"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
+# akgentic-* bounds: floor = version on this maintenance line, ceiling = next
+# minor. The ceiling is what stops a 1.3.x install from resolving to a 2.x-line
+# subpackage release already on PyPI.
 dependencies = [
-    "akgentic-core",
+    "akgentic-core>=1.3.3,<1.4",
     "pydantic>=2.0.0",
     "tavily-python>=0.7.12",
     "pydantic-ai>=0.1.0",
