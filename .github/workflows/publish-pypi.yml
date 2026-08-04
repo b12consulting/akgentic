@@ -20,17 +20,31 @@ name: Publish to PyPI
 # projects. That is the monorepo pattern; nothing needs duplicating into the
 # per-subpackage repos.
 #
-# BUT: PyPI/TestPyPI cap how many *pending* publishers an account may hold at
-# once (observed: 3). A project that already exists takes a normal publisher
-# instead, which is not capped. So the first bootstrap has to go in batches —
+# That end state is fine. Bootstrapping into it is the awkward part, because a
+# project that does NOT exist yet needs a *pending* publisher, and pending
+# publishers must be unique on (repository, workflow, environment):
+#
+#   "A pending trusted publisher matching this configuration has already been
+#    registered for a different project name."
+#
+# The reason is that the project does not exist yet, so on an incoming token
+# PyPI has to decide which project to create — two identical pending configs
+# would be ambiguous. (There is also a cap of 3 pending publishers per
+# account, but the uniqueness constraint binds first.)
+#
+# So the 8 projects cannot be registered up front. Bootstrap one at a time —
 # hence the `projects` input:
 #
-#   1. register up to 3 pending publishers
-#   2. run this workflow with projects = that batch
-#   3. those projects now exist; register the next batch and repeat
+#   1. register a single pending publisher for project X
+#   2. run this workflow with projects = X
+#   3. X now exists and its publisher is normal, so the (repo, workflow,
+#      environment) triple is free again — repeat for the next project
 #
-# Bootstrap order matters: akgentic-framework pins its dependencies with `==`,
-# so publish it last, once the versions it names are on the index.
+# Order matters: akgentic-framework pins its dependencies with `==`, so publish
+# it last, once the versions it names are on the index.
+#
+# After bootstrap every publisher is normal, and `projects: all` works for
+# ordinary releases.
 #
 # A "pending" publisher does not reserve the project name — the name is only
 # claimed on the first successful upload.
