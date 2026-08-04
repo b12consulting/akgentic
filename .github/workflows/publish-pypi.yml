@@ -1,0 +1,131 @@
+name: Publish to PyPI
+
+# Publishes the 8 akgentic distributions to TestPyPI or PyPI using Trusted
+# Publishing (OIDC). No API token is stored anywhere: PyPI verifies this
+# workflow's identity at upload time and mints a short-lived token.
+#
+# The deprecated aliases (akgentic-all, akgentic-all-extras) are NOT published.
+# They ship in the release bundle only — see scripts/build_bundle.py.
+#
+# PyPI-side setup, required once per project BEFORE the first run (8 forms):
+#   PyPI → Publishing → "Add a new pending publisher"
+#     Owner:            b12consulting
+#     Repository name:  akgentic-framework
+#     Workflow name:    publish-pypi.yml      <- this file's name; renaming it
+#                                                breaks every publisher config
+#     Environment:      pypi                  (or testpypi on TestPyPI)
+#   ...repeated for each of: akgentic-core, akgentic-llm, akgentic-tool,
+#   akgentic-agent, akgentic-team, akgentic-catalog, akgentic-infra,
+#   akgentic-framework
+#
+# A "pending" publisher does not reserve the project name — the name is only
+# claimed on the first successful upload.
+#
+# Versions are read from the pyproject.toml files, so bump those first. PyPI
+# refuses to overwrite an existing version: a botched upload burns that
+# version number permanently.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Index to publish to"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dispatched branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Build publishable distributions
+        run: uv run python scripts/build_bundle.py dist/ --pypi
+
+      - name: Check metadata
+        run: uvx twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dists
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Gates the upload behind the environment's protection rules, and is part
+    # of the identity PyPI checks. Must match the "Environment" field of the
+    # pending publisher.
+    environment: ${{ inputs.target }}
+    permissions:
+      # Required for the OIDC exchange. This is the whole mechanism — without
+      # it the action cannot prove which workflow it is.
+      id-token: write
+    strategy:
+      # One upload per project rather than one bulk upload: each project has its
+      # own trusted publisher on PyPI, so each upload does its own OIDC
+      # exchange and is unambiguously scoped to that project.
+      fail-fast: false
+      # Serial, in dependency order, so akgentic-framework's `==` pins point at
+      # distributions that already exist on the index when it lands.
+      max-parallel: 1
+      matrix:
+        project:
+          - akgentic-core
+          - akgentic-llm
+          - akgentic-tool
+          - akgentic-agent
+          - akgentic-team
+          - akgentic-catalog
+          - akgentic-infra
+          - akgentic-framework
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-dists
+          path: dist/
+
+      - name: Isolate ${{ matrix.project }}
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: |
+          # Distribution filenames use the normalized name (PEP 427/625):
+          # akgentic-core -> akgentic_core-<version>.{whl,tar.gz}
+          prefix="${PROJECT//-/_}-"
+          mkdir upload
+          mv "dist/$prefix"* upload/
+          echo "Uploading:"
+          ls -1 upload/
+          # sdist + wheel, nothing else.
+          count=$(ls -1 upload/ | wc -l)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::Expected 2 files for $PROJECT, found $count"
+            exit 1
+          fi
+
+      - name: Publish ${{ matrix.project }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload
+          repository-url: >-
+            ${{ inputs.target == 'testpypi'
+                && 'https://test.pypi.org/legacy/'
+                || 'https://upload.pypi.org/legacy/' }}
+          print-hash: true

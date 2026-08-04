@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
-"""Build a release bundle for akgentic-framework.
+"""Build release artifacts for akgentic-framework.
 
-Builds one wheel per workspace subpackage (core, llm, tool, agent, catalog,
-team, infra) plus the framework meta-wheel, and packages them all into a
-single tarball: akgentic-framework-<version>-bundle.tar.gz.
+Two modes, one source of truth for versions and pins:
 
-A README.md with install instructions is emitted alongside the wheels inside
-the tarball.
+  build_bundle.py DIR
+      Default. Builds one wheel per workspace subpackage (core, llm, tool,
+      agent, catalog, team, infra), the framework meta-wheel, and the
+      deprecated alias wheels, then packages them all into a single tarball:
+      akgentic-framework-<version>-bundle.tar.gz, with an install README
+      alongside the wheels inside it.
+
+  build_bundle.py DIR --pypi
+      Builds the publishable set only, flat into DIR, as sdist + wheel for
+      each: the 7 subpackages plus akgentic-framework. No tarball, no README.
+
+      The deprecated aliases are deliberately NOT published. They exist to
+      keep pins off a *previous bundle* resolving; nothing was ever published
+      to PyPI under those names, so there are no public pins to preserve and
+      claiming two public names for deprecated aliases is not undoable.
 """
 from __future__ import annotations
 
+import argparse
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 import textwrap
@@ -293,10 +304,23 @@ pip install --find-links {bundle_name} \\
     (bundle_dir / "README.md").write_text(readme)
 
 
-def build_wheel(project_dir: Path, out_dir: Path) -> None:
+def _build_flags(sdist: bool) -> list[str]:
+    """uv build flags: wheel only for the bundle, sdist + wheel for PyPI."""
+    return [] if sdist else ["--wheel"]
+
+
+def build_wheel(project_dir: Path, out_dir: Path, *, sdist: bool = False) -> None:
     print(f"::group::Building {project_dir.name}")
     subprocess.run(
-        ["uv", "build", "--wheel", "--project", str(project_dir), "--out-dir", str(out_dir)],
+        [
+            "uv",
+            "build",
+            *_build_flags(sdist),
+            "--project",
+            str(project_dir),
+            "--out-dir",
+            str(out_dir),
+        ],
         check=True,
     )
     print("::endgroup::")
@@ -315,6 +339,7 @@ def build_meta_wheel(
     *,
     optional_dependencies: dict[str, list[str]] | None = None,
     readme_body: str = "",
+    sdist: bool = False,
 ) -> None:
     """Generate a metadata-only wheel (no modules) with the given requirements."""
     print(f"::group::Building {name} (meta)")
@@ -348,6 +373,11 @@ def build_meta_wheel(
         # hatchling's file selection entirely. This is what makes the wheel a
         # pure set of requirements.
         bypass-selection = true
+
+        [tool.hatch.build.targets.sdist]
+        # Same reason, but sdist has no bypass-selection: name the files
+        # explicitly, or hatchling errors out looking for a package to include.
+        only-include = ["README.md", "LICENSE"]
     """)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -355,19 +385,73 @@ def build_meta_wheel(
         (tmp_path / "README.md").write_text(readme_body or f"# {name}\n\n{description}\n")
         shutil.copyfile(ROOT / "LICENSE", tmp_path / "LICENSE")
         subprocess.run(
-            ["uv", "build", "--wheel", "--project", str(tmp_path), "--out-dir", str(out_dir)],
+            [
+                "uv",
+                "build",
+                *_build_flags(sdist),
+                "--project",
+                str(tmp_path),
+                "--out-dir",
+                str(out_dir),
+            ],
             check=True,
         )
     print("::endgroup::")
 
 
+def build_pypi_dists(out_dir: Path, version: str) -> None:
+    """Build the publishable set (sdist + wheel) flat into out_dir."""
+    for sub in SUBPACKAGES:
+        build_wheel(ROOT / "packages" / f"akgentic-{sub}", out_dir, sdist=True)
+
+    extras = build_framework_extras()
+    build_meta_wheel(
+        name="akgentic-framework",
+        description="Meta-distribution pinning a coherent akgentic release set.",
+        dependencies=[pin("core")],
+        optional_dependencies=extras,
+        version=version,
+        out_dir=out_dir,
+        readme_body=render_framework_readme(version, extras),
+        sdist=True,
+    )
+
+    dists = sorted(p.name for p in out_dir.iterdir() if p.suffix in {".whl", ".gz"})
+    print(f"\nBuilt {len(dists)} distribution file(s) for PyPI:")
+    for d in dists:
+        print(f"  {d}")
+    print(
+        "\nDeprecated aliases (akgentic-all, akgentic-all-extras) are intentionally "
+        "excluded — bundle-only."
+    )
+
+
 def main() -> None:
-    out_dir = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "dist"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "out_dir",
+        nargs="?",
+        default=str(ROOT / "dist"),
+        help="output directory (default: ./dist)",
+    )
+    parser.add_argument(
+        "--pypi",
+        action="store_true",
+        help="build the publishable set (sdist + wheel, no aliases, no tarball)",
+    )
+    args = parser.parse_args()
+
+    out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    for stale in out_dir.glob("*.whl"):
+    for stale in (*out_dir.glob("*.whl"), *out_dir.glob("*.tar.gz")):
         stale.unlink()
 
     version = read_framework_version()
+
+    if args.pypi:
+        build_pypi_dists(out_dir, version)
+        return
+
     bundle_name = f"akgentic-framework-{version}-bundle"
     bundle_dir = out_dir / bundle_name
     if bundle_dir.exists():
