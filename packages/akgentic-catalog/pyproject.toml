@@ -8,13 +8,25 @@ authors = [
     { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
 ]
 keywords = ["ai", "catalog", "collaboration", "pydantic"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
+# akgentic-* bounds: floor = version developed against, ceiling = next major.
+# See the note in akgentic-tool/pyproject.toml for the rationale.
 dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
-    "akgentic-core",
-    "akgentic-tool",
-    "akgentic-team",
+    "akgentic-core>=1.5.0,<2",
+    "akgentic-tool>=1.6.0,<2",
+    "akgentic-team>=1.5.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -47,8 +59,8 @@ dev = [
     # classes from akgentic-llm and akgentic-agent that import_class loads at
     # resolve time. These are NOT runtime dependencies of akgentic-catalog —
     # they stay out of [project.dependencies] to preserve the module boundary.
-    "akgentic-llm",
-    "akgentic-agent",
+    "akgentic-llm>=1.6.0,<2",
+    "akgentic-agent>=1.6.0,<2",
 ]
 
 [project.scripts]
