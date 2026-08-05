@@ -52,23 +52,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # `--find-links` used to provide by restricting the candidate set.
 #
 # Hidden from users entirely (test-only, not relevant to a release bundle).
-HIDDEN_EXTRAS = {"dev"}
-# Documented in the README table but NOT pulled in by the `all-extras` extra
-# (mutually exclusive with another extra that IS pulled in).
+HIDDEN_EXTRAS = {"dev", "loadtest"}
+# Reachable on its own as the `postgres` extra, but NOT pulled in by
+# `all-extras`: it is mutually exclusive with `mongo`, which `all-extras` does
+# pull in. Composing `[all,postgres]` is what selects the other backend.
 META_EXCLUDED_EXTRAS = {"postgres"}
-
-# `akgentic-framework` extras → the subpackages each one installs. Transitive
-# akgentic deps are NOT repeated here; they come from the subpackage's own
-# metadata (so [agent] pulls llm+tool, and [infra] pulls all six). Repeating
-# them would be a second, drift-prone source of truth.
-FRAMEWORK_EXTRAS = {
-    "llm": ["llm"],
-    "tool": ["tool"],
-    "agent": ["agent"],
-    "team": ["team"],
-    "catalog": ["catalog"],
-    "infra": ["infra"],
-}
 
 # Superseded by `akgentic-framework[all]` / `[all-extras]`. Still built, as
 # thin alias wheels, so consumers pinning the old names off a previous bundle
@@ -109,16 +97,65 @@ def pin(subpackage: str, *, extras: list[str] | None = None) -> str:
     return f"{spec}=={read_subpackage_version(subpackage)}"
 
 
+def akgentic_dependencies(subpackage: str) -> set[str]:
+    """Short names of the akgentic-* packages that `akgentic-<subpackage>` requires."""
+    pyproject = ROOT / "packages" / f"akgentic-{subpackage}" / "pyproject.toml"
+    deps = tomllib.loads(pyproject.read_text())["project"].get("dependencies", [])
+    names = (re.split(r"[<>=!~;\[\s]", dep, maxsplit=1)[0].strip() for dep in deps)
+    return {name.removeprefix("akgentic-") for name in names if name.startswith("akgentic-")}
+
+
+def akgentic_closure(roots: list[str]) -> list[str]:
+    """`roots` plus every akgentic-* package they depend on, transitively.
+
+    Derived from the subpackages' own metadata, so the umbrella can never claim
+    a set the packages themselves disagree with. Returned in SUBPACKAGES order.
+    """
+    seen: set[str] = set()
+    stack = list(roots)
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(akgentic_dependencies(current) - seen)
+    return [sub for sub in SUBPACKAGES if sub in seen]
+
+
+def pin_closure(roots: list[str], extras_by_sub: dict[str, list[str]] | None = None) -> list[str]:
+    """Exact pins for the whole closure of `roots`, applying per-package extras."""
+    per_sub = extras_by_sub or {}
+    return [pin(sub, extras=per_sub.get(sub)) for sub in akgentic_closure(roots)]
+
+
+def postgres_providers() -> list[str]:
+    """Subpackages that publish a `postgres` extra."""
+    return [sub for sub in SUBPACKAGES if "postgres" in discover_extras(sub, exclude=set())]
+
+
 def build_framework_extras() -> dict[str, list[str]]:
-    """Build the `akgentic-framework` optional-dependencies table, all pins exact."""
-    table = {name: [pin(sub) for sub in subs] for name, subs in FRAMEWORK_EXTRAS.items()}
+    """Build the `akgentic-framework` optional-dependencies table, all pins exact.
+
+    Every extra pins its entire akgentic closure, not just the package it names.
+    Pinning only the named package would leave its akgentic dependencies to
+    resolve by their own bounds, so `[agent]` could pull an akgentic-llm that
+    was never tested against this release set — the one thing this
+    meta-distribution exists to prevent.
+    """
+    table = {sub: pin_closure([sub]) for sub in SUBPACKAGES}
     # Every subpackage, no optional extras (lean install).
-    table["all"] = [pin(sub) for sub in SUBPACKAGES]
+    table["all"] = pin_closure(SUBPACKAGES)
     # Every subpackage plus its own optional extras, discovered from source.
-    table["all-extras"] = [
-        pin(sub, extras=discover_extras(sub, exclude=HIDDEN_EXTRAS | META_EXCLUDED_EXTRAS))
-        for sub in SUBPACKAGES
-    ]
+    table["all-extras"] = pin_closure(
+        SUBPACKAGES,
+        {
+            sub: discover_extras(sub, exclude=HIDDEN_EXTRAS | META_EXCLUDED_EXTRAS)
+            for sub in SUBPACKAGES
+        },
+    )
+    # The backend `all-extras` cannot carry; compose it as `[all,postgres]`.
+    providers = postgres_providers()
+    table["postgres"] = pin_closure(providers, {sub: ["postgres"] for sub in providers})
     return table
 
 

@@ -44,21 +44,30 @@ versions that were built and tested together for that release.
 
 #### À la carte
 
-Extras compose, and each pulls its own transitive akgentic dependencies —
-`[agent]` brings `akgentic-llm` and `akgentic-tool` with it, `[infra]` brings
-the whole set.
+Extras compose, and each one pins its **whole** akgentic dependency closure at
+the versions of this release — so `[agent]` fixes `akgentic-llm` and
+`akgentic-tool` too, rather than letting them resolve to whatever is newest.
 
 | Extra | Installs |
 |---|---|
+| `core` | `akgentic-core` |
 | `llm` | `akgentic-llm` |
-| `tool` | `akgentic-tool` |
-| `agent` | `akgentic-agent` |
-| `team` | `akgentic-team` |
-| `catalog` | `akgentic-catalog` |
-| `infra` | `akgentic-infra` |
+| `tool` | `akgentic-tool` + `akgentic-core` |
+| `agent` | `akgentic-agent` + `akgentic-llm`, `akgentic-tool`, `akgentic-core` |
+| `team` | `akgentic-team` + `akgentic-core` |
+| `catalog` | `akgentic-catalog` + `akgentic-team`, `akgentic-tool`, `akgentic-core` |
+| `infra` | `akgentic-infra` + the whole set |
+| `postgres` | `akgentic-catalog[postgres]`, `akgentic-team[postgres]` + their closure |
 
 ```bash
 pip install "akgentic-framework[agent,catalog]"
+```
+
+`mongo` and `postgres` are mutually exclusive persistence backends, so
+`[all-extras]` ships the Mongo flavour. Compose the other one explicitly:
+
+```bash
+pip install "akgentic-framework[all,postgres]"
 ```
 
 The base install is the actor framework alone (`akgentic.core`), so it stays a
