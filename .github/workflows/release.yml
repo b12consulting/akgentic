@@ -59,13 +59,21 @@ jobs:
           git tag "v$VERSION"
           git push origin "v$VERSION"
 
-      - name: Build release bundle
-        run: python scripts/build_bundle.py dist/
+      # Only the umbrella. Subpackage wheels are built and released by their own
+      # repositories; the bundle tarball that used to carry them here existed for
+      # a `--find-links` install story that PyPI has superseded.
+      - name: Verify every pinned version is published
+        run: uv run python scripts/verify_pins.py
+
+      - name: Build the umbrella
+        run: uv run python scripts/build_umbrella.py dist/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ steps.version.outputs.version }}"
           name: "v${{ steps.version.outputs.version }}"
-          files: dist/akgentic-framework-${{ steps.version.outputs.version }}-bundle.tar.gz
+          files: |
+            dist/akgentic_framework-${{ steps.version.outputs.version }}-py3-none-any.whl
+            dist/akgentic_framework-${{ steps.version.outputs.version }}.tar.gz
           generate_release_notes: true

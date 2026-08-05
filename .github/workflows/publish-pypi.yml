@@ -1,57 +1,29 @@
 name: Publish to PyPI
 
-# Publishes the 8 akgentic distributions to TestPyPI or PyPI using Trusted
+# Publishes the `akgentic-framework` umbrella to TestPyPI or PyPI using Trusted
 # Publishing (OIDC). No API token is stored anywhere: PyPI verifies this
 # workflow's identity at upload time and mints a short-lived token.
 #
-# The deprecated aliases (akgentic-all, akgentic-all-extras) are NOT published.
-# They ship in the release bundle only — see scripts/build_bundle.py.
+# ONLY the umbrella is published here. Each subpackage publishes itself from its
+# own repository — this workflow used to upload all eight, which meant every
+# subpackage wheel was built twice (once here from the vendored copy, once in its
+# own repo) and the two were not identical.
 #
-# PyPI-side setup, required once per project BEFORE its first publish:
+# PyPI-side setup, required once BEFORE the first publish:
 #   PyPI → Publishing → "Add a new pending publisher"
 #     Owner:            b12consulting
 #     Repository name:  akgentic-framework
 #     Workflow name:    publish-pypi.yml      <- this file's name; renaming it
-#                                                breaks every publisher config
+#                                                breaks the publisher config
 #     Environment:      pypi                  (or testpypi on TestPyPI)
 #
-# All 8 projects name this same repo and workflow — a publisher declares which
-# workflow may publish a project, and one workflow may be authorized by many
-# projects. That is the monorepo pattern; nothing needs duplicating into the
-# per-subpackage repos.
+# Since each subpackage now has its own publisher in its own repository, this
+# repo's publishers for those seven projects should be retired — otherwise two
+# workflows in two repositories stay authorized to publish the same project.
 #
-# That end state is fine. Bootstrapping into it is the awkward part, because a
-# project that does NOT exist yet needs a *pending* publisher, and pending
-# publishers must be unique on (repository, workflow, environment):
-#
-#   "A pending trusted publisher matching this configuration has already been
-#    registered for a different project name."
-#
-# The reason is that the project does not exist yet, so on an incoming token
-# PyPI has to decide which project to create — two identical pending configs
-# would be ambiguous. (There is also a cap of 3 pending publishers per
-# account, but the uniqueness constraint binds first.)
-#
-# So the 8 projects cannot be registered up front. Bootstrap one at a time —
-# hence the `projects` input:
-#
-#   1. register a single pending publisher for project X
-#   2. run this workflow with projects = X
-#   3. X now exists and its publisher is normal, so the (repo, workflow,
-#      environment) triple is free again — repeat for the next project
-#
-# Order matters: akgentic-framework pins its dependencies with `==`, so publish
-# it last, once the versions it names are on the index.
-#
-# After bootstrap every publisher is normal, and `projects: all` works for
-# ordinary releases.
-#
-# A "pending" publisher does not reserve the project name — the name is only
-# claimed on the first successful upload.
-#
-# Versions are read from the pyproject.toml files, so bump those first. PyPI
-# refuses to overwrite an existing version: a botched upload burns that
-# version number permanently.
+# The version is read from pyproject.toml, so bump it there first. PyPI refuses
+# to overwrite an existing version: a botched upload burns that number
+# permanently, which is why the pin check below is not optional.
 
 on:
   workflow_dispatch:
@@ -63,63 +35,8 @@ on:
           - testpypi
           - pypi
         default: testpypi
-      projects:
-        description: "Distributions to publish: 'all', or a comma-separated subset"
-        type: string
-        default: all
 
 jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-    steps:
-      - name: Resolve projects to publish
-        id: plan
-        env:
-          PROJECTS: ${{ inputs.projects }}
-        run: |
-          python3 <<'PY' >> "$GITHUB_OUTPUT"
-          import json, os, sys
-
-          # Canonical dependency order: a distribution is only published after
-          # everything it depends on, so akgentic-framework's `==` pins always
-          # resolve against an index that already has them.
-          ORDER = [
-              "akgentic-core",
-              "akgentic-llm",
-              "akgentic-tool",
-              "akgentic-agent",
-              "akgentic-team",
-              "akgentic-catalog",
-              "akgentic-infra",
-              "akgentic-framework",
-          ]
-
-          raw = os.environ["PROJECTS"].strip()
-          if raw == "all":
-              selected = ORDER
-          else:
-              asked = [p.strip() for p in raw.split(",") if p.strip()]
-              unknown = [p for p in asked if p not in ORDER]
-              if unknown:
-                  print(
-                      f"::error::Unknown distribution(s): {', '.join(unknown)}. "
-                      f"Valid: {', '.join(ORDER)}",
-                      file=sys.stderr,
-                  )
-                  raise SystemExit(1)
-              if not asked:
-                  print("::error::No distributions selected.", file=sys.stderr)
-                  raise SystemExit(1)
-              # Filter the canonical list rather than trusting input order, so
-              # dependency order holds however the batch was typed.
-              selected = [p for p in ORDER if p in set(asked)]
-
-          print(f"matrix={json.dumps(selected)}")
-          print(f"Publishing: {', '.join(selected)}", file=sys.stderr)
-          PY
-
   build:
     runs-on: ubuntu-latest
     steps:
@@ -136,80 +53,50 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Build publishable distributions
-        run: uv run python scripts/build_bundle.py dist/ --pypi
+      # The umbrella is nothing but exact pins. Publishing it before the versions
+      # it names exist would create a release that can never be installed, and
+      # PyPI metadata is immutable. Nothing else sequences this after the
+      # subpackages now that they publish from their own repositories.
+      - name: Verify every pinned version is published
+        run: uv run python scripts/verify_pins.py
+
+      - name: Build the umbrella
+        run: uv run python scripts/build_umbrella.py dist/
 
       - name: Check metadata
         run: uvx twine check dist/*
 
-      - name: Upload distributions
+      - name: Upload distribution
         uses: actions/upload-artifact@v4
         with:
-          name: pypi-dists
+          name: pypi-dist
           path: dist/
           if-no-files-found: error
 
   publish:
-    needs: [plan, build]
+    needs: build
     runs-on: ubuntu-latest
-    # Gates the upload behind the environment's protection rules, and is part
-    # of the identity PyPI checks. Must match the "Environment" field of the
-    # pending publisher.
+    # Gates the upload behind the environment's protection rules, and is part of
+    # the identity PyPI checks. Must match the "Environment" field of the
+    # trusted publisher.
     environment: ${{ inputs.target }}
     permissions:
-      # Required for the OIDC exchange. This is the whole mechanism — without
-      # it the action cannot prove which workflow it is.
+      # Required for the OIDC exchange. This is the whole mechanism — without it
+      # the action cannot prove which workflow it is.
       id-token: write
-    strategy:
-      # One upload per project rather than one bulk upload: each project has its
-      # own trusted publisher on PyPI, so each upload does its own OIDC
-      # exchange and is unambiguously scoped to that project.
-      fail-fast: false
-      # Serial, in dependency order, so akgentic-framework's `==` pins point at
-      # distributions that already exist on the index when it lands.
-      max-parallel: 1
-      matrix:
-        project: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - name: Download distributions
+      - name: Download distribution
         uses: actions/download-artifact@v4
         with:
-          name: pypi-dists
+          name: pypi-dist
           path: dist/
 
-      - name: Isolate ${{ matrix.project }}
-        env:
-          PROJECT: ${{ matrix.project }}
-        run: |
-          # Distribution filenames use the normalized name (PEP 427/625):
-          # akgentic-core -> akgentic_core-<version>.{whl,tar.gz}
-          prefix="${PROJECT//-/_}-"
-          mkdir upload
-          mv "dist/$prefix"* upload/
-          echo "Uploading:"
-          ls -1 upload/
-          # sdist + wheel, nothing else.
-          count=$(ls -1 upload/ | wc -l)
-          if [ "$count" -ne 2 ]; then
-            echo "::error::Expected 2 files for $PROJECT, found $count"
-            exit 1
-          fi
-
-      - name: Publish ${{ matrix.project }}
+      - name: Publish akgentic-framework
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: upload
+          packages-dir: dist
           repository-url: >-
             ${{ inputs.target == 'testpypi'
                 && 'https://test.pypi.org/legacy/'
                 || 'https://upload.pypi.org/legacy/' }}
           print-hash: true
-          # Subpackages version independently, so any given run only has new
-          # versions for *some* of the 8. PyPI rejects a re-upload of an
-          # existing version, which would fail every run after the first
-          # without this. The effect is "publish whatever is new".
-          #
-          # Trade-off: a forgotten version bump is skipped silently rather
-          # than reported as an error. The per-project job names and
-          # print-hash output are what make it visible in the run log.
-          skip-existing: true
