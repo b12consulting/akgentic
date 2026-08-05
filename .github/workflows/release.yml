@@ -25,6 +25,9 @@ jobs:
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
+          # Needed by verify_submodules.py and sync_versions.py --check, which
+          # read the pinned sources. The build itself does not use them.
+          submodules: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -64,6 +67,11 @@ jobs:
       # a `--find-links` install story that PyPI has superseded.
       - name: Verify every pinned version is published
         run: uv run python scripts/verify_pins.py
+
+      - name: Verify the pins match the submodules
+        run: |
+          uv run python scripts/verify_submodules.py
+          uv run python scripts/sync_versions.py --check
 
       - name: Build the umbrella
         run: uv run python scripts/build_umbrella.py dist/

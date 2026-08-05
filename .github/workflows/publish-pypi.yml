@@ -44,6 +44,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.ref }}
+          # Needed by verify_submodules.py and sync_versions.py --check, which
+          # read the pinned sources. The build itself does not use them.
+          submodules: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
@@ -59,6 +62,14 @@ jobs:
       # subpackages now that they publish from their own repositories.
       - name: Verify every pinned version is published
         run: uv run python scripts/verify_pins.py
+
+      # The pins must also agree with the submodules, and each submodule must sit
+      # exactly on its release tag — otherwise the release set names versions the
+      # pinned sources are not.
+      - name: Verify the pins match the submodules
+        run: |
+          uv run python scripts/verify_submodules.py
+          uv run python scripts/sync_versions.py --check
 
       - name: Build the umbrella
         run: uv run python scripts/build_umbrella.py dist/
