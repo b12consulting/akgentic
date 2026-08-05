@@ -1,5 +1,5 @@
 <div align="center">
-<img src="akgents.png" alt="Akgents - Powered by Yuma" width="400">
+<img src="assets/akgents.png" alt="Akgents - Powered by Yuma" width="400">
 <br><br>
 
 **Modern actor-based agent framework for Python 3.12+**
@@ -81,22 +81,55 @@ Subpackages can also be installed directly — `pip install akgentic-agent` —
 which is the right choice when you depend on one part and do not want a
 release-wide pin.
 
-#### From source
+#### Running from a clone
 
-For contributing, or to run the examples below:
+Cloning this repository and syncing installs the release set from PyPI — no
+submodules needed. This is what you want to try the examples below:
 
 ```bash
-# 1. Clone the repository with submodules
 git clone https://github.com/b12consulting/akgentic-framework.git
 cd akgentic-framework
-
-# 2. Create and activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# 3. Install all workspace packages in editable mode
-uv sync --all-packages --all-extras
+uv sync
+source .venv/bin/activate
 ```
+
+`uv sync` installs every subpackage with its optional extras, so the demos run
+immediately. (Published metadata stays lean: `pip install akgentic-framework`
+still gets `akgentic.core` alone. The full set comes from a uv dependency group,
+which pip ignores.)
+
+#### Working on the sources
+
+To change subpackage code rather than just use it, switch the same checkout into
+source mode. **Initialise the submodules first** — uv reports a confusing error
+if a workspace member directory is missing:
+
+```bash
+# 1. Fetch the sources, pinned at the release tags this version pins
+git submodule update --init
+
+# 2. Uncomment the two blocks under "SOURCE MODE" in pyproject.toml
+
+# 3. Re-sync; akgentic-* now resolve to the local sources, editable
+uv sync
+```
+
+The submodules are pinned at the exact commits their release tags point to, so
+what you get is the code this release was built from — `uv run python
+scripts/verify_submodules.py` checks it. Because every package's own CI resolves
+its dependencies from PyPI, this is the only place unreleased cross-package
+changes are exercised together.
+
+Two things to expect:
+
+- `uv.lock` is rewritten when you switch modes. That diff is expected; don't
+  commit it — `git checkout uv.lock` when you're done.
+- The `==` pins still apply to the local sources. Bump a submodule's version and
+  `uv sync` fails until you regenerate the pins with `scripts/sync_versions.py`.
+  That's deliberate: the pin table *is* the declared release set.
+
+To check how the published metadata resolves without re-commenting anything, use
+`uv sync --no-sources`.
 
 ### Running the Server and Frontend
 
@@ -130,8 +163,8 @@ Once both are running:
 
 By default, the server stores team catalogs in `./data/catalog/` and the event store in `./data/event_store/`. These paths are configurable via the `CommunitySettings` class or environment variables prefixed with `AKGENTIC_`.
 
-![Akgentic Frontend](akgentic_frontend.png)
-![Akgentic OpenAPI](akgentic_openapi.png)
+![Akgentic Frontend](assets/akgentic_frontend.png)
+![Akgentic OpenAPI](assets/akgentic_openapi.png)
 
 
 

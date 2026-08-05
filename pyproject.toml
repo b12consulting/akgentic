@@ -42,6 +42,9 @@ dependencies = [
 # resolve by their own bounds, so [agent] could pull an akgentic-llm that was
 # never tested against this release set — the one thing this distribution
 # exists to prevent.
+#
+# BEGIN GENERATED — scripts/sync_versions.py owns everything to END GENERATED.
+# Hand edits here are overwritten; change a submodule's version and re-run it.
 [project.optional-dependencies]
 core = ["akgentic-core==1.5.0"]
 llm = ["akgentic-llm==1.6.0"]
@@ -55,14 +58,14 @@ agent = [
     "akgentic-tool==1.6.0",
     "akgentic-agent==1.6.0",
 ]
-team = [
-    "akgentic-core==1.5.0",
-    "akgentic-team==1.5.0",
-]
 catalog = [
     "akgentic-core==1.5.0",
     "akgentic-tool==1.6.0",
     "akgentic-catalog==2.2.0",
+    "akgentic-team==1.5.0",
+]
+team = [
+    "akgentic-core==1.5.0",
     "akgentic-team==1.5.0",
 ]
 infra = [
@@ -84,8 +87,9 @@ all = [
     "akgentic-team==1.5.0",
     "akgentic-infra==1.8.0",
 ]
-# Every subpackage plus its own optional extras. `postgres` is deliberately
-# absent: it is mutually exclusive with `mongo`, which this pulls in.
+# Every subpackage plus its own optional extras. `postgres` is
+# deliberately absent: it is mutually exclusive with `mongo`, which
+# this pulls in.
 all-extras = [
     "akgentic-core==1.5.0",
     "akgentic-llm==1.6.0",
@@ -102,6 +106,7 @@ postgres = [
     "akgentic-catalog[postgres]==2.2.0",
     "akgentic-team[postgres]==1.5.0",
 ]
+# END GENERATED
 
 [build-system]
 requires = ["hatchling"]
@@ -145,76 +150,76 @@ dev = [
 [tool.uv]
 default-groups = ["demo", "dev"]
 
-[tool.uv.sources]
-akgentic-core = { workspace = true }
-akgentic-llm = { workspace = true }
-akgentic-agent = { workspace = true }
-akgentic-tool = { workspace = true }
-akgentic-catalog = { workspace = true }
-akgentic-team = { workspace = true }
-akgentic-infra = { workspace = true }
+# ── SOURCE MODE ───────────────────────────────────────────────────────────────
+# Uncomment both blocks to work against the submodule sources instead of the
+# published wheels. Order matters:
+#
+#   1. git submodule update --init     <- FIRST. uv errors on a workspace source
+#                                         whose member directory does not exist,
+#                                         and the message does not say why.
+#   2. uncomment the two blocks below
+#   3. uv sync
+#
+# The submodules are pinned at the release tags this file's version pins name,
+# so what you get is exactly the code this release was built from — verified by
+# scripts/verify_submodules.py.
+#
+# Two things to expect:
+#   * uv.lock is rewritten when you switch modes. That diff is expected and
+#     should not be committed; `git checkout uv.lock` when you are done.
+#   * The `==` pins above still apply to workspace members. If you bump a
+#     submodule's version locally, `uv sync` fails until the pins are
+#     regenerated — run scripts/sync_versions.py. That is the pin table doing
+#     its job: it IS the declared release set.
+#
+# To check wheel-mode resolution without re-commenting, use `uv sync --no-sources`.
+#
+# [tool.uv.sources]
+# akgentic-core = { workspace = true }
+# akgentic-llm = { workspace = true }
+# akgentic-agent = { workspace = true }
+# akgentic-tool = { workspace = true }
+# akgentic-catalog = { workspace = true }
+# akgentic-team = { workspace = true }
+# akgentic-infra = { workspace = true }
+#
+# [tool.uv.workspace]
+# members = [
+#     "packages/akgentic-core",
+#     "packages/akgentic-llm",
+#     "packages/akgentic-agent",
+#     "packages/akgentic-tool",
+#     "packages/akgentic-catalog",
+#     "packages/akgentic-team",
+#     "packages/akgentic-infra",
+# ]
 
-[tool.uv.workspace]
-members = [
-    "packages/akgentic-core",
-    "packages/akgentic-llm",
-    "packages/akgentic-agent",
-    "packages/akgentic-tool",
-    "packages/akgentic-catalog",
-    "packages/akgentic-team",
-    "packages/akgentic-infra",
-]
+# The settings below cover THIS repository's own code — scripts/ and src/ — and
+# nothing else. `packages/` is excluded from every one of them on purpose: those
+# are submodules, each with its own CI, its own lint rules and its own coverage
+# gate. Running them from here would duplicate that work under the wrong
+# configuration, and silently disagree with what their own pipelines enforce.
 
-# Python version requirement is set per-package in individual pyproject.toml files
-
-# Shared pytest configuration for all workspace packages
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["packages/*/tests"]
+# This repository has no tests of its own. The empty testpaths plus the excluded
+# directories are what stop pytest walking into the submodules in source mode and
+# collecting several thousand tests that belong to other repositories.
+testpaths = []
+norecursedirs = ["packages", ".venv", "workspaces", "data"]
 python_files = ["test_*.py"]
-addopts = "-v"
-markers = [
-    "integration: tests requiring external services (LLM API keys)",
-]
 
-# Shared coverage configuration
-[tool.coverage.run]
-source = ["packages/*/src"]
-branch = true
-omit = ["*/tests/*", "*/__pycache__/*"]
-
-[tool.coverage.report]
-fail_under = 80
-show_missing = true
-
-# Shared mypy configuration
 [tool.mypy]
 python_version = "3.12"
 strict = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+exclude = ["^packages/"]
 
-# akgentic-tool: pre-existing type errors — exempted to keep CI green.
-# New files in these modules must pass strict mypy before the override is removed.
-[[tool.mypy.overrides]]
-module = [
-    "akgentic.tool.core",
-    "akgentic.tool.event",
-    "akgentic.tool.team.team",
-    "akgentic.tool.planning.planning",
-    "akgentic.tool.planning.planning_actor",
-    "akgentic.tool.knowledge_graph.kg_tool",
-    "akgentic.tool.search.search",
-    "akgentic.tool.mcp.mcp",
-    "akgentic.tool.sandbox.actor",
-    "akgentic.tool.workspace.readers",
-]
-ignore_errors = true
-
-# Shared ruff configuration
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = ["packages"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ANN", "ASYNC", "C901", "PLR0912", "PLR0915"]
