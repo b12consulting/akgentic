@@ -44,8 +44,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.ref }}
+          fetch-depth: 0
           # Needed by verify_submodules.py and sync_versions.py --check, which
           # read the pinned sources. The build itself does not use them.
+          # fetch-depth: 0 matters here specifically: a submodule pinned to a
+          # tag behind its current branch tip (the normal case) is fetched via
+          # a shallow single-SHA fetch that carries no tag refs at all, so
+          # verify_submodules.py's `git rev-parse vX.Y.Z^{commit}` fails even
+          # though the commit itself is present.
           submodules: true
 
       - name: Install uv
