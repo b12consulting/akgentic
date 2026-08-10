@@ -175,7 +175,7 @@ wheels = [
 
 [[package]]
 name = "akgentic-catalog"
-version = "2.2.0"
+version = "2.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "akgentic-core" },
@@ -184,9 +184,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cc/50/d56f533417099fd455c00d3379a2159b61b29d1d5b47cc10a83283bf3641/akgentic_catalog-2.2.0.tar.gz", hash = "sha256:0642348e6cc8d3e0e0b4d37b18b94226ba8f34860ea5684938554bc8f3b7cc23", size = 301711 }
+sdist = { url = "https://files.pythonhosted.org/packages/43/f7/6f8454f41c03faa0be4b40d4bcbb4af827d6e14d6217c12ffcac9da23732/akgentic_catalog-2.2.2.tar.gz", hash = "sha256:02dac397e87f6c409109d8241509c4831bf50fe2e0995dfaf4b9947fd31ca830", size = 313309 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/7a/c29a20f43018ba26dde8023fda4dbc9281d4de83110a474efa52d6d7c484/akgentic_catalog-2.2.0-py3-none-any.whl", hash = "sha256:c7538e46643f86c8de18156d03337e7b13241fb4dbe6ab5f2ecea509e812d183", size = 131935 },
+    { url = "https://files.pythonhosted.org/packages/a8/73/35d8565ea854b6122fa93d8e9072135bc4bee9121b6138be4b9f1cca1ab3/akgentic_catalog-2.2.2-py3-none-any.whl", hash = "sha256:463541fb94c9e56133baa614daa984e20797c0117ccc9aaa0a31946e014ebb92", size = 137360 },
 ]
 
 [package.optional-dependencies]
@@ -221,7 +221,7 @@ wheels = [
 
 [[package]]
 name = "akgentic-framework"
-version = "2.8.0"
+version = "2.8.1"
 source = { editable = "." }
 dependencies = [
     { name = "akgentic-core" },
@@ -303,11 +303,11 @@ requires-dist = [
     { name = "akgentic-agent", marker = "extra == 'all'", specifier = "==1.6.0" },
     { name = "akgentic-agent", marker = "extra == 'all-extras'", specifier = "==1.6.0" },
     { name = "akgentic-agent", marker = "extra == 'infra'", specifier = "==1.6.0" },
-    { name = "akgentic-catalog", marker = "extra == 'all'", specifier = "==2.2.0" },
-    { name = "akgentic-catalog", marker = "extra == 'catalog'", specifier = "==2.2.0" },
-    { name = "akgentic-catalog", marker = "extra == 'infra'", specifier = "==2.2.0" },
-    { name = "akgentic-catalog", extras = ["api", "cli", "mongo"], marker = "extra == 'all-extras'", specifier = "==2.2.0" },
-    { name = "akgentic-catalog", extras = ["postgres"], marker = "extra == 'postgres'", specifier = "==2.2.0" },
+    { name = "akgentic-catalog", marker = "extra == 'all'", specifier = "==2.2.2" },
+    { name = "akgentic-catalog", marker = "extra == 'catalog'", specifier = "==2.2.2" },
+    { name = "akgentic-catalog", marker = "extra == 'infra'", specifier = "==2.2.2" },
+    { name = "akgentic-catalog", extras = ["api", "cli", "mongo"], marker = "extra == 'all-extras'", specifier = "==2.2.2" },
+    { name = "akgentic-catalog", extras = ["postgres"], marker = "extra == 'postgres'", specifier = "==2.2.2" },
     { name = "akgentic-core", specifier = "==1.5.0" },
     { name = "akgentic-core", marker = "extra == 'agent'", specifier = "==1.5.0" },
     { name = "akgentic-core", marker = "extra == 'all'", specifier = "==1.5.0" },
@@ -318,14 +318,14 @@ requires-dist = [
     { name = "akgentic-core", marker = "extra == 'postgres'", specifier = "==1.5.0" },
     { name = "akgentic-core", marker = "extra == 'team'", specifier = "==1.5.0" },
     { name = "akgentic-core", marker = "extra == 'tool'", specifier = "==1.5.0" },
-    { name = "akgentic-infra", marker = "extra == 'all'", specifier = "==1.8.0" },
-    { name = "akgentic-infra", marker = "extra == 'all-extras'", specifier = "==1.8.0" },
-    { name = "akgentic-infra", marker = "extra == 'infra'", specifier = "==1.8.0" },
-    { name = "akgentic-llm", marker = "extra == 'agent'", specifier = "==1.6.0" },
-    { name = "akgentic-llm", marker = "extra == 'all'", specifier = "==1.6.0" },
-    { name = "akgentic-llm", marker = "extra == 'all-extras'", specifier = "==1.6.0" },
-    { name = "akgentic-llm", marker = "extra == 'infra'", specifier = "==1.6.0" },
-    { name = "akgentic-llm", marker = "extra == 'llm'", specifier = "==1.6.0" },
+    { name = "akgentic-infra", marker = "extra == 'all'", specifier = "==1.8.2" },
+    { name = "akgentic-infra", marker = "extra == 'all-extras'", specifier = "==1.8.2" },
+    { name = "akgentic-infra", marker = "extra == 'infra'", specifier = "==1.8.2" },
+    { name = "akgentic-llm", marker = "extra == 'agent'", specifier = "==1.6.2" },
+    { name = "akgentic-llm", marker = "extra == 'all'", specifier = "==1.6.2" },
+    { name = "akgentic-llm", marker = "extra == 'all-extras'", specifier = "==1.6.2" },
+    { name = "akgentic-llm", marker = "extra == 'infra'", specifier = "==1.6.2" },
+    { name = "akgentic-llm", marker = "extra == 'llm'", specifier = "==1.6.2" },
     { name = "akgentic-team", marker = "extra == 'all'", specifier = "==1.5.0" },
     { name = "akgentic-team", marker = "extra == 'catalog'", specifier = "==1.5.0" },
     { name = "akgentic-team", marker = "extra == 'infra'", specifier = "==1.5.0" },
@@ -351,7 +351,7 @@ dev = [
 
 [[package]]
 name = "akgentic-infra"
-version = "1.8.0"
+version = "1.8.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "akgentic-agent" },
@@ -372,14 +372,14 @@ dependencies = [
     { name = "websockets" },
     { name = "wsproto" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/87/82/c111aeabdccd1d455735901d43a3e17dc263ddaa458b3ec69377098b1d8a/akgentic_infra-1.8.0.tar.gz", hash = "sha256:06b3d100c1560aca7df4faa7499b6e51c45a6212f68200b43a6583993911a022", size = 414894 }
+sdist = { url = "https://files.pythonhosted.org/packages/59/d8/9b720485341a962ccc04a2182c45549d5b2d251bbf31f0854d0cbaba9f66/akgentic_infra-1.8.2.tar.gz", hash = "sha256:a7941767ca55c56cfdb1630f03d0c88f209c1217bf5751c4cea49c06d66b612d", size = 424480 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/ab/e0bdce74fdfc10941c15f72127cb0d7ba97df05d5a2bcce55dfd1a9ea406/akgentic_infra-1.8.0-py3-none-any.whl", hash = "sha256:005be75d7e3c0d1576a025803557e7583878f6b005cd439c1186da40bc8cc1d1", size = 230962 },
+    { url = "https://files.pythonhosted.org/packages/3e/7c/1857d61b53916e74f05ec8c2306db2c7f9159fb680f28bb0eedca6d878c4/akgentic_infra-1.8.2-py3-none-any.whl", hash = "sha256:d431705564c7c521de2b56afbb51e915328f8db77cc46551821b8296739ac399", size = 233680 },
 ]
 
 [[package]]
 name = "akgentic-llm"
-version = "1.6.0"
+version = "1.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
@@ -389,9 +389,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/71/18/239fd3b783da7c308862321d069e9f1314403af3ce3f55eaecf5d8d86133/akgentic_llm-1.6.0.tar.gz", hash = "sha256:a354b4169e30489385ed6cd5b1f15b9a44cfc527ce89db357f4852832c678a9b", size = 136877 }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/11/20489023a563bacb908b26ac23eb3d50859a5a54138a12a8d356d58c5d57/akgentic_llm-1.6.2.tar.gz", hash = "sha256:2a21c26a083cc09ea7bb60b1bc07f2085e95399b032b368410c6465b43363ffe", size = 142775 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/e4/d7c05f08cd4480575c309645d8c92ef21c49732145368376b62b91953677/akgentic_llm-1.6.0-py3-none-any.whl", hash = "sha256:00a2c9c90bf5d7fd747abefc26055afa1c081c1e1435fee1711ca5e988a2a843", size = 69076 },
+    { url = "https://files.pythonhosted.org/packages/3a/8a/db024b68bb497348a320da838e8650a51073550e285b2ede5d7d766657e8/akgentic_llm-1.6.2-py3-none-any.whl", hash = "sha256:246f7f5492e502d0dba0db8ac379a65e2531a18ec2f17e8b7de2d5c2b1f40705", size = 70601 },
 ]
 
 [[package]]
