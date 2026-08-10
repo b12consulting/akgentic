@@ -1,0 +1,113 @@
+name: Publish to PyPI
+
+# Publishes the `akgentic-framework` umbrella to TestPyPI or PyPI using Trusted
+# Publishing (OIDC). No API token is stored anywhere: PyPI verifies this
+# workflow's identity at upload time and mints a short-lived token.
+#
+# ONLY the umbrella is published here. Each subpackage publishes itself from its
+# own repository — this workflow used to upload all eight, which meant every
+# subpackage wheel was built twice (once here from the vendored copy, once in its
+# own repo) and the two were not identical.
+#
+# PyPI-side setup, required once BEFORE the first publish:
+#   PyPI → Publishing → "Add a new pending publisher"
+#     Owner:            b12consulting
+#     Repository name:  akgentic-framework
+#     Workflow name:    publish-pypi.yml      <- this file's name; renaming it
+#                                                breaks the publisher config
+#     Environment:      pypi                  (or testpypi on TestPyPI)
+#
+# Since each subpackage now has its own publisher in its own repository, this
+# repo's publishers for those seven projects should be retired — otherwise two
+# workflows in two repositories stay authorized to publish the same project.
+#
+# The version is read from pyproject.toml, so bump it there first. PyPI refuses
+# to overwrite an existing version: a botched upload burns that number
+# permanently, which is why the pin check below is not optional.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Index to publish to"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dispatched branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+          # Needed by verify_submodules.py and sync_versions.py --check, which
+          # read the pinned sources. The build itself does not use them.
+          submodules: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      # The umbrella is nothing but exact pins. Publishing it before the versions
+      # it names exist would create a release that can never be installed, and
+      # PyPI metadata is immutable. Nothing else sequences this after the
+      # subpackages now that they publish from their own repositories.
+      - name: Verify every pinned version is published
+        run: uv run python scripts/verify_pins.py
+
+      # The pins must also agree with the submodules, and each submodule must sit
+      # exactly on its release tag — otherwise the release set names versions the
+      # pinned sources are not.
+      - name: Verify the pins match the submodules
+        run: |
+          uv run python scripts/verify_submodules.py
+          uv run python scripts/sync_versions.py --check
+
+      - name: Build the umbrella
+        run: uv run python scripts/build_umbrella.py dist/
+
+      - name: Check metadata
+        run: uvx twine check dist/*
+
+      - name: Upload distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Gates the upload behind the environment's protection rules, and is part of
+    # the identity PyPI checks. Must match the "Environment" field of the
+    # trusted publisher.
+    environment: ${{ inputs.target }}
+    permissions:
+      # Required for the OIDC exchange. This is the whole mechanism — without it
+      # the action cannot prove which workflow it is.
+      id-token: write
+    steps:
+      - name: Download distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+      - name: Publish akgentic-framework
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: >-
+            ${{ inputs.target == 'testpypi'
+                && 'https://test.pypi.org/legacy/'
+                || 'https://upload.pypi.org/legacy/' }}
+          print-hash: true

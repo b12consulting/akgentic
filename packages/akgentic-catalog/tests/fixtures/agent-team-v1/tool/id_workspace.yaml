@@ -1,9 +1,0 @@
-id: id_workspace
-kind: tool
-namespace: agent-team-v1
-user_id: anonymous
-model_type: akgentic.tool.workspace.WorkspaceTool
-description: Workspace tool for managing agent interactions and data
-payload:
-  name: Workspace
-  description: Workspace tool for managing agent interactions and data

@@ -1,93 +1,225 @@
+# This file IS the published `akgentic-framework` distribution: a metadata-only
+# wheel that contains no code, only a coherent set of pinned requirements.
+# scripts/build_umbrella.py builds it straight from here — there is no generated
+# copy, so what you review is what ships.
+#
+# It is also the uv workspace root when the source-mode blocks near the bottom
+# are uncommented, which is why the pins matter in two directions: they are the
+# release set consumers install, and the versions the submodules must be at.
+#
+# `version` is the release-set counter and is bumped BY HAND. The pins below are
+# regenerated from the submodules by scripts/sync_versions.py — do not hand-edit
+# them, or the umbrella will claim a set the packages do not agree with.
 [project]
 name = "akgentic-framework"
-version = "2.8.0"
-description = "Akgentic framework quick start package with example agents and tools"
+version = "2.8.1"
+description = "Meta-distribution pinning a coherent akgentic release set."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 authors = [
     { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
+# The base install is the actor framework alone, so `pip install
+# akgentic-framework` stays a usable minimal floor instead of dragging fastapi,
+# textual and pydantic-ai into every consumer. Everything else is an extra.
 dependencies = [
-    "akgentic-core",
-    "akgentic-llm",
-    "akgentic-agent",
-    "akgentic-tool",
-    "akgentic-catalog",
-    "akgentic-team",
-    "akgentic-infra",
+    "akgentic-core==1.5.0",
 ]
 
-[tool.uv.sources]
-akgentic-core = { workspace = true }
-akgentic-llm = { workspace = true }
-akgentic-agent = { workspace = true }
-akgentic-tool = { workspace = true }
-akgentic-catalog = { workspace = true }
-akgentic-team = { workspace = true }
-akgentic-infra = { workspace = true }
+# Every extra pins its WHOLE akgentic closure, not just the package it names.
+# Pinning only the named package would leave its akgentic dependencies to
+# resolve by their own bounds, so [agent] could pull an akgentic-llm that was
+# never tested against this release set — the one thing this distribution
+# exists to prevent.
+#
+# BEGIN GENERATED — scripts/sync_versions.py owns everything to END GENERATED.
+# Hand edits here are overwritten; change a submodule's version and re-run it.
+[project.optional-dependencies]
+core = ["akgentic-core==1.5.0"]
+llm = ["akgentic-llm==1.6.2"]
+tool = [
+    "akgentic-core==1.5.0",
+    "akgentic-tool==1.6.0",
+]
+agent = [
+    "akgentic-core==1.5.0",
+    "akgentic-llm==1.6.2",
+    "akgentic-tool==1.6.0",
+    "akgentic-agent==1.6.0",
+]
+catalog = [
+    "akgentic-core==1.5.0",
+    "akgentic-tool==1.6.0",
+    "akgentic-catalog==2.2.2",
+    "akgentic-team==1.5.0",
+]
+team = [
+    "akgentic-core==1.5.0",
+    "akgentic-team==1.5.0",
+]
+infra = [
+    "akgentic-core==1.5.0",
+    "akgentic-llm==1.6.2",
+    "akgentic-tool==1.6.0",
+    "akgentic-agent==1.6.0",
+    "akgentic-catalog==2.2.2",
+    "akgentic-team==1.5.0",
+    "akgentic-infra==1.8.2",
+]
+# Every subpackage, no optional extras (lean install).
+all = [
+    "akgentic-core==1.5.0",
+    "akgentic-llm==1.6.2",
+    "akgentic-tool==1.6.0",
+    "akgentic-agent==1.6.0",
+    "akgentic-catalog==2.2.2",
+    "akgentic-team==1.5.0",
+    "akgentic-infra==1.8.2",
+]
+# Every subpackage plus its own optional extras. `postgres` is
+# deliberately absent: it is mutually exclusive with `mongo`, which
+# this pulls in.
+all-extras = [
+    "akgentic-core==1.5.0",
+    "akgentic-llm==1.6.2",
+    "akgentic-tool[docs,vector-search,vision,weaviate]==1.6.0",
+    "akgentic-agent==1.6.0",
+    "akgentic-catalog[api,cli,mongo]==2.2.2",
+    "akgentic-team[cli,mongo]==1.5.0",
+    "akgentic-infra==1.8.2",
+]
+# The backend all-extras cannot carry; compose it as [all,postgres].
+postgres = [
+    "akgentic-core==1.5.0",
+    "akgentic-tool==1.6.0",
+    "akgentic-catalog[postgres]==2.2.2",
+    "akgentic-team[postgres]==1.5.0",
+]
+# END GENERATED
 
-[tool.uv.workspace]
-members = [
-    "packages/akgentic-core",
-    "packages/akgentic-llm",
-    "packages/akgentic-agent",
-    "packages/akgentic-tool",
-    "packages/akgentic-catalog",
-    "packages/akgentic-team",
-    "packages/akgentic-infra",
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Metadata-only distribution: there is no module to package, so skip hatchling's
+# file selection entirely. This is what makes the wheel a pure set of
+# requirements, and what keeps src/ out of it.
+bypass-selection = true
+
+[tool.hatch.build.targets.sdist]
+# Same reason, but sdist has no bypass-selection: name the files explicitly, or
+# hatchling errors out looking for a package to include.
+only-include = ["README.md", "LICENSE"]
+
+# --8<-- development-only below this line; stripped from the published distribution
+#
+# scripts/build_umbrella.py cuts the staged pyproject.toml here. Everything below
+# configures the local checkout — the uv workspace, the dev install, the shared
+# tool settings — and none of it belongs in a metadata-only wheel. `uv build`
+# would in fact fail on it, because the staged copy has no packages/ directory
+# for [tool.uv.workspace] to point at.
+#
+# Anything the published distribution needs MUST go above this line.
+
+# Installed automatically by `uv sync` (see default-groups) so a fresh clone can
+# run src/agent_team and src/infra_server.py straight away. pip ignores dependency
+# groups entirely, so the published metadata stays lean. Referencing the extra
+# rather than restating it means this cannot drift from all-extras.
+[dependency-groups]
+demo = ["akgentic-framework[all-extras]"]
+# Lint and type-check the release scripts. Named explicitly in default-groups
+# below because setting that key replaces uv's implicit ["dev"] rather than
+# adding to it — omit it and a fresh checkout cannot run ruff or mypy.
+dev = [
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
 ]
 
-# Python version requirement is set per-package in individual pyproject.toml files
+[tool.uv]
+default-groups = ["demo", "dev"]
 
-# Shared pytest configuration for all workspace packages
+# ── SOURCE MODE ───────────────────────────────────────────────────────────────
+# Uncomment both blocks to work against the submodule sources instead of the
+# published wheels. Order matters:
+#
+#   1. git submodule update --init     <- FIRST. uv errors on a workspace source
+#                                         whose member directory does not exist,
+#                                         and the message does not say why.
+#   2. uncomment the two blocks below
+#   3. uv sync
+#
+# The submodules are pinned at the release tags this file's version pins name,
+# so what you get is exactly the code this release was built from — verified by
+# scripts/verify_submodules.py.
+#
+# Two things to expect:
+#   * uv.lock is rewritten when you switch modes. That diff is expected and
+#     should not be committed; `git checkout uv.lock` when you are done.
+#   * The `==` pins above still apply to workspace members. If you bump a
+#     submodule's version locally, `uv sync` fails until the pins are
+#     regenerated — run scripts/sync_versions.py. That is the pin table doing
+#     its job: it IS the declared release set.
+#
+# To check wheel-mode resolution without re-commenting, use `uv sync --no-sources`.
+#
+# [tool.uv.sources]
+# akgentic-core = { workspace = true }
+# akgentic-llm = { workspace = true }
+# akgentic-agent = { workspace = true }
+# akgentic-tool = { workspace = true }
+# akgentic-catalog = { workspace = true }
+# akgentic-team = { workspace = true }
+# akgentic-infra = { workspace = true }
+#
+# [tool.uv.workspace]
+# members = [
+#     "packages/akgentic-core",
+#     "packages/akgentic-llm",
+#     "packages/akgentic-agent",
+#     "packages/akgentic-tool",
+#     "packages/akgentic-catalog",
+#     "packages/akgentic-team",
+#     "packages/akgentic-infra",
+# ]
+
+# The settings below cover THIS repository's own code — scripts/ and src/ — and
+# nothing else. `packages/` is excluded from every one of them on purpose: those
+# are submodules, each with its own CI, its own lint rules and its own coverage
+# gate. Running them from here would duplicate that work under the wrong
+# configuration, and silently disagree with what their own pipelines enforce.
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["packages/*/tests"]
+# This repository has no tests of its own. The empty testpaths plus the excluded
+# directories are what stop pytest walking into the submodules in source mode and
+# collecting several thousand tests that belong to other repositories.
+testpaths = []
+norecursedirs = ["packages", ".venv", "workspaces", "data"]
 python_files = ["test_*.py"]
-addopts = "-v"
-markers = [
-    "integration: tests requiring external services (LLM API keys)",
-]
 
-# Shared coverage configuration
-[tool.coverage.run]
-source = ["packages/*/src"]
-branch = true
-omit = ["*/tests/*", "*/__pycache__/*"]
-
-[tool.coverage.report]
-fail_under = 80
-show_missing = true
-
-# Shared mypy configuration
 [tool.mypy]
 python_version = "3.12"
 strict = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+exclude = ["^packages/"]
 
-# akgentic-tool: pre-existing type errors — exempted to keep CI green.
-# New files in these modules must pass strict mypy before the override is removed.
-[[tool.mypy.overrides]]
-module = [
-    "akgentic.tool.core",
-    "akgentic.tool.event",
-    "akgentic.tool.team.team",
-    "akgentic.tool.planning.planning",
-    "akgentic.tool.planning.planning_actor",
-    "akgentic.tool.knowledge_graph.kg_tool",
-    "akgentic.tool.search.search",
-    "akgentic.tool.mcp.mcp",
-    "akgentic.tool.sandbox.actor",
-    "akgentic.tool.workspace.readers",
-]
-ignore_errors = true
-
-# Shared ruff configuration
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = ["packages"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ANN", "ASYNC", "C901", "PLR0912", "PLR0915"]

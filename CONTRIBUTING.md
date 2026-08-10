@@ -26,13 +26,16 @@ Contributions targeting a specific package should be made against **that package
 
 Go to the repository you want to contribute to (e.g. `github.com/b12consulting/akgentic-core`) and click **Fork**.
 
-### 2. Clone the quick-start with submodules
+### 2. Clone the framework with submodules
 
 ```bash
-git clone https://github.com/b12consulting/akgentic-quick-start.git
-cd akgentic-quick-start
-git submodule update --init --recursive
+git clone https://github.com/b12consulting/akgentic-framework.git
+cd akgentic-framework
+git submodule update --init
 ```
+
+The submodules are pinned at the release tags the current version pins, so you
+start from exactly the code that release was built from.
 
 ### 3. Point the submodule at your fork
 
@@ -42,13 +45,20 @@ git remote add fork https://github.com/<your-username>/akgentic-core.git
 git fetch fork
 ```
 
-### 4. Set up the workspace
+### 4. Set up the environment
+
+Uncomment the two blocks under **SOURCE MODE** in `pyproject.toml`, then:
 
 ```bash
-uv venv
+uv sync
 source .venv/bin/activate
-uv sync --all-packages --all-extras
 ```
+
+That resolves every `akgentic-*` package to your local submodule checkout rather
+than the published wheel, so changes take effect immediately across packages.
+
+Without those blocks uncommented, `uv sync` installs the released wheels from
+PyPI — fine for running the examples, but your edits will not be picked up.
 
 ---
 

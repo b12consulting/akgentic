@@ -1,5 +1,5 @@
 <div align="center">
-<img src="akgents.png" alt="Akgents - Powered by Yuma" width="400">
+<img src="assets/akgents.png" alt="Akgents - Powered by Yuma" width="400">
 <br><br>
 
 **Modern actor-based agent framework for Python 3.12+**
@@ -25,18 +25,111 @@ This root package serves as the **quick-start entry point** for the Akgentic fra
 
 ### Installation
 
+Akgentic is on PyPI. To install the whole framework:
+
 ```bash
-# 1. Clone the repository with submodules
+pip install "akgentic-framework[all]"
+```
+
+Add the optional backends and heavier tool extras (Mongo persistence, vector
+search, document parsing, …):
+
+```bash
+pip install "akgentic-framework[all-extras]"
+```
+
+`akgentic-framework` is a meta-distribution: it contains no code of its own,
+only a pinned set of requirements, so an extra installs the exact subpackage
+versions that were built and tested together for that release.
+
+#### À la carte
+
+Extras compose, and each one pins its **whole** akgentic dependency closure at
+the versions of this release — so `[agent]` fixes `akgentic-llm` and
+`akgentic-tool` too, rather than letting them resolve to whatever is newest.
+
+| Extra | Installs |
+|---|---|
+| `core` | `akgentic-core` |
+| `llm` | `akgentic-llm` |
+| `tool` | `akgentic-tool` + `akgentic-core` |
+| `agent` | `akgentic-agent` + `akgentic-llm`, `akgentic-tool`, `akgentic-core` |
+| `team` | `akgentic-team` + `akgentic-core` |
+| `catalog` | `akgentic-catalog` + `akgentic-team`, `akgentic-tool`, `akgentic-core` |
+| `infra` | `akgentic-infra` + the whole set |
+| `postgres` | `akgentic-catalog[postgres]`, `akgentic-team[postgres]` + their closure |
+
+```bash
+pip install "akgentic-framework[agent,catalog]"
+```
+
+`mongo` and `postgres` are mutually exclusive persistence backends, so
+`[all-extras]` ships the Mongo flavour. Compose the other one explicitly:
+
+```bash
+pip install "akgentic-framework[all,postgres]"
+```
+
+The base install is the actor framework alone (`akgentic.core`), so it stays a
+usable minimal floor:
+
+```bash
+pip install akgentic-framework
+```
+
+Subpackages can also be installed directly — `pip install akgentic-agent` —
+which is the right choice when you depend on one part and do not want a
+release-wide pin.
+
+#### Running from a clone
+
+Cloning this repository and syncing installs the release set from PyPI — no
+submodules needed. This is what you want to try the examples below:
+
+```bash
 git clone https://github.com/b12consulting/akgentic-framework.git
 cd akgentic-framework
-
-# 2. Create and activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# 3. Install all workspace packages in editable mode
-uv sync --all-packages --all-extras
+uv sync
+source .venv/bin/activate
 ```
+
+`uv sync` installs every subpackage with its optional extras, so the demos run
+immediately. (Published metadata stays lean: `pip install akgentic-framework`
+still gets `akgentic.core` alone. The full set comes from a uv dependency group,
+which pip ignores.)
+
+#### Working on the sources
+
+To change subpackage code rather than just use it, switch the same checkout into
+source mode. **Initialise the submodules first** — uv reports a confusing error
+if a workspace member directory is missing:
+
+```bash
+# 1. Fetch the sources, pinned at the release tags this version pins
+git submodule update --init
+
+# 2. Uncomment the two blocks under "SOURCE MODE" in pyproject.toml
+
+# 3. Re-sync; akgentic-* now resolve to the local sources, editable
+uv sync
+```
+
+The submodules are pinned at the exact commits their release tags point to, so
+what you get is the code this release was built from — `uv run python
+scripts/verify_submodules.py` checks it. Because every package's own CI resolves
+its dependencies from PyPI, this is the only place unreleased cross-package
+changes are exercised together.
+
+Two things to expect:
+
+- `uv.lock` is rewritten when you switch modes. That diff is expected; don't
+  commit it — `git checkout uv.lock` when you're done.
+- The `==` pins still apply to the local sources. Bump a submodule's version and
+  `uv sync` fails until you regenerate the pins with `scripts/sync_versions.py`.
+  That's deliberate: the pin table *is* the declared release set.
+
+To check how the published metadata resolves without re-commenting anything, use
+`uv sync --no-sources`.
 
 ### Running the Server and Frontend
 
@@ -57,7 +150,11 @@ python src/infra_server.py
 
 **Terminal 2 — Start the web UI:**
 
+The frontend is an Angular app published from its own repository, and it is not
+part of the Python install — fetch its sources before the first run:
+
 ```bash
+git submodule update --init packages/akgentic-frontend
 cd packages/akgentic-frontend
 npm install
 npm start
@@ -70,8 +167,8 @@ Once both are running:
 
 By default, the server stores team catalogs in `./data/catalog/` and the event store in `./data/event_store/`. These paths are configurable via the `CommunitySettings` class or environment variables prefixed with `AKGENTIC_`.
 
-![Akgentic Frontend](akgentic_frontend.png)
-![Akgentic OpenAPI](akgentic_openapi.png)
+![Akgentic Frontend](assets/akgentic_frontend.png)
+![Akgentic OpenAPI](assets/akgentic_openapi.png)
 
 
 
@@ -167,7 +264,7 @@ exit
 Exiting chat loop.
 ```
 
-This example showcases the **akgentic-agent** package capabilities. For LLM-driven agent patterns and the typed message protocol, see [packages/akgentic-agent/README.md](packages/akgentic-agent/README.md).
+This example showcases the **akgentic-agent** package capabilities. For LLM-driven agent patterns and the typed message protocol, see [the akgentic-agent README](https://github.com/b12consulting/akgentic-agent/blob/master/README.md).
 
 ### Catalog-Driven Agent Team Example
 
@@ -179,14 +276,16 @@ Instead of defining `AgentCard` objects in Python, you declare them in YAML cata
 python src/catalog/main.py
 ```
 
-See [packages/akgentic-catalog/README.md](packages/akgentic-catalog/README.md) for catalog documentation.
+See [the akgentic-catalog README](https://github.com/b12consulting/akgentic-catalog/blob/master/README.md) for catalog documentation.
 
 ## Architecture
 
-This is a **monorepo workspace** containing seven core packages:
+Each package lives in its own repository and publishes itself to PyPI. This
+repository is the entry point: it pins a coherent set of them and, in source
+mode, mounts them as submodules under `packages/`.
 
 ```
-packages/
+packages/                 (submodules — empty until `git submodule update --init`)
   akgentic-core/        → Zero-dependency actor framework (Pykka, messaging, orchestrator)
   akgentic-llm/         → LLM integration layer (pydantic-ai, multi-provider, REACT pattern)
   akgentic-tool/        → Tool abstractions (ToolCard, ToolFactory, workspace, planning, search, KG, MCP)
@@ -240,7 +339,7 @@ agent = system.createActor(EchoAgent)
 system.tell(agent, EchoMessage(content="Hello!"))
 ```
 
-See [packages/akgentic-core/README.md](packages/akgentic-core/README.md) for full documentation.
+See [the akgentic-core README](https://github.com/b12consulting/akgentic-core/blob/master/README.md) for full documentation.
 
 ### akgentic-llm
 
@@ -255,7 +354,7 @@ LLM integration layer supporting OpenAI, Anthropic, Google, and more.
 - **Context Management** - Checkpointing, rewind, and compactification
 - **Dynamic Prompts** - Programmatic system prompt registry
 
-See [packages/akgentic-llm/README.md](packages/akgentic-llm/README.md) for details.
+See [the akgentic-llm README](https://github.com/b12consulting/akgentic-llm/blob/master/README.md) for details.
 
 ### akgentic-tool
 
@@ -272,7 +371,7 @@ Tool infrastructure and domain tool implementations.
 - **MCPTool** — Model Context Protocol server integration (HTTP+SSE and stdio)
 - **RetriableError** — Framework-agnostic retry signal for recoverable failures
 
-See [packages/akgentic-tool/README.md](packages/akgentic-tool/README.md) for complete documentation.
+See [the akgentic-tool README](https://github.com/b12consulting/akgentic-tool/blob/master/README.md) for complete documentation.
 
 ### akgentic-agent
 
@@ -287,7 +386,7 @@ Collaborative agent patterns — the integration layer combining core, llm, and 
 - **HumanProxy** — Seamless human-in-the-loop interactions
 - **Media Expansion** — `!!file.png` and `!!*.md` inline file injection into LLM prompts
 
-See [packages/akgentic-agent/README.md](packages/akgentic-agent/README.md) for complete documentation.
+See [the akgentic-agent README](https://github.com/b12consulting/akgentic-agent/blob/master/README.md) for complete documentation.
 
 ### akgentic-catalog
 
@@ -302,7 +401,7 @@ Configuration-driven team assembly from YAML files — no code changes needed.
 - **FQCN resolution** — Resolve `"akgentic.agent.BaseAgent"` to the actual class at runtime
 - **CLI + REST API** — `ak-catalog` CLI and FastAPI REST layer for all CRUD operations
 
-See [packages/akgentic-catalog/README.md](packages/akgentic-catalog/README.md) for complete documentation.
+See [the akgentic-catalog README](https://github.com/b12consulting/akgentic-catalog/blob/master/README.md) for complete documentation.
 
 ### akgentic-team
 
@@ -316,7 +415,7 @@ Team lifecycle management with crash-recovery and event sourcing.
 - **YAML / MongoDB stores** — Zero-infra default (YAML), scalable alternative (MongoDB via `[mongo]` extra)
 - **Resume from any STOPPED team** — Rebuild LLM conversation history from event replay log
 
-See [packages/akgentic-team/README.md](packages/akgentic-team/README.md) for complete documentation.
+See [the akgentic-team README](https://github.com/b12consulting/akgentic-team/blob/master/README.md) for complete documentation.
 
 ### akgentic-infra
 
@@ -335,7 +434,7 @@ Infrastructure backend for the Akgentic platform. Provides protocol abstractions
 - **Department tier** — Redis-backed channels and state, MongoDB event store, HTTP remote workers for Docker Compose setups
 - **Enterprise tier** — Dapr-native service mesh, auto-restore recovery, zone-aware placement, and full OpenTelemetry integration
 
-See [packages/akgentic-infra/README.md](packages/akgentic-infra/README.md) for the full three-tier architecture and deployment guide.
+See [the akgentic-infra README](https://github.com/b12consulting/akgentic-infra/blob/master/README.md) for the full three-tier architecture and deployment guide.
 
 ### akgentic-frontend
 
@@ -352,81 +451,75 @@ Angular single-page application providing real-time visualization and management
 
 **Key libraries:** Angular 19, PrimeNG 19, ECharts (ngx-echarts), RxJS, ngx-markdown, Monaco Editor.
 
-See [packages/akgentic-frontend/README.md](packages/akgentic-frontend/README.md) for setup and development instructions.
+See [the akgentic-frontend README](https://github.com/b12consulting/akgentic-frontend/blob/master/README.md) for setup and development instructions.
 
 ## 🛠️ Development
 
-### Workspace Structure
+### Where the work happens
 
-This repository uses **UV workspaces** with a shared virtual environment:
+Each package is its own repository, with its own CI, lint rules and coverage
+gate. Changes to a package are made, reviewed and released **there** — this
+repository holds no subpackage code.
 
-- **Root `.venv/`**: Shared environment for all packages (initialize with `uv sync`)
-- **Individual packages**: Define dependencies, managed centrally via workspace
-- **Cross-package imports**: Work seamlessly (e.g., akgentic-llm imports akgentic)
-
-### Development Workflow
-
-```bash
-# 1. Activate workspace environment
-source .venv/bin/activate
-
-# 2. Make changes to any package
-vim packages/akgentic-core/src/akgentic/agent.py
-
-# 3. Tests automatically see changes (editable install)
-pytest packages/akgentic-core/tests/
-
-# 4. Type checking
-mypy packages/akgentic-core/src/
-mypy packages/akgentic-llm/src/
-
-# 5. Linting
-ruff check packages/akgentic-core/src/
-ruff check packages/akgentic-llm/src/
-
-# 6. Format code
-ruff format packages/akgentic-core/src/
-ruff format packages/akgentic-llm/src/
-```
-
-### Running Tests
+What it does hold is the release set, and the one place unreleased packages are
+exercised together. Every package's CI resolves its dependencies from PyPI, so
+no package's own pipeline ever sees an unreleased sibling. Source mode here is
+where that combination gets tried:
 
 ```bash
-# Test all packages
-pytest
-
-# Test specific package
-pytest packages/akgentic-core/tests/
-pytest packages/akgentic-llm/tests/
-pytest packages/akgentic-team/tests/
-
-# With coverage
-pytest --cov
+git submodule update --init
+# uncomment the two blocks under "SOURCE MODE" in pyproject.toml
+uv sync
 ```
 
-### Adding a New Package
+Each submodule is a normal checkout of its repository, so branch and commit in
+it as usual — and open the PR against that repository, not this one. The
+submodules are pinned at release tags, so you start from exactly the code this
+release was built from:
 
 ```bash
-# 1. Create package structure
-mkdir -p packages/my-package/src/akgentic/my_module
-mkdir -p packages/my-package/tests
-
-# 2. Create pyproject.toml (use akgentic-llm as template)
-cp packages/akgentic-llm/pyproject.toml packages/my-package/
-
-# 3. Add to workspace in root pyproject.toml
-# Edit: [tool.uv.workspace]
-# members = [..., "packages/my-package"]
-
-# 4. Activate workspace environment
-source .venv/bin/activate
-
-# 5. Install in editable mode
-uv pip install -e "packages/my-package[dev]"
-
-# 6. Verify installation
-python -c "import akgentic.my_module; print('Success!')"
+uv run python scripts/verify_submodules.py
 ```
+
+Run a package's own tests and checks from its directory, under its own
+configuration:
+
+```bash
+cd packages/akgentic-core
+uv run pytest tests/
+uv run mypy src/
+uv run ruff check src/
+```
+
+This repository's own gates cover `scripts/` and `src/` only — it has no test
+suite, and deliberately does not collect the submodules'.
+
+### Cutting a release
+
+The umbrella's version is a release-set counter: it is bumped by hand when a set
+of package versions is worth publishing together. The pins are not — they are
+generated from the submodules.
+
+```bash
+# 1. Move the submodules to the release tags you want in the set
+git submodule update --init
+git -C packages/akgentic-core checkout v1.6.0
+
+# 2. Regenerate the pins and extras from those submodules
+uv run python scripts/sync_versions.py
+
+# 3. Bump [project].version by hand, then open a PR with both changes
+```
+
+Once merged, and once every package version in the set is on PyPI, dispatch
+**Release** (tags the commit, attaches the umbrella wheel and sdist to a GitHub
+Release) and then **Publish to PyPI** from the Actions tab. Both refuse to run
+if a pinned version is missing from the index, if a submodule is not sitting on
+its release tag, or if the committed pins disagree with the submodules.
+
+The PyPI project page shows the description of the *latest* release, baked into
+that release's metadata. It cannot be edited in place — a README fix reaches
+PyPI only on the next version bump.
 
 ## Design Principles
 
@@ -447,14 +540,14 @@ All packages maintain:
 
 ## Documentation
 
-- [akgentic-core README](packages/akgentic-core/README.md) - Core framework documentation
-- [akgentic-core examples](packages/akgentic-core/examples/) - Hands-on tutorials
-- [akgentic-llm README](packages/akgentic-llm/README.md) - LLM integration and multi-provider support
-- [akgentic-tool README](packages/akgentic-tool/README.md) - Tool infrastructure and domain tools
-- [akgentic-agent README](packages/akgentic-agent/README.md) - LLM agents and typed message protocol
-- [akgentic-catalog README](packages/akgentic-catalog/README.md) - Configuration registry
-- [akgentic-team README](packages/akgentic-team/README.md) - Team lifecycle management
-- [akgentic-infra README](packages/akgentic-infra/README.md) - Infrastructure backend plugins
+- [akgentic-core README](https://github.com/b12consulting/akgentic-core/blob/master/README.md) - Core framework documentation
+- [akgentic-core examples](https://github.com/b12consulting/akgentic-core/tree/master/examples) - Hands-on tutorials
+- [akgentic-llm README](https://github.com/b12consulting/akgentic-llm/blob/master/README.md) - LLM integration and multi-provider support
+- [akgentic-tool README](https://github.com/b12consulting/akgentic-tool/blob/master/README.md) - Tool infrastructure and domain tools
+- [akgentic-agent README](https://github.com/b12consulting/akgentic-agent/blob/master/README.md) - LLM agents and typed message protocol
+- [akgentic-catalog README](https://github.com/b12consulting/akgentic-catalog/blob/master/README.md) - Configuration registry
+- [akgentic-team README](https://github.com/b12consulting/akgentic-team/blob/master/README.md) - Team lifecycle management
+- [akgentic-infra README](https://github.com/b12consulting/akgentic-infra/blob/master/README.md) - Infrastructure backend plugins
 - [System Architecture](_bmad-output/system/architecture.md) - Module dependency graph, boundaries, and cross-cutting patterns
 
 ## Contributing
