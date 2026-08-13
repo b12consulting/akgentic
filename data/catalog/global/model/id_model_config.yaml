@@ -11,9 +11,9 @@ description: |
   null to use the provider default. temperature/seed give reproducibility control; reasoning_effort
   ('low' | 'medium' | 'high') applies only to o1/o3-style reasoning models.
 payload:
-  provider: openai           # one of: openai, azure, nvidia, google-gla, mistral, anthropic
-  model: gpt-5.2             # provider-specific model id (e.g. gpt-5.2, claude-3-5-sonnet-20241022)
-  temperature: null          # sampling temperature 0.0-2.0 (0.0 = deterministic); null = provider default
-  seed: null                 # random seed for reproducible outputs; null = none (not supported by all providers)
-  max_tokens: null           # max tokens in the model response; null = provider default/maximum
-  reasoning_effort: null     # 'low' | 'medium' | 'high' for o1/o3-style reasoning models; null = N/A
+  provider: openai
+  model: gpt-5.2
+  temperature: null
+  seed: null
+  max_tokens: null
+  reasoning_effort: null

@@ -3,19 +3,19 @@ kind: model
 namespace: global
 user_id: anonymous
 model_type: akgentic.llm.RuntimeConfig
-description: |
-  ReAct runtime tuning — retries, end strategy, parallel tool calls, http client (all defaults).
-  http_client_config controls resilience of the underlying LLM HTTP calls: it retries on transient
-  failures (HTTP 429 rate limit, 503 service unavailable, connection errors) using exponential backoff. 
-  Backoff delay per attempt = min(backoff_max, backoff_multiplier * (2 ** attempt)).
-  Tune timeout for slow models, max_retries for how persistent to be, backoff_multiplier to set
-  how fast delays grow, and backoff_max to cap the longest wait between retries.
+description: "ReAct runtime tuning — retries, end strategy, parallel tool calls, http\
+  \ client (all defaults).\nhttp_client_config controls resilience of the underlying\
+  \ LLM HTTP calls: it retries on transient\nfailures (HTTP 429 rate limit, 503 service\
+  \ unavailable, connection errors) using exponential backoff. \nBackoff delay per\
+  \ attempt = min(backoff_max, backoff_multiplier * (2 ** attempt)).\nTune timeout\
+  \ for slow models, max_retries for how persistent to be, backoff_multiplier to set\n\
+  how fast delays grow, and backoff_max to cap the longest wait between retries.\n"
 payload:
-  retries: 3                  # ReAct retry attempts for tool-call failures and output validation errors
-  end_strategy: exhaustive    # 'exhaustive' runs all tool calls; 'early' stops after first successful result
-  parallel_tool_calls: true   # run independent tool calls concurrently when the model supports it
+  retries: 3
+  end_strategy: exhaustive
+  parallel_tool_calls: true
   http_client_config:
-    timeout: 120.0            # max seconds for a single LLM request (connection + response); raise for slow models
-    max_retries: 5           # max retry attempts on transient HTTP failures (429 rate limit, 503, connection errors)
-    backoff_multiplier: 0.5  # base seconds for exponential backoff: delay = backoff_multiplier * (2 ** attempt)
-    backoff_max: 60.0        # cap (seconds) on a single backoff wait, so retries never sleep longer than this
+    timeout: 120.0
+    max_retries: 5
+    backoff_multiplier: 0.5
+    backoff_max: 60.0

@@ -131,7 +131,11 @@ entries:
             role: manager
             instructions: Coordinate the team effectively to achieve goals.
         model_cfg:
-          __ref__: global.id_gpt_54
+          __ref__: global.id_gpt_56
+        run_usage_limits:
+          __ref__: global.id_run_usage_limits
+        id_agent_usage_limits:
+          __ref__: global.id_agent_usage_limits
         tools:
         - __ref__: global.id_web_search
         - __ref__: global.id_planning
