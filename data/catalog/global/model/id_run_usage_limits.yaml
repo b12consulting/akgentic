@@ -1,0 +1,12 @@
+id: id_run_usage_limits
+kind: model
+namespace: global
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: Per-run token/request budget — resets every ReactAgent.run() call (testing)
+payload:
+  run_request_limit: 4
+  tool_calls_limit: 4
+  input_tokens_limit: 20000
+  output_tokens_limit: null
+  total_tokens_limit: null

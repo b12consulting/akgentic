@@ -19,7 +19,7 @@ manager_card = AgentCard(
             template="You are a helpful manager. Coordinate the team effectively.",
         ),
         model_cfg=ModelConfig(provider="openai", model="gpt-4.1", temperature=0.3),
-        usage_limits=UsageLimits(request_limit=20, total_tokens_limit=200000),
+        run_usage_limits=UsageLimits(run_request_limit=20, total_tokens_limit=200000),
         runtime_cfg=RuntimeConfig(),
         tools=tools,
     ),
