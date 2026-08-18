@@ -26,7 +26,7 @@ wheels = [
 
 [[package]]
 name = "akgentic-agent"
-version = "1.6.5"
+version = "1.6.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "akgentic-core" },
@@ -35,14 +35,14 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-ai" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/84/6b/879308567ff95393234625cc3a9be02f9ffccca9f4263f5c87d12d615c7f/akgentic_agent-1.6.5.tar.gz", hash = "sha256:4ec9795bd8d35e39c8d114f6526dcf3b4869b625c88b9ca1b8371926b321006e", size = 116493 }
+sdist = { url = "https://files.pythonhosted.org/packages/35/2d/0fc9918f3bcd83250367e0cae92ffdd0c8b2f27ba68cd512b433e585a311/akgentic_agent-1.6.6.tar.gz", hash = "sha256:9bffcd50227854bcfc3108111ef825e38a18f5f095ee15498bf41faadc331ca3", size = 117083 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/ae/e90eed432f9fc3dceea36c37ac88059055ba9452be3e0da6ac562fefdc9a/akgentic_agent-1.6.5-py3-none-any.whl", hash = "sha256:c75a1cfac0f98d87571e31a6ed25f23911f86da5a063d00722658473f0fae6c2", size = 40505 },
+    { url = "https://files.pythonhosted.org/packages/54/f5/a7aee3a3a820f76c20c25d21034a3261286a47468ffbf27cd8cd91db580e/akgentic_agent-1.6.6-py3-none-any.whl", hash = "sha256:4dfa798c70c72a9d9923b9c6dac2799501d1c42d2bdf8c324725a6ed5c6eae1b", size = 41146 },
 ]
 
 [[package]]
 name = "akgentic-catalog"
-version = "2.2.3"
+version = "2.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "akgentic-core" },
@@ -51,9 +51,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/c6/960ac433de21c27f62f9e2d3324c1d45b5c9f9bc67ac4a9a3f1f7fc00928/akgentic_catalog-2.2.3.tar.gz", hash = "sha256:46854bf1fa71432e6661024d900b5ee74d8d868db52557d9a1be209b85c8be2d", size = 379176 }
+sdist = { url = "https://files.pythonhosted.org/packages/4b/5e/d4943f6652b4890e2f33f9a15ff3da269a297c9ce4b4404e1965ea2106eb/akgentic_catalog-2.2.4.tar.gz", hash = "sha256:9af6f778e986a2633be23b8be4304d7c8532286a00ab6686bcda8ac99fc17e92", size = 380441 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/48/83/777e633214ae3196b98e9303b51e0def1f24f40aa27760b56fc64cee8108/akgentic_catalog-2.2.3-py3-none-any.whl", hash = "sha256:b80a4d63a66f72733817dd8bcc20c9d4d3965e1e1c434a0697c3da2c1b3c88a4", size = 156447 },
+    { url = "https://files.pythonhosted.org/packages/b7/1c/b37839da12275c68f3acd643fd74f1fe5e7244228f5d7cc470acebde0144/akgentic_catalog-2.2.4-py3-none-any.whl", hash = "sha256:e461bb82cbd804864d816130c83885b87371123c9694781842acf5917a3a6521", size = 156852 },
 ]
 
 [package.optional-dependencies]
@@ -88,7 +88,7 @@ wheels = [
 
 [[package]]
 name = "akgentic-framework"
-version = "2.11.0"
+version = "2.11.1"
 source = { editable = "." }
 dependencies = [
     { name = "akgentic-core" },
@@ -166,15 +166,15 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "akgentic-agent", marker = "extra == 'agent'", specifier = "==1.6.5" },
-    { name = "akgentic-agent", marker = "extra == 'all'", specifier = "==1.6.5" },
-    { name = "akgentic-agent", marker = "extra == 'all-extras'", specifier = "==1.6.5" },
-    { name = "akgentic-agent", marker = "extra == 'infra'", specifier = "==1.6.5" },
-    { name = "akgentic-catalog", marker = "extra == 'all'", specifier = "==2.2.3" },
-    { name = "akgentic-catalog", marker = "extra == 'catalog'", specifier = "==2.2.3" },
-    { name = "akgentic-catalog", marker = "extra == 'infra'", specifier = "==2.2.3" },
-    { name = "akgentic-catalog", extras = ["api", "cli", "mongo"], marker = "extra == 'all-extras'", specifier = "==2.2.3" },
-    { name = "akgentic-catalog", extras = ["postgres"], marker = "extra == 'postgres'", specifier = "==2.2.3" },
+    { name = "akgentic-agent", marker = "extra == 'agent'", specifier = "==1.6.6" },
+    { name = "akgentic-agent", marker = "extra == 'all'", specifier = "==1.6.6" },
+    { name = "akgentic-agent", marker = "extra == 'all-extras'", specifier = "==1.6.6" },
+    { name = "akgentic-agent", marker = "extra == 'infra'", specifier = "==1.6.6" },
+    { name = "akgentic-catalog", marker = "extra == 'all'", specifier = "==2.2.4" },
+    { name = "akgentic-catalog", marker = "extra == 'catalog'", specifier = "==2.2.4" },
+    { name = "akgentic-catalog", marker = "extra == 'infra'", specifier = "==2.2.4" },
+    { name = "akgentic-catalog", extras = ["api", "cli", "mongo"], marker = "extra == 'all-extras'", specifier = "==2.2.4" },
+    { name = "akgentic-catalog", extras = ["postgres"], marker = "extra == 'postgres'", specifier = "==2.2.4" },
     { name = "akgentic-core", specifier = "==1.5.7" },
     { name = "akgentic-core", marker = "extra == 'agent'", specifier = "==1.5.7" },
     { name = "akgentic-core", marker = "extra == 'all'", specifier = "==1.5.7" },
