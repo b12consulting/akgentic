@@ -266,14 +266,23 @@ Exiting chat loop.
 
 This example showcases the **akgentic-agent** package capabilities. For LLM-driven agent patterns and the typed message protocol, see [the akgentic-agent README](https://github.com/b12consulting/akgentic-agent/blob/master/README.md).
 
-### Catalog-Driven Agent Team Example
+### Catalog-Driven Agent Teams
 
-The [src/catalog/main.py](src/catalog/main.py) example builds the same multi-agent team, but every definition — prompt templates, tools, agents, and team structure — comes from YAML files in `src/catalog/` loaded via the **akgentic-catalog** package.
+The same multi-agent team can be assembled entirely from YAML — prompt templates, tools, agents, and team structure — via the **akgentic-catalog** package. This repository ships that data in two forms:
 
-Instead of defining `AgentCard` objects in Python, you declare them in YAML catalogs and resolve them at runtime through `TemplateCatalog`, `ToolCatalog`, `AgentCatalog`, and `TeamCatalog`. This enables configuration-driven team composition without code changes.
+- [`data/catalog/`](data/catalog/) — file-per-entry namespaces (`agent-team`, `digital-product-team`, `global`, `global_tools`), the layout the server reads directly;
+- [`data/catalog-import/`](data/catalog-import/) — one bundle YAML per namespace, the import/export form for seeding a fresh deployment.
+
+Instead of defining `AgentCard` objects in Python, entries are declared in a namespace and resolved at runtime through the unified `Catalog`. The `ak-catalog` CLI works against the bundled data directly:
 
 ```bash
-python src/catalog/main.py
+# Strict-validate a namespace, resolve the team into a runnable TeamCard
+ak-catalog --root data/catalog validate --namespace agent-team
+ak-catalog --root data/catalog load-team --namespace agent-team
+
+# Round-trip a namespace as a single bundle document
+ak-catalog --root data/catalog export --namespace agent-team
+ak-catalog --root data/catalog validate data/catalog-import/catalog.agent-team.yaml
 ```
 
 See [the akgentic-catalog README](https://github.com/b12consulting/akgentic-catalog/blob/master/README.md) for catalog documentation.
@@ -367,8 +376,11 @@ Tool infrastructure and domain tool implementations.
 - **WorkspaceTool** — Read/write filesystem access with glob, grep, edit, patch, PDF/image reading
 - **PlanningTool** — Shared actor-based task board with semantic search
 - **KnowledgeGraphTool** — Persistent entity/relation storage with hybrid search
+- **VectorStoreTool** — Named vector stores backing semantic search for the other tools
 - **SearchTool** — Tavily web search and content fetching
 - **MCPTool** — Model Context Protocol server integration (HTTP+SSE and stdio)
+- **TeamTool** — Hire/fire members, role profiles, roster and who-is-working activity
+- **NotificationTool** — Schedule a delayed message to yourself via the deferred-result actor mechanism
 - **RetriableError** — Framework-agnostic retry signal for recoverable failures
 
 See [the akgentic-tool README](https://github.com/b12consulting/akgentic-tool/blob/master/README.md) for complete documentation.
@@ -394,11 +406,13 @@ Configuration-driven team assembly from YAML files — no code changes needed.
 
 **Features:**
 
-- **Four Catalogs** — `TemplateCatalog`, `ToolCatalog`, `AgentCatalog`, `TeamCatalog`; each with full CRUD
-- **YAML / MongoDB backends** — File-per-entry YAML (default) or MongoDB collection
-- **Cross-catalog validation** — Agent entries reference tool entries by name; team entries reference agent entries
-- **Delete protection** — Prevents removing entries still referenced by others
-- **FQCN resolution** — Resolve `"akgentic.agent.BaseAgent"` to the actual class at runtime
+- **Unified `Entry` model** — one Pydantic shape for every kind (`team`, `agent`, `tool`, `model`, `prompt`, `meta`), each namespace anchored by a team or meta entry
+- **One namespace, one agent team** — the namespace is the organising unit; `global` namespaces share entries cross-namespace via `shareable`/`public`
+- **Strict validation** — unknown payload keys are errors, never silent drops; payloads validate against their `model_type` Pydantic class
+- **Ref markers** — a payload embeds `{"__ref__": "global.id_gpt_41"}` as a pure pointer, resolved at load time
+- **Namespace bundles** — export/import every entry in a namespace as a single YAML document
+- **YAML / MongoDB / PostgreSQL backends** — file-per-entry YAML (default) or database collections
+- **Delete protection** — prevents removing entries still referenced by others
 - **CLI + REST API** — `ak-catalog` CLI and FastAPI REST layer for all CRUD operations
 
 See [the akgentic-catalog README](https://github.com/b12consulting/akgentic-catalog/blob/master/README.md) for complete documentation.
