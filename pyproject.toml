@@ -12,7 +12,7 @@
 # them, or the umbrella will claim a set the packages do not agree with.
 [project]
 name = "akgentic-framework"
-version = "2.9.0"
+version = "2.10.0"
 description = "Meta-distribution pinning a coherent akgentic release set."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -34,7 +34,7 @@ classifiers = [
 # akgentic-framework` stays a usable minimal floor instead of dragging fastapi,
 # textual and pydantic-ai into every consumer. Everything else is an extra.
 dependencies = [
-    "akgentic-core==1.5.3",
+    "akgentic-core==1.5.7",
 ]
 
 # Every extra pins its WHOLE akgentic closure, not just the package it names.
@@ -46,65 +46,65 @@ dependencies = [
 # BEGIN GENERATED — scripts/sync_versions.py owns everything to END GENERATED.
 # Hand edits here are overwritten; change a submodule's version and re-run it.
 [project.optional-dependencies]
-core = ["akgentic-core==1.5.3"]
-llm = ["akgentic-llm==1.6.3"]
+core = ["akgentic-core==1.5.7"]
+llm = ["akgentic-llm==2.0.1"]
 tool = [
-    "akgentic-core==1.5.3",
-    "akgentic-tool==1.6.0",
+    "akgentic-core==1.5.7",
+    "akgentic-tool==1.6.4",
 ]
 agent = [
-    "akgentic-core==1.5.3",
-    "akgentic-llm==1.6.3",
-    "akgentic-tool==1.6.0",
-    "akgentic-agent==1.6.2",
+    "akgentic-core==1.5.7",
+    "akgentic-llm==2.0.1",
+    "akgentic-tool==1.6.4",
+    "akgentic-agent==1.6.5",
 ]
 catalog = [
-    "akgentic-core==1.5.3",
-    "akgentic-tool==1.6.0",
-    "akgentic-catalog==2.2.2",
-    "akgentic-team==1.5.3",
+    "akgentic-core==1.5.7",
+    "akgentic-tool==1.6.4",
+    "akgentic-catalog==2.2.3",
+    "akgentic-team==1.5.6",
 ]
 team = [
-    "akgentic-core==1.5.3",
-    "akgentic-team==1.5.3",
+    "akgentic-core==1.5.7",
+    "akgentic-team==1.5.6",
 ]
 infra = [
-    "akgentic-core==1.5.3",
-    "akgentic-llm==1.6.3",
-    "akgentic-tool==1.6.0",
-    "akgentic-agent==1.6.2",
-    "akgentic-catalog==2.2.2",
-    "akgentic-team==1.5.3",
-    "akgentic-infra==1.8.4",
+    "akgentic-core==1.5.7",
+    "akgentic-llm==2.0.1",
+    "akgentic-tool==1.6.4",
+    "akgentic-agent==1.6.5",
+    "akgentic-catalog==2.2.3",
+    "akgentic-team==1.5.6",
+    "akgentic-infra==1.8.5",
 ]
 # Every subpackage, no optional extras (lean install).
 all = [
-    "akgentic-core==1.5.3",
-    "akgentic-llm==1.6.3",
-    "akgentic-tool==1.6.0",
-    "akgentic-agent==1.6.2",
-    "akgentic-catalog==2.2.2",
-    "akgentic-team==1.5.3",
-    "akgentic-infra==1.8.4",
+    "akgentic-core==1.5.7",
+    "akgentic-llm==2.0.1",
+    "akgentic-tool==1.6.4",
+    "akgentic-agent==1.6.5",
+    "akgentic-catalog==2.2.3",
+    "akgentic-team==1.5.6",
+    "akgentic-infra==1.8.5",
 ]
 # Every subpackage plus its own optional extras. `postgres` is
 # deliberately absent: it is mutually exclusive with `mongo`, which
 # this pulls in.
 all-extras = [
-    "akgentic-core==1.5.3",
-    "akgentic-llm==1.6.3",
-    "akgentic-tool[docs,vector-search,vision,weaviate]==1.6.0",
-    "akgentic-agent==1.6.2",
-    "akgentic-catalog[api,cli,mongo]==2.2.2",
-    "akgentic-team[cli,mongo]==1.5.3",
-    "akgentic-infra==1.8.4",
+    "akgentic-core==1.5.7",
+    "akgentic-llm==2.0.1",
+    "akgentic-tool[docs,vector-search,vision,weaviate]==1.6.4",
+    "akgentic-agent==1.6.5",
+    "akgentic-catalog[api,cli,mongo]==2.2.3",
+    "akgentic-team[cli,mongo]==1.5.6",
+    "akgentic-infra==1.8.5",
 ]
 # The backend all-extras cannot carry; compose it as [all,postgres].
 postgres = [
-    "akgentic-core==1.5.3",
-    "akgentic-tool==1.6.0",
-    "akgentic-catalog[postgres]==2.2.2",
-    "akgentic-team[postgres]==1.5.3",
+    "akgentic-core==1.5.7",
+    "akgentic-tool==1.6.4",
+    "akgentic-catalog[postgres]==2.2.3",
+    "akgentic-team[postgres]==1.5.6",
 ]
 # END GENERATED
 
