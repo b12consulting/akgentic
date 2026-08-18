@@ -43,6 +43,7 @@ Usage:
 
 import logging
 import time
+import uuid
 from collections import defaultdict
 
 import logfire
@@ -71,13 +72,13 @@ class MessagePrinter(EventSubscriber):
     def __init__(self) -> None:
         self._usage_events: dict[str, list[LlmUsageEvent]] = defaultdict(list)
 
-    def set_restoring(self) -> None:
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
         pass
 
-    def on_stop(self) -> None:
+    def on_stop(self, team_id: uuid.UUID) -> None:
         pass
 
-    def on_stop_request(self) -> None:
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
         pass
 
     def on_message(self, message: Message) -> None:

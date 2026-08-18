@@ -3,7 +3,7 @@
 from akgentic.agent import AgentConfig
 from akgentic.core import AgentCard
 from akgentic.llm import ModelConfig, PromptTemplate
-from akgentic.llm.config import RuntimeConfig, UsageLimits
+from akgentic.llm.config import RuntimeConfig, RunUsageLimits
 from tools import tools
 
 LLM_MODEL = "gpt-5.2"
@@ -18,8 +18,8 @@ manager_card = AgentCard(
         prompt=PromptTemplate(
             template="You are a helpful manager. Coordinate the team effectively.",
         ),
-        model_cfg=ModelConfig(provider="openai", model="gpt-4.1", temperature=0.3),
-        run_usage_limits=UsageLimits(run_request_limit=20, total_tokens_limit=200000),
+        model_cfg=ModelConfig(provider="openai", model=LLM_MODEL, temperature=0.3),
+        run_usage_limits=RunUsageLimits(run_request_limit=20, total_tokens_limit=200000),
         runtime_cfg=RuntimeConfig(),
         tools=tools,
     ),
