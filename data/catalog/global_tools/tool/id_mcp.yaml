@@ -5,7 +5,6 @@ user_id: anonymous
 model_type: akgentic.tool.mcp.MCPTool
 description: MCP tool — connect to an external Model Context Protocol server (stdio connection, all defaults)
 payload:
-  name: MCP
   connection:
     transport: stdio
     stdio_command: null

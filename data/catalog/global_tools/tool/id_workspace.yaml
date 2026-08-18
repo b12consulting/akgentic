@@ -5,7 +5,6 @@ user_id: anonymous
 model_type: akgentic.tool.workspace.WorkspaceTool
 description: Workspace tool — read/view/list/glob/grep/write/edit/patch/mkdir over a filesystem (all defaults)
 payload:
-  name: Workspace
   workspace_id: null
   read_only: false
   workspace_read:

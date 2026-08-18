@@ -1,0 +1,8 @@
+id: id_team_template
+kind: prompt
+namespace: agent-team
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: Shared system-prompt template body for team members
+payload:
+  value: "You are a helpful {role}. \n{instructions}"

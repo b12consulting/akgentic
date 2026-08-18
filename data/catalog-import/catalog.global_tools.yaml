@@ -1,5 +1,5 @@
 namespace: global_tools
-user_id: admin
+user_id: anonymous
 name: Global Tools
 description: Default-valued tool definitions for every ToolCard in akgentic-tool,
   referenced cross-namespace via global_tools.id_xxx
@@ -14,7 +14,6 @@ entries:
     model_type: akgentic.tool.sandbox.ExecTool
     description: Exec tool — run shell commands in a sandbox (auto mode, all defaults)
     payload:
-      name: Exec
       exec_command:
         instructions: null
         expose:
@@ -28,7 +27,6 @@ entries:
     description: Knowledge graph tool — get/update/search a vector-store-backed graph
       (all defaults)
     payload:
-      name: Knowledge Graph
       vector_store: true
       search_top_k: 10
       search_score_threshold: 0.3
@@ -56,7 +54,6 @@ entries:
     description: MCP tool — connect to an external Model Context Protocol server (stdio
       connection, all defaults)
     payload:
-      name: MCP
       connection:
         transport: stdio
         stdio_command: null
@@ -69,13 +66,20 @@ entries:
         read_timeout: 300.0
         tool_prefix: null
 
+  id_notification:
+    kind: tool
+    model_type: akgentic.tool.notification.NotificationTool
+    description: Notification tool — schedule a delayed message to yourself (all defaults)
+    payload:
+      message_class: akgentic.agent.messages.AgentMessage
+      max_delay_seconds: 300
+
   id_planning:
     kind: tool
     model_type: akgentic.tool.planning.PlanningTool
     description: Planning tool — manage team plans and tasks over a vector store (all
       defaults)
     payload:
-      name: Planning
       vector_store: true
       search_top_k: 10
       search_score_threshold: 0.5
@@ -105,7 +109,6 @@ entries:
     model_type: akgentic.tool.search.SearchTool
     description: Web search + crawl + fetch over Tavily (all defaults)
     payload:
-      name: Search
       web_search:
         instructions: null
         expose:
@@ -131,10 +134,9 @@ entries:
   id_team:
     kind: tool
     model_type: akgentic.tool.team.TeamTool
-    description: Team management tool — hire/fire members, role profiles, team roster
-      (all defaults)
+    description: Team management tool — hire/fire members, role profiles, team roster,
+      who-is-working activity (all defaults)
     payload:
-      name: Team
       hire_team_members:
         instructions: null
         expose:
@@ -155,13 +157,20 @@ entries:
         expose:
         - system_prompt
         - command
+      get_team_activity:
+        instructions: null
+        expose:
+        - tool_call
+        - command
+        summarizer: null
+        stale_after_seconds: 300.0
+        max_task_chars: 200
 
   id_vector_store:
     kind: tool
     model_type: akgentic.tool.vector_store.VectorStoreTool
     description: Vector store tool — embedding-backed semantic store (all defaults)
     payload:
-      name: Vector Store
       vector_store_name: '#VectorStore'
       embedding_model: text-embedding-3-small
       embedding_provider: openai
@@ -172,7 +181,6 @@ entries:
     description: Workspace tool — read/view/list/glob/grep/write/edit/patch/mkdir
       over a filesystem (all defaults)
     payload:
-      name: Workspace
       workspace_id: null
       read_only: false
       workspace_read:

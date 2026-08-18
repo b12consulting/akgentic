@@ -5,7 +5,6 @@ user_id: anonymous
 model_type: akgentic.tool.vector_store.VectorStoreTool
 description: Vector store tool — embedding-backed semantic store (all defaults)
 payload:
-  name: Vector Store
   vector_store_name: "#VectorStore"
   embedding_model: text-embedding-3-small
   embedding_provider: openai

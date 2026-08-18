@@ -3,10 +3,9 @@ user_id: anonymous
 name: Data Sprawl Team
 description: Report consistency task force — Manager orchestrating Librarian, Auditor,
   Detective and Architect to ingest, audit and reconcile overlapping reports
-properties:
-  user_name: Geoff
+properties: {}
 shareable: false
-public: false
+public: true
 entries:
 
   #### ─── Teams ────────────────────────────────────────────────────────── ####
@@ -338,9 +337,10 @@ entries:
     model_type: akgentic.tool.workspace.WorkspaceTool
     description: Full read/write workspace seeded with the Elia activity reports
     payload:
-      name: Workspace
       resources:
-        Elia_Activity_Report_2025_Department_A.md: |
+      - file_name: Elia_Activity_Report_2025_Department_A.md
+        file_type: text
+        content: |
           # Elia Transmission Belgium
           ## Activity Report 2025
 
@@ -429,7 +429,9 @@ entries:
           **Headquarters:** Brussels, Belgium
 
           *This report synthesizes publicly available information about Elia's operations, financial performance, and strategic initiatives as of January 2025.*
-        Elia_Activity_Report_2025_Department_B.md: |
+      - file_name: Elia_Activity_Report_2025_Department_B.md
+        file_type: text
+        content: |
           # Elia Transmission Belgium
           ## Annual Activity Report 2025
 
@@ -525,22 +527,19 @@ entries:
     model_type: akgentic.tool.workspace.WorkspaceTool
     description: Read-only workspace access for the manager and architect
     payload:
-      name: Workspace
       read_only: true
 
   id_knowledge_graph:
     kind: tool
     model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
     description: Knowledge graph — full read/write access for the Librarian
-    payload:
-      name: Knowledge Graph
+    payload: {}
 
   id_knowledge_graph_ro:
     kind: tool
     model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
     description: Knowledge graph — read-only access for the Detective
     payload:
-      name: Knowledge Graph
       read_only: true
 
   #### ─── Tools (External ref, readonly) ───────────────────────────────── ####

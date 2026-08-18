@@ -1,12 +1,10 @@
 namespace: agent-team
 user_id: anonymous
 name: Agent Team V1
-description: Manager coordinating Assistant, Expert and Support Human agents team
-  !
-properties:
-  user_name: Geoff
+description: Manager coordinating Assistant, Expert and Support Human agents team!
+properties: {}
 shareable: false
-public: false
+public: true
 entries:
 
   #### ─── Teams ────────────────────────────────────────────────────────── ####
@@ -52,16 +50,20 @@ entries:
         name: '@Assistant'
         role: Assistant
         prompt:
-          __ref__: id_team_prompt
+          template:
+            __ref__: id_team_template
           params:
             role: assistant
             instructions: Provide clear and accurate information.
         model_cfg:
           __ref__: global.id_gpt_41
         tools:
+        - __ref__: global.id_vector_store
         - __ref__: global.id_web_search
         - __ref__: global.id_planning
         - __ref__: global.id_workspace
+        - __ref__: global.id_knowledge_graph
+        - __ref__: global.id_notification
 
   expert:
     kind: agent
@@ -77,16 +79,20 @@ entries:
         name: '@Expert'
         role: Expert
         prompt:
-          __ref__: id_team_prompt
+          template:
+            __ref__: id_team_template
           params:
             role: expert
             instructions: Provide deep specialized knowledge.
         model_cfg:
           __ref__: global.id_gpt_41
         tools:
+        - __ref__: global.id_vector_store
         - __ref__: global.id_web_search
         - __ref__: global.id_planning
         - __ref__: global.id_workspace
+        - __ref__: global.id_knowledge_graph
+        - __ref__: global.id_notification
 
   human_proxy:
     kind: agent
@@ -126,53 +132,70 @@ entries:
         name: '@Manager'
         role: Manager
         prompt:
-          __ref__: id_team_prompt
+          template:
+            __ref__: id_team_template
           params:
             role: manager
             instructions: Coordinate the team effectively to achieve goals.
         model_cfg:
-          __ref__: global.id_gpt_56
-        run_usage_limits:
-          __ref__: global.id_run_usage_limits
-        id_agent_usage_limits:
-          __ref__: global.id_agent_usage_limits
+          __ref__: global.id_gpt_54
         tools:
+        - __ref__: global.id_vector_store
         - __ref__: global.id_web_search
         - __ref__: global.id_planning
         - __ref__: global.id_workspace
+        - __ref__: global.id_knowledge_graph
+        - __ref__: global.id_notification
 
   #### ─── Prompts ──────────────────────────────────────────────────────── ####
-  id_team_prompt:
+  id_team_template:
     kind: prompt
-    model_type: akgentic.llm.PromptTemplate
-    description: Default system prompt for team members
+    model_type: akgentic.catalog.NativeValue
+    description: Shared system-prompt template body for team members
     payload:
-      template: "You are a helpful {role}. \n{instructions}"
+      value: "You are a helpful {role}. \n{instructions}"
 
   #### ─── Tools (External ref, readonly) ───────────────────────────────── ####
+
+  global.id_knowledge_graph:
+    kind: tool
+    model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+    description: Knowledge graph — full read/write access for the manager
+    payload: {}
+
+  global.id_notification:
+    kind: tool
+    model_type: akgentic.tool.notification.NotificationTool
+    description: Notification tool — schedule a delayed message to yourself
+    payload:
+      message_class: akgentic.agent.messages.AgentMessage
+      max_delay_seconds: 300
 
   global.id_planning:
     kind: tool
     model_type: akgentic.tool.planning.PlanningTool
     description: Planning tool to manage team plans and tasks
     payload:
-      name: Planning
       vector_store: false
       update_planning:
         instructions: |
-          CRITICAL: Always keep the plan updated.
-          Create tasks when your task involves other team members
-          or is complex enough to require multiple steps.
-          Update task status when you make progress.
-          Record outputs when you complete work.
-          Do not finish your turn if the plan is stale.
+          Use the planning tool for:
+          - Create tasks for multi-step work that benefits from explicit tracking.
+          - Update task status as work progresses.
+          - Record outputs when tasks are completed.
+          - Ensure the plan stays accurate when a tracked task exists.
+
+  global.id_vector_store:
+    kind: tool
+    model_type: akgentic.tool.vector_store.VectorStoreTool
+    description: Vector store for retrieval-augmented generation (RAG)
+    payload: {}
 
   global.id_web_search:
     kind: tool
     model_type: akgentic.tool.search.SearchTool
     description: Web search + crawl + fetch over Tavily
     payload:
-      name: Web Search
       web_search:
         max_results: 5
       web_crawl:
@@ -187,8 +210,7 @@ entries:
     kind: tool
     model_type: akgentic.tool.workspace.WorkspaceTool
     description: Workspace tool for managing agent interactions and data
-    payload:
-      name: Workspace
+    payload: {}
 
   #### ─── Models (External ref, readonly) ──────────────────────────────── ####
 

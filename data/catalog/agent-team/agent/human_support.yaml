@@ -5,8 +5,8 @@ user_id: anonymous
 model_type: akgentic.core.AgentCard
 description: Human support operator reachable by the manager
 payload:
-  agent_class: akgentic.agent.HumanProxy
   description: Human support operator reachable by the manager
+  agent_class: akgentic.agent.HumanProxy
   skills: []
   config:
     name: '@Support'

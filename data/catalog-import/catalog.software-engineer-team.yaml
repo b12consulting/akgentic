@@ -3,10 +3,9 @@ user_id: anonymous
 name: Software Engineering Team
 description: Manager-led SWE team — Software Analyst, Technical Expert, Software
   Developer and QA Engineer collaborating in a shared workspace
-properties:
-  user_name: Geoff
+properties: {}
 shareable: false
-public: false
+public: true
 entries:
 
   #### ─── Teams ────────────────────────────────────────────────────────── ####
@@ -341,15 +340,13 @@ entries:
     kind: tool
     model_type: akgentic.tool.workspace.WorkspaceTool
     description: Full read/write workspace access for team members
-    payload:
-      name: Workspace
+    payload: {}
 
   id_workspace_view:
     kind: tool
     model_type: akgentic.tool.workspace.WorkspaceTool
     description: Read-only workspace access for the manager
     payload:
-      name: Workspace
       read_only: true
 
   #### ─── Models (External ref, readonly) ──────────────────────────────── ####

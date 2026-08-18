@@ -1,0 +1,24 @@
+id: id_compaction_config
+kind: model
+namespace: global
+user_id: anonymous
+model_type: akgentic.llm.CompactionConfig
+description: |
+  Pluggable LLM context-compaction configuration (all defaults).
+  Compaction shrinks an agent's running context when it grows large, emitting an
+  LlmContextCompactedEvent. The auto-trigger only arms when the agent's ModelConfig sets
+  context_length (the token budget); leave context_length null to keep compaction off.
+  strategy is a registry id ('summarize' = LLM summary, 'sliding_window' = deterministic drop,
+  'none' = no-op) or a dotted FQCN resolved via COMPACTION_STRATEGIES. summarizer_prompt_version
+  selects the summarizer instructions from the SUMMARY_INSTRUCTIONS registry and is recorded on
+  the emitted event. Two constraints when auto_trigger is true: it is mutually exclusive with a
+  sliding window (ReactAgentConfig.max_messages), and trigger_ratio * context_length must stay
+  strictly below any input/total token usage limit so the trigger fires before the limit bites.
+payload:
+  strategy: summarize
+  auto_trigger: true
+  trigger_ratio: 0.85
+  keep_recent_messages: 4
+  summary_target_tokens: 2000
+  summarizer_prompt_version: v1
+  summary_model_cfg: null

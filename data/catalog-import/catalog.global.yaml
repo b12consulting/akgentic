@@ -9,28 +9,59 @@ public: true
 entries:
 
   #### ─── Tools ────────────────────────────────────────────────────────── ####
+  id_knowledge_graph:
+    kind: tool
+    model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+    description: Knowledge graph — full read/write access for the manager
+    payload: {}
+
+  id_knowledge_graph_ro:
+    kind: tool
+    model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+    description: Knowledge graph — read-only access for team members
+    payload:
+      read_only: true
+
+  id_notification:
+    kind: tool
+    model_type: akgentic.tool.notification.NotificationTool
+    description: Notification tool — schedule a delayed message to yourself
+    payload:
+      message_class: akgentic.agent.messages.AgentMessage
+      max_delay_seconds: 300
+
   id_planning:
     kind: tool
     model_type: akgentic.tool.planning.PlanningTool
     description: Planning tool to manage team plans and tasks
     payload:
-      name: Planning
       vector_store: false
       update_planning:
         instructions: |
           Use the planning tool for:
-          - Create tasks for delegated work to other members (requests).
           - Create tasks for multi-step work that benefits from explicit tracking.
           - Update task status as work progresses.
           - Record outputs when tasks are completed.
           - Ensure the plan stays accurate when a tracked task exists.
+
+  id_shared_workspace:
+    kind: tool
+    model_type: akgentic.tool.workspace.WorkspaceTool
+    description: Shared workspace tool for managing agent interactions and data
+    payload:
+      workspace_id: shared_workspace
+
+  id_vector_store:
+    kind: tool
+    model_type: akgentic.tool.vector_store.VectorStoreTool
+    description: Vector store for retrieval-augmented generation (RAG)
+    payload: {}
 
   id_web_search:
     kind: tool
     model_type: akgentic.tool.search.SearchTool
     description: Web search + crawl + fetch over Tavily
     payload:
-      name: Web Search
       web_search:
         max_results: 5
       web_crawl:
@@ -45,10 +76,41 @@ entries:
     kind: tool
     model_type: akgentic.tool.workspace.WorkspaceTool
     description: Workspace tool for managing agent interactions and data
-    payload:
-      name: Workspace
+    payload: {}
 
   #### ─── Models ───────────────────────────────────────────────────────── ####
+  id_agent_usage_limits_small:
+    kind: model
+    model_type: akgentic.llm.AgentUsageLimits
+    description: 'Small agent-lifetime budget: 3 runs across the agent''s whole life,
+      50k tokens'
+    payload:
+      agent_request_limit: 3
+      total_tokens_limit: 50000
+
+  id_compaction_config:
+    kind: model
+    model_type: akgentic.llm.CompactionConfig
+    description: |
+      Pluggable LLM context-compaction configuration (all defaults).
+      Compaction shrinks an agent's running context when it grows large, emitting an
+      LlmContextCompactedEvent. The auto-trigger only arms when the agent's ModelConfig sets
+      context_length (the token budget); leave context_length null to keep compaction off.
+      strategy is a registry id ('summarize' = LLM summary, 'sliding_window' = deterministic drop,
+      'none' = no-op) or a dotted FQCN resolved via COMPACTION_STRATEGIES. summarizer_prompt_version
+      selects the summarizer instructions from the SUMMARY_INSTRUCTIONS registry and is recorded on
+      the emitted event. Two constraints when auto_trigger is true: it is mutually exclusive with a
+      sliding window (ReactAgentConfig.max_messages), and trigger_ratio * context_length must stay
+      strictly below any input/total token usage limit so the trigger fires before the limit bites.
+    payload:
+      strategy: summarize
+      auto_trigger: true
+      trigger_ratio: 0.85
+      keep_recent_messages: 4
+      summary_target_tokens: 2000
+      summarizer_prompt_version: v1
+      summary_model_cfg: null
+
   id_gpt_41:
     kind: model
     model_type: akgentic.llm.ModelConfig
@@ -77,34 +139,76 @@ entries:
   id_gpt_56:
     kind: model
     model_type: akgentic.llm.ModelConfig
-    description: GPT-5.6 via OpenAI — shared model configuration
+    description: gpt-5.6 with fallback chain to gpt-5.4 then gpt-5.2
     payload:
       provider: openai
       model: gpt-5.6
       fallback_models:
-        - provider: openai
-          model: gpt-5.4
-        - provider: openai
-          model: gpt-5.2
+      - provider: openai
+        model: gpt-5.4
+      - provider: openai
+        model: gpt-5.2
 
-  #### ─── Usage Limits ─────────────────────────────────────────────────── ####
-  id_run_usage_limits:
+  id_model_config:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: |
+      LLM model configuration — provider/model/temperature/etc. (all defaults).
+      Provider auth is supplied via environment variables, never here: OPENAI_API_KEY (openai),
+      AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT (azure), ANTHROPIC_API_KEY (anthropic),
+      GOOGLE_API_KEY (google-gla), MISTRAL_API_KEY (mistral), NVIDIA_API_KEY (nvidia). Leave a field
+      null to use the provider default. temperature/seed give reproducibility control; reasoning_effort
+      ('low' | 'medium' | 'high') applies only to o1/o3-style reasoning models.
+    payload:
+      provider: openai
+      model: gpt-5.2
+      temperature: null
+      seed: null
+      max_tokens: null
+      reasoning_effort: null
+
+  id_run_usage_limits_small:
     kind: model
     model_type: akgentic.llm.RunUsageLimits
-    description: Per-run token/request budget — resets every ReactAgent.run() call (testing)
+    description: 'Small per-run budget: 2 model requests per run, 20k tokens'
     payload:
-      run_request_limit: 4
-      tool_calls_limit: 4
-      input_tokens_limit: 20_000
-      output_tokens_limit: null
-      total_tokens_limit: null
+      run_request_limit: 2
+      total_tokens_limit: 20000
 
-  id_agent_usage_limits:
+  id_runtime_config:
     kind: model
-    model_type: akgentic.llm.AgentUsageLimits
-    description: Agent-lifetime token/run budget — enforced pre-flight across every run (testing)
+    model_type: akgentic.llm.RuntimeConfig
+    description: "ReAct runtime tuning — retries, end strategy, parallel tool calls,\
+      \ http client (all defaults).\nhttp_client_config controls resilience of the\
+      \ underlying LLM HTTP calls: it retries on transient\nfailures (HTTP 429 rate\
+      \ limit, 503 service unavailable, connection errors) using exponential backoff.\
+      \ \nBackoff delay per attempt = min(backoff_max, backoff_multiplier * (2 **\
+      \ attempt)).\nTune timeout for slow models, max_retries for how persistent to\
+      \ be, backoff_multiplier to set\nhow fast delays grow, and backoff_max to cap\
+      \ the longest wait between retries.\n"
     payload:
-      agent_request_limit: 10
-      input_tokens_limit: 50_000
+      retries: 3
+      end_strategy: exhaustive
+      parallel_tool_calls: true
+      http_client_config:
+        timeout: 120.0
+        max_retries: 5
+        backoff_multiplier: 0.5
+        backoff_max: 60.0
+
+  id_usage_limits:
+    kind: model
+    model_type: akgentic.llm.RunUsageLimits
+    description: |
+      Token/request budgets to control costs for each react agent run (all defaults).
+      Limits are enforced cumulatively across all requests within a single agent run; exceeding any
+      of them raises UsageLimitError and stops the run. Every limit is optional — set it to null to
+      mean "unlimited" — except run_request_limit, which defaults to 50 as a safety stop against
+      runaway ReAct loops. Set the *_tokens_limit fields to cap spend per run; set tool_calls_limit
+      to bound how many tools an agent may invoke.
+    payload:
+      run_request_limit: 50
+      tool_calls_limit: null
+      input_tokens_limit: null
       output_tokens_limit: null
       total_tokens_limit: null

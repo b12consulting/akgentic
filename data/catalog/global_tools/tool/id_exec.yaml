@@ -5,7 +5,6 @@ user_id: anonymous
 model_type: akgentic.tool.sandbox.ExecTool
 description: Exec tool — run shell commands in a sandbox (auto mode, all defaults)
 payload:
-  name: Exec
   exec_command:
     instructions: null
     expose: [tool_call]

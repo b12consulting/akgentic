@@ -1,0 +1,10 @@
+id: id_agent_usage_limits_small
+kind: model
+namespace: global
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: 'Small agent-lifetime budget: 3 runs across the agent''s whole life,
+  50k tokens'
+payload:
+  agent_request_limit: 3
+  total_tokens_limit: 50000

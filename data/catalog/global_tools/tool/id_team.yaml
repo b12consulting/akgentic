@@ -3,9 +3,9 @@ kind: tool
 namespace: global_tools
 user_id: anonymous
 model_type: akgentic.tool.team.TeamTool
-description: Team management tool — hire/fire members, role profiles, team roster (all defaults)
+description: Team management tool — hire/fire members, role profiles, team roster,
+  who-is-working activity (all defaults)
 payload:
-  name: Team
   hire_team_members:
     instructions: null
     expose: [tool_call, command]
@@ -18,3 +18,9 @@ payload:
   get_team_roster:
     instructions: null
     expose: [system_prompt, command]
+  get_team_activity:
+    instructions: null
+    expose: [tool_call, command]
+    summarizer: null          # set a model spec block to enable on-demand summaries
+    stale_after_seconds: 300.0
+    max_task_chars: 200
