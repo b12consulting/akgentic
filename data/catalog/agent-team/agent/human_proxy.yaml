@@ -5,8 +5,8 @@ user_id: anonymous
 model_type: akgentic.core.AgentCard
 description: Human user interface — primary entry point
 payload:
-  agent_class: akgentic.agent.HumanProxy
   description: Human user interface — primary entry point
+  agent_class: akgentic.agent.HumanProxy
   skills: []
   config:
     name: '@Human'

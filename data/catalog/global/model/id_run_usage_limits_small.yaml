@@ -1,0 +1,9 @@
+id: id_run_usage_limits_small
+kind: model
+namespace: global
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: 'Small per-run budget: 2 model requests per run, 20k tokens'
+payload:
+  run_request_limit: 2
+  total_tokens_limit: 20000

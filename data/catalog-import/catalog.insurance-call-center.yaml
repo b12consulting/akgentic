@@ -3,10 +3,9 @@ user_id: anonymous
 name: Insurance Call Center
 description: Call Center Manager coordinating identity verification, contract lookup
   and pension/life/disability claims specialists
-properties:
-  user_name: Geoff
+properties: {}
 shareable: false
-public: false
+public: true
 entries:
 
   #### ─── Teams ────────────────────────────────────────────────────────── ####
@@ -57,11 +56,23 @@ entries:
     model_type: akgentic.core.AgentCard
     description: Human caller interface — primary entry point
     payload:
-      description: "Human caller interface — primary entry point"
+      description: Human caller interface — primary entry point
       agent_class: akgentic.agent.HumanProxy
       skills: []
       config:
         name: '@Human'
+        role: Human
+
+  human_support:
+    kind: agent
+    model_type: akgentic.core.AgentCard
+    description: Human support operator reachable by the manager
+    payload:
+      agent_class: akgentic.agent.HumanProxy
+      description: Human support operator reachable by the team members
+      skills: []
+      config:
+        name: '@HumanSupport'
         role: Human
 
   manager:

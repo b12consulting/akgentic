@@ -1,8 +1,0 @@
-id: id_team_prompt
-kind: prompt
-namespace: agent-team
-user_id: anonymous
-model_type: akgentic.llm.PromptTemplate
-description: Default system prompt for team members
-payload:
-  template: "You are a helpful {role}. \n{instructions}"

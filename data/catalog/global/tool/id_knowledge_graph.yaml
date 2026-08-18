@@ -1,0 +1,7 @@
+id: id_knowledge_graph
+kind: tool
+namespace: global
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: Knowledge graph — full read/write access for the manager
+payload: {}

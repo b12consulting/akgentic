@@ -1,0 +1,8 @@
+id: id_shared_workspace
+kind: tool
+namespace: global
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: Shared workspace tool for managing agent interactions and data
+payload:
+  workspace_id: shared_workspace

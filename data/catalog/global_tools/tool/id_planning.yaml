@@ -5,7 +5,6 @@ user_id: anonymous
 model_type: akgentic.tool.planning.PlanningTool
 description: Planning tool — manage team plans and tasks over a vector store (all defaults)
 payload:
-  name: Planning
   vector_store: true
   search_top_k: 10
   search_score_threshold: 0.5

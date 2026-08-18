@@ -5,10 +5,9 @@ user_id: anonymous
 model_type: akgentic.tool.search.SearchTool
 description: Web search + crawl + fetch over Tavily (all defaults)
 payload:
-  name: Search
   web_search:
     instructions: null
-    expose: [tool_call, system_promt]
+    expose: [tool_call]
     max_results: 5
     search_depth: null
   web_crawl:

@@ -3,7 +3,7 @@ kind: model
 namespace: global
 user_id: anonymous
 model_type: akgentic.llm.ModelConfig
-description: GPT-5.6 via OpenAI — shared model configuration
+description: gpt-5.6 with fallback chain to gpt-5.4 then gpt-5.2
 payload:
   provider: openai
   model: gpt-5.6

@@ -9,7 +9,6 @@ payload:
   update_planning:
     instructions: |
       Use the planning tool for:
-      - Create tasks for delegated work to other members (requests).
       - Create tasks for multi-step work that benefits from explicit tracking.
       - Update task status as work progresses.
       - Record outputs when tasks are completed.
