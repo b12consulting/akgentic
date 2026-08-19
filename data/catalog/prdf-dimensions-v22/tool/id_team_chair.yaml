@@ -1,0 +1,8 @@
+id: id_team_chair
+kind: tool
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.tool.team.TeamTool
+description: Team management for the coordinator — hire/fire, roster, profiles and
+  the activity report.
+payload: {}

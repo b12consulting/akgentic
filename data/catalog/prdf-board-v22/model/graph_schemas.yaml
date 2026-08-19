@@ -1,0 +1,65 @@
+id: graph_schemas
+kind: model
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: Knowledge graph schema, four dimensions, curated to the topic in play
+payload:
+  value: |
+    === START SCHEMA =====================================================
+
+    This graph is a **view of the current topic**, not an archive. Keep it under
+    roughly 25 nodes. Prune with delete_entities when the focus moves — deleting an
+    entity cascades to its relations.
+
+    ## Core Entities
+
+    (:Product) - Singleton, the product being analysed.
+    - name: STRING (REQUIRED, unique)
+    - description: STRING (REQUIRED)
+
+    (:UseContext) - A situation in which the product is used. Record only the
+      context(s) actually under discussion.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+    - Observations: "When: <trigger>", "Outcome: <what the user gets>"
+
+    (:Stakeholder) - Record only stakeholders actually consulted or argued about.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+    - Observations: "Type_Owner"|"Type_Servicer"|"Type_Producer"|"Type_Commercial"|"Type_Regulator"|"Type_Other"
+
+    (:SubSystem) - Record only sub-systems actually being examined.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+    - Observations: "State_Analog"|"State_Digital"
+
+    (:Component) - Record only components actually being examined.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+    - Observations: "State_Analog"|"State_Digital"
+
+    (:Capability) - Record only capabilities the board proposed or split over.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+    - Observations: "Function_Sense"|"Function_Process"|"Function_Learn", and
+      "Contested" when stakeholders disagreed about it.
+
+    (:Local_User), (:Local_Environment), (:Cloud) - Connectivity scopes. Create one
+      only when a capability actually reaches it.
+    - name: STRING (REQUIRED)
+    - description: STRING (REQUIRED)
+
+    ## Relationships
+
+    (:Product)-[:USED_IN]->(:UseContext)
+    (:UseContext)-[:INVOLVES]->(:Stakeholder)
+    (:Product)-[:HAS_SUB_SYSTEM]->(:SubSystem)
+    (:SubSystem)-[:HAS_SUB_SYSTEM]->(:SubSystem)
+    (:SubSystem)-[:HAS_COMPONENT]->(:Component)
+    (:Component)-[:SUPPORTS]->(:Capability)
+    (:SubSystem)-[:SUPPORTS]->(:Capability)
+    (:Capability)-[:INTERACTS_WITH]->(:Local_User|:Local_Environment|:Cloud)
+    (:Stakeholder)-[:EXPERIENCES]->(:Capability)
+
+    === END SCHEMA ========================================================

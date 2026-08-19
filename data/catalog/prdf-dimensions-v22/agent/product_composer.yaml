@@ -1,0 +1,30 @@
+id: product_composer
+kind: agent
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Holds the COMPOSITION dimension — decomposes a product into sub-systems
+  and components
+payload:
+  description: Holds the COMPOSITION dimension — decomposes a product into sub-systems
+    and components
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - product-composition
+  - system-architecture
+  config:
+    name: '@ProductComposer'
+    role: Product Composer
+    prompt:
+      __ref__: id_composer_prompt
+    model_cfg:
+      __ref__: global.id_gpt_52
+    run_usage_limits:
+      __ref__: id_run_limits_member
+    agent_usage_limits:
+      __ref__: id_agent_limits_member
+    tools:
+    - __ref__: id_search_composition
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_vector_store
+    - __ref__: id_team_member

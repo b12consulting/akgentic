@@ -1,0 +1,15 @@
+id: id_search_servicer
+kind: tool
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.tool.search.SearchTool
+description: Web search — failure modes and service economics
+payload:
+  web_fetch: false
+  web_crawl: false
+  web_search:
+    max_results: 3
+    instructions: |
+      Search only when you genuinely do not know this product's failure modes. Look for
+      repair guides, teardowns, service intervals, spare-part prices and end-of-life
+      guidance. A repair manual beats any product page. One search is usually enough.

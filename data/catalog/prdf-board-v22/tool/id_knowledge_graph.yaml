@@ -1,0 +1,28 @@
+id: id_knowledge_graph
+kind: tool
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: Knowledge graph — read/write, curated by the Product Manager
+payload:
+  update_graph:
+    instructions: |
+      The user is looking at this graph while you work. It is a VIEW OF THE CURRENT
+      TOPIC, not an archive. A graph with sixty nodes and crossing labels is worth less
+      than one with fifteen, because nothing on it can be read.
+
+      Before adding: ask whether this node is part of what the user is actually
+      exploring right now. If not, do not create it.
+
+      BEFORE you delete anything, copy those nodes' descriptions and observations into
+      analysis-log.md verbatim. Pruning is only safe because that file exists.
+
+      Keep the graph under roughly 25 nodes. When it grows past that, or when the focus
+      moves, use `delete_entities` (a list of entity names; deleting an entity cascades
+      to its relations) to remove what is no longer in play — contexts the user set
+      aside, stakeholders no longer consulted, sub-systems nobody is examining.
+
+      Record what the board converged on or split over, not every option a stakeholder
+      listed. Mark a contested capability with the "Contested" observation.
+
+      Pruning is not data loss — **provided you wrote the node into `analysis-log.md` first** (section 9). That file, not the graph, is the record.

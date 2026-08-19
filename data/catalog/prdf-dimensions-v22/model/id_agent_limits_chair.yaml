@@ -1,0 +1,10 @@
+id: id_agent_limits_chair
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: 'Lifetime budget for the coordinator: 100 runs, 1M tokens. Bounds the
+  whole session.'
+payload:
+  agent_request_limit: 100
+  total_tokens_limit: 1000000

@@ -1,0 +1,38 @@
+id: framework_capabilities
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: PrDF — the capabilities dimension, in full
+payload:
+  value: |
+    ## YOUR DIMENSION — CAPABILITIES
+
+    The capabilities of a product are **reliant on its composition and its connectivity**. Digitized components, sub-systems or products generate data; if the product is connected, that data can be used to enhance the product's capabilities and the value they carry.
+
+    There are three levels, each pairing an input capability with what it delivers:
+
+    | The product can… | …through | …in order to |
+    |---|---|---|
+    | **Sense** the data | sensors | **Inform** the user or the environment |
+    | **Process** the data | programming logic | **Change the state** of the product, through actuators |
+    | **Learn** from the data | machine-learning algorithms | **Improve** the performance of the product |
+
+    The levels are a ladder of increasing sophistication, and each rests on the one below.
+
+    ### Worked example — a suitcase lock
+
+    - **Sense → Inform**: sense the lock status and inform the user or the environment about it.
+    - **Process → Change of state**: remotely lock the suitcase — data is processed, and the physical state changes.
+    - **Learn → Improve**: the locking system learns to add authorized users and give them access automatically, while blocking unauthorized ones.
+
+    And on the same suitcase's digital identifier: sensing the travel destination and informing through the display tag; processing a routing change and updating the tag digitally; and, across several bags on one journey belonging to different family members, **learning that they belong together** and syncing all their tags to the same destination.
+
+    That last one is the shape of a good *learn* capability: it emerges from data across units or across time, and no single unit could produce it alone.
+
+    ### What good capability work looks like
+
+    - Walk the ladder in order. A *learn* capability proposed without the *sense* beneath it is not an opportunity, it is a wish.
+    - Name the actual sensor, the actual actuator, the actual data. "AI-powered optimisation" is not a capability.
+    - Say which rung is reachable today at acceptable cost, and which needs connectivity or volume the product does not yet have.
+    - The three dimensions are orthogonal: for each composition element, several connectivity scopes are possible, and at each scope several levels of capability.

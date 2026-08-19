@@ -1,0 +1,60 @@
+id: _meta
+kind: meta
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
+description: 'The arguing stakeholder board with a durable record: the coordinator
+  keeps an append-only analysis log, writes any node''s content there before pruning,
+  and builds the report from it.'
+payload:
+  name: PrDF — Stakeholder Board v2.2
+  description: 'The arguing stakeholder board with a durable record: the coordinator
+    keeps an append-only analysis log, writes any node''s content there before pruning,
+    and builds the report from it.'
+  properties:
+    overview: |-
+      prdf-board-v21 plus a workspace. This board's graph prunes frequently by design, so it
+      is the version where a durable archive matters most - and where 'integrate everything into
+      a report' finally produces a file rather than a chat message.
+    principles: |-
+      Everything in v21, plus: nothing leaves the graph without first being written to
+      analysis-log.md verbatim. Pruning is safe BECAUSE that file exists - that is the whole
+      arrangement. The log is appended every round; report.md is built by reading it.
+    flow: |-
+      @Human -> @ProductManager -> members (parallel) -> @ProductManager -> @Human.
+      Hub-and-spoke: members never address @Human. Delegation is the `recipient` field on a
+      Request in StructuredOutput, not a tool call. Each hop is an independent actor turn with
+      no call stack, so the coordinator gathers explicitly via the planning board: one task per
+      dispatch, and it stays silent while any task is open.
+      Members also consult each other directly. Each has ONE named peer it MUST consult for a
+      defined class of claim; it sends that peer a `request` and the coordinator a
+      `notification`, then sends exactly one `response` once the peer answers. Depth is capped
+      at 1 - a member answering a peer never consults anyone else - so chains always terminate.
+    tools: |-
+      KnowledgeGraphTool - read/write for the coordinator (it curates), read-only for members.
+        get_graph is on the SYSTEM_PROMPT channel, so shared state costs no tool call.
+      PlanningTool - coordinator only. The dispatch/gather ledger; get_planning is also on
+        SYSTEM_PROMPT, which is what lets a coordinator know it is still waiting.
+      SearchTool - one card per member, same tool with different `instructions` so each searches
+        from its own stance. web_fetch and web_crawl are DISABLED: one fetch is ~24k tokens and
+        stays in context for the whole turn.
+      TeamTool - explicit per-tier cards, never the auto-injected default. Members get roster
+        only; hire/fire and team_activity are coordinator-only (a member once polled
+        team_activity 23 times in one turn instead of answering).
+      VectorStoreTool - no tools of its own; it only guarantees the #VectorStore singleton that
+        backs semantic search in the graph and the plan.
+      WorkspaceTool - coordinator only, narrowed to read/write/edit/list. It keeps an
+        append-only analysis-log.md and builds report.md from it. Nodes are copied there before
+        any graph pruning, which is what makes the pruning safe. workspace_delete is off so it
+        cannot destroy the archive it maintains.
+    graph: A VIEW that prunes often, made safe by the log. Under ~25 nodes.
+    limits: |-
+      Both tiers are set on every agent; neither is set by default and the framework's only
+      stock brake is pydantic-ai's run_request_limit=50 - a loop guard, not a budget.
+        coordinator  run 30 req / 20 tool calls / 300k tokens ; life 100 runs / 1M
+        member       run 30 req / 25 tool calls / 200k tokens ; life 50 runs / 500k
+      These are the pre-tuning values and are roughly 4-7x measured clean runs - they will stop
+      a runaway but are not a working brake. See prdf-board-v21 for measured values.
+    lineage: Current head of the board line. Successor to prdf-board-v21.
+  shareable: false
+  public: true

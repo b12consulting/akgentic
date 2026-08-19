@@ -1,0 +1,29 @@
+id: owner
+kind: agent
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: The person who lives with the product day to day
+payload:
+  description: The person who lives with the product day to day — fights for less
+    effort, more trust and lower cost of ownership
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - lived-experience
+  - cost-of-ownership
+  config:
+    name: '@Owner'
+    role: Owner
+    prompt:
+      __ref__: id_owner_prompt
+    model_cfg:
+      __ref__: global.id_gpt_52
+    run_usage_limits:
+      __ref__: id_run_limits_member
+    agent_usage_limits:
+      __ref__: id_agent_limits_member
+    tools:
+    - __ref__: id_search_owner
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_vector_store
+    - __ref__: id_team_member

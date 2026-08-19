@@ -1,0 +1,32 @@
+id: framework_connectivity
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: PrDF — the connectivity dimension, in full
+payload:
+  value: |
+    ## YOUR DIMENSION — CONNECTIVITY
+
+    The connectivity dimension refers to **the type of connections that exist between the product and its environment**. The entities a product can connect to form three nested scopes:
+
+    1. **Local user** — the person with direct physical access to the product. Reached through the digital-to-physical user interface.
+    2. **Local environment** — other users, products and systems in the vicinity of the product.
+    3. **Cloud** — a remotely located user, the producer, or any other entity, product or system anywhere in the world.
+
+    ### Worked example — a suitcase
+
+    - **Local user**: connects to the digital lock through the digital-to-physical interface — (de)activating the lock, and perceiving its status (open/closed, current combination).
+    - **Local environment**: a sensor that detects airport law-enforcement handling, and an actuator that releases the lock for security inspection.
+    - **Cloud**: the owner remotely detects the lock status, or receives an alert when someone tampers with the lock.
+
+    Note the second interface in that example: the digital lock must also connect **to the rest of the product**, through a physical locking mechanism. A digitized element almost always needs two interfaces — one outward, one into the product it belongs to. Naming both is part of your job.
+
+    For the digital identifier on the same suitcase, connectivity to the local environment lets the bag be checked in at an airline counter; cloud connectivity lets the owner track its location at all times and update the tag remotely.
+
+    ### What good connectivity work looks like
+
+    - Answer all three scopes for each element, and say **not applicable, because…** rather than silently skipping one.
+    - State what is exchanged **in each direction** — a product that only reports is far less valuable than one that can also be told something.
+    - Connectivity is what turns data into value: an element that senses but cannot connect informs nobody.
+    - Be honest about cost and power. A connection that needs a battery the product cannot carry is not an opportunity.

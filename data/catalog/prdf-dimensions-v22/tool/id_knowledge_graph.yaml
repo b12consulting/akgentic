@@ -1,0 +1,40 @@
+id: id_knowledge_graph
+kind: tool
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: Knowledge graph — full read/write access for the Product Manager
+payload:
+  update_graph:
+    instructions: |
+      This graph is where the analysis is kept, and the user watches it while you work.
+      A node whose description repeats its own name is worthless. Put the substance in.
+
+      BEFORE you delete anything, copy those nodes' descriptions and observations into
+      analysis-log.md verbatim. Pruning is only safe because that file exists.
+
+      Work at 20-30 nodes. Do NOT prune early - below 20 you are under-recording. Only
+      past ~30 remove the least relevant, and prefer merging two thin nodes into one
+      substantive node over deleting a real finding.
+
+      Every node needs:
+      - description: two or three sentences of substance - what it is, what it does, why
+        it matters here. Never a restatement of the name.
+      - observations: the discussion itself, one line each, prefixed:
+          "Reported by @X: ..."   what that specialist established (ALWAYS present)
+          "Confirmed by @X: ..."  a peer checked it and it held
+          "Contested by @X: ..."  a peer disagreed, unresolved - record it, never drop it
+          "Revised: ..."          what changed after a consultation and why
+          "Evidence: ..."         a grounded external fact - a cost, a standard, a product
+          "Open: ..."             what is still unknown, and who would settle it
+        plus the typed flags: State_Analog / State_Digital, Function_Sense /
+        Function_Process / Function_Learn.
+
+      Give relations a description too - one line on what the link means.
+
+      After every peer consultation between two specialists, record its outcome as a
+      Confirmed / Contested / Revised observation. That exchange is the most valuable
+      content the team produces; losing it wastes the consultation.
+
+      Grow nodes with update_entities + add_observations rather than replacing them. A
+      node should get richer each time the team touches it. Prune nodes, never provenance.

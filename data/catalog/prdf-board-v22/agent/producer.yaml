@@ -1,0 +1,29 @@
+id: producer
+kind: agent
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: The organisation that designs and manufactures the product
+payload:
+  description: The organisation that designs and manufactures the product — fights
+    for BOM cost, manufacturability and field data
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - product-engineering
+  - manufacturing-economics
+  config:
+    name: '@Producer'
+    role: Producer
+    prompt:
+      __ref__: id_producer_prompt
+    model_cfg:
+      __ref__: global.id_gpt_52
+    run_usage_limits:
+      __ref__: id_run_limits_member
+    agent_usage_limits:
+      __ref__: id_agent_limits_member
+    tools:
+    - __ref__: id_search_producer
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_vector_store
+    - __ref__: id_team_member

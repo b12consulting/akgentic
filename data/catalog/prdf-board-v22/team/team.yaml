@@ -1,0 +1,51 @@
+id: team
+kind: team
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.team.TeamCard
+description: Dialogue-first stakeholder board with mandatory peer consultation and
+  a curated graph
+payload:
+  welcome_message: |
+    ## Product Digitalization — **Stakeholder Board v2.2**
+
+    A board of five stakeholders applying the **Product Digitization Framework** to any product or service.
+
+    | Agent | Fights for |
+    |---|---|
+    | **@Owner** | less effort, more trust, lower cost of ownership |
+    | **@Servicer** | diagnosability, uptime, spare parts, end of life |
+    | **@Producer** | BOM cost, manufacturability, field data |
+    | **@Commercial** | differentiation, willingness to pay, business model |
+    | **@Regulator** | safety, privacy, cybersecurity, environment |
+
+    **How this version works**
+
+    - **It asks before it answers.** Expect a couple of short questions first — the board is expensive to convene, so it gets the brief right before it runs.
+    - **Answers are short, and written like someone talking to you.** What the board landed on, where it split, and what that means — not a report.
+    - **The stakeholders argue with each other directly.** Each one is *obliged* to consult a specific peer before it can answer: @Owner cannot cost its own idea, @Producer cannot price it, @Commercial cannot clear it. You will see those exchanges happen.
+    - **The graph stays small.** It holds the topic in play, not everything ever said, and is pruned as the focus moves.
+    - **Nothing is lost when the graph is pruned.** The coordinator keeps an append-only `analysis-log.md` in the team workspace and writes any node's full content there before removing it. Ask for a report at any time and it is built from that log, not from what happens to still be on screen.
+
+    Tell me the product you want to explore.
+  entry_point:
+    card:
+      __ref__: human_proxy
+  members:
+  - card:
+      __ref__: product_manager
+    members:
+    - card:
+        __ref__: owner
+    - card:
+        __ref__: servicer
+    - card:
+        __ref__: producer
+    - card:
+        __ref__: commercial
+    - card:
+        __ref__: regulator
+  message_types:
+  - __type__: akgentic.agent.messages.AgentMessage
+  agent_profiles:
+  - __ref__: challenger

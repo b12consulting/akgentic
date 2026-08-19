@@ -1,0 +1,16 @@
+id: id_knowledge_graph_ro
+kind: tool
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: Knowledge graph — read-only for the stakeholders
+payload:
+  read_only: true
+  get_graph:
+    instructions: |
+      This is the current focus of the board — deliberately small, and pruned as the
+      topic moves. Reuse the names recorded here rather than inventing new ones.
+
+      It is not a complete record, so its absence of something is not evidence. And you
+      are not obliged to agree with it: where another stakeholder recorded something you
+      see differently, say so in your reply. Disagreement is what this board is for.

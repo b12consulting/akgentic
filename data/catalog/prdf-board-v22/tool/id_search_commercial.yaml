@@ -1,0 +1,17 @@
+id: id_search_commercial
+kind: tool
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.tool.search.SearchTool
+description: Web search — competitors, pricing and business models
+payload:
+  web_fetch: false
+  web_crawl: false
+  web_search:
+    max_results: 3
+    instructions: |
+      Search only when you genuinely do not know what the market already sells. Look for
+      competing connected products, their price premium over the unconnected version,
+      and any subscription or service-contract model. If a competitor already ships this
+      feature, that is the most important fact you can bring back. One search is usually
+      enough.

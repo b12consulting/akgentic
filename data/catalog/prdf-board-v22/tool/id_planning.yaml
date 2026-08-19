@@ -1,0 +1,17 @@
+id: id_planning
+kind: tool
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.tool.planning.PlanningTool
+description: Task board — the chair's dispatch and gather ledger
+payload:
+  update_planning:
+    instructions: |
+      This board is how you know whether you are still waiting.
+
+      Create ONE task per stakeholder request the moment you dispatch it, owned by that
+      stakeholder. Mark it done when they reply. A stakeholder who says they are waiting
+      on a peer is NOT done — leave the task open until their follow-up arrives.
+
+      Before sending anything to @Human, read the board. If any task is open, you are
+      waiting: send nothing and stop.

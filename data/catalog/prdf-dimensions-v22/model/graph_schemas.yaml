@@ -1,0 +1,66 @@
+id: graph_schemas
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: Knowledge graph schema — four PrDF dimensions, with provenance-carrying
+  observations
+payload:
+  value: |
+    === START SCHEMA =====================================================
+
+    This graph is the RECORD OF THE ANALYSIS. Work at 20-30 nodes. Every node carries a
+    substantive `description` (2-3 sentences, never a restatement of the name) and
+    `observations` that hold the discussion.
+
+    ## Observation vocabulary — use these prefixes
+
+    "Reported by @X: ..."    what that specialist established. ALWAYS present.
+    "Confirmed by @X: ..."   a peer checked it and it held (the output of a consultation)
+    "Contested by @X: ..."   a peer disagreed, unresolved — record it, never drop it
+    "Revised: ..."           what changed after a consultation, and why
+    "Evidence: ..."          a grounded external fact: a cost, a standard, a product
+    "Open: ..."              what is still unknown, and who would settle it
+
+    ## Core Entities
+
+    (:Product) - Singleton, the product being analysed.
+    - name, description (what it is, and what is being asked about it)
+
+    (:UseContext) - A situation in which the product is used. Only the context(s) in play.
+    - name, description
+    - Observations: "When: <trigger>", "Outcome: <what the user gets>", + vocabulary above
+
+    (:Stakeholder) - Anyone who interacts with the product in that context.
+    - name, description
+    - Observations: "Type_Owner"|"Type_Servicer"|"Type_Producer"|"Type_Commercial"|"Type_Regulator"|"Type_Other"
+
+    (:SubSystem) - Sub-elements of the product; may nest. Only those being examined.
+    - name, description (its function, and why it is a digitization candidate or not)
+    - Observations: "State_Analog"|"State_Digital", + vocabulary above
+
+    (:Component) - Leaf elements. Only those being examined.
+    - name, description
+    - Observations: "State_Analog"|"State_Digital", + vocabulary above
+
+    (:Capability) - A digital feature enabled by a component or sub-system.
+    - name, description (what it senses/processes/learns, and what it delivers)
+    - Observations: "Function_Sense"|"Function_Process"|"Function_Learn", + vocabulary above
+
+    (:Local_User), (:Local_Environment), (:Cloud) - Connectivity scopes. Create one only
+      when a capability actually reaches it.
+    - name, description (the interface, and what is exchanged over it)
+
+    ## Relationships — give each a one-line description of what the link means
+
+    (:Product)-[:USED_IN]->(:UseContext)
+    (:UseContext)-[:INVOLVES]->(:Stakeholder)
+    (:Product)-[:HAS_SUB_SYSTEM]->(:SubSystem)
+    (:SubSystem)-[:HAS_SUB_SYSTEM]->(:SubSystem)
+    (:SubSystem)-[:HAS_COMPONENT]->(:Component)
+    (:Component)-[:SUPPORTS]->(:Capability)
+    (:SubSystem)-[:SUPPORTS]->(:Capability)
+    (:Capability)-[:INTERACTS_WITH]->(:Local_User|:Local_Environment|:Cloud)
+    (:Stakeholder)-[:EXPERIENCES]->(:Capability)
+
+    === END SCHEMA ========================================================

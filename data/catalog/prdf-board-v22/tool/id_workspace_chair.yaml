@@ -1,0 +1,35 @@
+id: id_workspace_chair
+kind: tool
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: The coordinator's working files — an append-only analysis log and the
+  report. Deliberately narrow, with no delete, no patch and no search.
+payload:
+  workspace_delete: false
+  workspace_glob: false
+  workspace_grep: false
+  workspace_view: false
+  workspace_patch: false
+  workspace_multi_edit: false
+  workspace_mkdir: false
+  workspace_write:
+    instructions: |
+      You maintain two files, and they are the only durable record of this session.
+
+      analysis-log.md is APPEND-ONLY. Never rewrite an earlier entry. Add a block each
+      turn covering who you asked, what came back, what was settled or contested, and
+      what you told the user.
+
+      IMPORTANT. Before you call delete_entities on the knowledge graph, write the full
+      content of every node you are about to remove into analysis-log.md - its
+      description and all of its observations, verbatim. The graph is curated and loses
+      things by design; this file is what makes that safe.
+
+      report.md is the deliverable. Rewrite it whenever the user asks for a report, or
+      when the analysis reaches a natural conclusion. Build it from analysis-log.md
+      rather than from memory.
+  workspace_read:
+    instructions: |
+      Read analysis-log.md before writing a report, and whenever you need something the
+      knowledge graph no longer holds. This file remembers what the graph pruned.

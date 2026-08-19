@@ -1,0 +1,12 @@
+id: id_run_limits_member
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: 'Per-run brake for a member: 30 requests, 25 tool calls, 200k tokens.
+  Sized from measurement — a legitimate turn used 6 tool calls; a runaway search loop
+  reached 27 calls and 1.1M tokens in a single run.'
+payload:
+  run_request_limit: 30
+  tool_calls_limit: 25
+  total_tokens_limit: 200000

@@ -1,0 +1,30 @@
+id: product_capability_engineer
+kind: agent
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Holds the CAPABILITIES dimension — sense/inform, process/change state,
+  learn/improve
+payload:
+  description: Holds the CAPABILITIES dimension — sense/inform, process/change state,
+    learn/improve
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - capability-engineering
+  - sensing-and-data
+  config:
+    name: '@ProductCapabilityEngineer'
+    role: Product Capability Engineer
+    prompt:
+      __ref__: id_capability_prompt
+    model_cfg:
+      __ref__: global.id_gpt_52
+    run_usage_limits:
+      __ref__: id_run_limits_member
+    agent_usage_limits:
+      __ref__: id_agent_limits_member
+    tools:
+    - __ref__: id_search_capabilities
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_vector_store
+    - __ref__: id_team_member

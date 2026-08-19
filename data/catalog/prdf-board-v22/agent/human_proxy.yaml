@@ -1,0 +1,13 @@
+id: human_proxy
+kind: agent
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Human user interface — primary entry point
+payload:
+  description: Human user interface — primary entry point
+  agent_class: akgentic.agent.HumanProxy
+  skills: []
+  config:
+    name: '@Human'
+    role: Human

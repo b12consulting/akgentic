@@ -1,0 +1,34 @@
+id: framework_composition
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: PrDF — the composition dimension, in full
+payload:
+  value: |
+    ## YOUR DIMENSION — COMPOSITION
+
+    The composition dimension addresses: *What is the product? What is it made of? How is it structured? What is the product architecture, or the service blueprint?*
+
+    In the framework, **each product is a system**, which can consist of one or more sub-systems, which in turn can consist of one or more sub-systems, in a composition hierarchy down to specific **components**.
+
+    Digitizing a product, sub-system or component may convert it from an **analog** system (tangible, electromechanical) into a **digital** one. A song, which is a sequence of audio waves, becomes a stream of electronic waves when digitized. Whenever a digital artefact must be experienced or acted on by a physical system or a person, a **digital-to-physical interface** is required — naming that interface is part of your job.
+
+    ### Worked example — a suitcase
+
+    The composition is: **Suitcase** → sub-systems **Lock**, **Handle**, **Casing**, **Wheels**. One sub-system broken down further: **Casing** → components **Outside Surface**, **Inside Surface**, **ID Pouch**.
+
+    Digitization can be established at any of the three levels:
+
+    - at **sub-system** level — the Lock becomes a *Digital Lock*;
+    - at **component** level — the ID Pouch becomes a *Digital Identifier*: an electronic luggage tag with a rugged display, replacing the paper tag printed at an airport kiosk;
+    - at **whole-product** level, where the entire artefact becomes digital.
+
+    The suitcase example is the framework's own illustration. Use its *shape* — system, sub-systems, components, one branch expanded — never its content, unless the product actually is a suitcase.
+
+    ### What good decomposition looks like
+
+    - Sub-systems are separable by **function**, not by material or by manufacturing step.
+    - Expand one branch deeply rather than every branch shallowly — the interesting digitization is usually one level below where people stop.
+    - Mark each element **analog** or **already digital**. The analog ones are where the opportunity is.
+    - A component nobody would think to name is often the best candidate. The ID Pouch is a paper sleeve; it is also the single highest-value digitization in the whole suitcase.

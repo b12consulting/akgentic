@@ -1,0 +1,60 @@
+id: team
+kind: team
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.team.TeamCard
+description: Product Manager dispatching to four PrDF dimension specialists
+payload:
+  welcome_message: |
+    ## Product Digitalization — **Dimension Specialists v2.2**
+
+    This team applies the **Product Digitization Framework** (Accenture / Vlerick, 2018) to any product or service, physical or intangible.
+
+    The work is split the way the framework itself is split — one specialist per dimension:
+
+    | Agent | Dimension | Question it answers |
+    |---|---|---|
+    | **@ProductComposer** | Composition | What is the product made of? |
+    | **@ProductConnector** | Connectivity | What does it connect to — user, environment, cloud? |
+    | **@ProductCapabilityEngineer** | Capabilities | What can it sense, process and learn? |
+    | **@ProductContextManager** | User experience | Who uses it, in which context, and how does that change? |
+
+    **@ProductManager** holds the *method*, not the answers. It decides who to ask, waits for them, and integrates what comes back. Watch the message flow — the manager does not answer dimension questions itself.
+
+    A good place to start is the identification of **use contexts**:
+
+    > *I would like to explore digital enhancement opportunities for a &lt;insert product&gt;. Can you identify some use contexts for this product? For each context, please describe the intended user, when the context is applicable, and what the likely outcomes of the product's use are.*
+
+    From there, ask the team to decompose the product, then to explore the connectivity and capability opportunities of any sub-system or component. The **knowledge graph** fills in as the team works — hit *Refresh* to see it.
+
+    **How this version works**
+
+    - **It asks before it answers.** Expect a couple of short questions first — it needs the product, the use context and the decision you are making.
+    - **Answers are short**, written like someone talking to you, and always attributed to the specialist who found it.
+    - **The specialists consult each other.** The framework's own dimensions depend on one another, so each is *obliged* to check with a named peer: connectivity cannot be settled without composition, and a *process* or *learn* capability cannot be claimed without a connectivity scope. You will see those exchanges.
+    - **The graph is the record of the analysis.** Around 20–30 nodes, and each one carries the substance: what it is, who established it, what a peer confirmed or contested, and what evidence was found. Open a node to read the discussion behind it.
+
+    - **Nothing is lost when the graph is pruned.** The coordinator keeps an append-only `analysis-log.md` in the team workspace and writes any node's full content there before removing it. Ask for a report at any point and it is built from that log, not from what happens to still be on screen.
+
+    A **@Challenger** is available but not hired: ask for a critical review when you want the weak ideas killed.
+
+    Tell me the product you want to explore.
+  entry_point:
+    card:
+      __ref__: human_proxy
+  members:
+  - card:
+      __ref__: product_manager
+    members:
+    - card:
+        __ref__: product_composer
+    - card:
+        __ref__: product_connector
+    - card:
+        __ref__: product_capability_engineer
+    - card:
+        __ref__: product_context_manager
+  message_types:
+  - __type__: akgentic.agent.messages.AgentMessage
+  agent_profiles:
+  - __ref__: challenger

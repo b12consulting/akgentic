@@ -1,0 +1,26 @@
+id: framework_core
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: PrDF — condensed, all four dimensions
+payload:
+  value: |
+    ## THE PRODUCT DIGITIZATION FRAMEWORK — CONDENSED
+
+    Four dimensions, applicable to any product or service.
+
+    **1. Composition** — the product is a *system*, made of *sub-systems*, made of *components*. Digitization can happen at any level, converting an analog (tangible, electromechanical) element into a digital one. A digital-to-physical interface is required wherever a person or a physical system must interact with the digital artefact.
+
+    **2. Connectivity** — three nested scopes: the **local user** (direct access, through the digital-to-physical interface), the **local environment** (users, products and systems nearby), and the **cloud** (remote user, producer, or anything anywhere).
+
+    **3. Capabilities** — a ladder, each rung resting on the one below:
+    - **Sense** (sensors) → **Inform** the user or environment
+    - **Process** (programming logic) → **Change state**, through actuators
+    - **Learn** (machine learning) → **Improve** performance
+
+    **4. User experience** — how anyone who interacts with the product experiences it: owner-customer, seller-producer, servicer, regulator, bystander. Digitization can both *impact* an experience and *expand* it, by adding capabilities before and after the current moment of use.
+
+    The first three dimensions are **orthogonal**: for each composition element, several connectivity scopes are possible, and at each scope several levels of capability. The strongest opportunities usually pay off for **several stakeholders at once**.
+
+    *Framework: Muylle, Standaert (Vlerick) and Basu (SMU Cox) — Accenture Belux / Vlerick Digital 20/20 Chair, 2018.*

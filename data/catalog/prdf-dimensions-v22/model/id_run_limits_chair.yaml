@@ -1,0 +1,11 @@
+id: id_run_limits_chair
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: 'Per-run brake for the coordinator: 30 requests, 20 tool calls, 300k
+  tokens. Bounds ONE reasoning turn.'
+payload:
+  run_request_limit: 30
+  tool_calls_limit: 20
+  total_tokens_limit: 300000

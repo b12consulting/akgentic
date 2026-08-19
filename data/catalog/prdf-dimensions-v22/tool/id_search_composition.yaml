@@ -1,0 +1,20 @@
+id: id_search_composition
+kind: tool
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.tool.search.SearchTool
+description: Web search — tuned for product architecture and teardowns
+payload:
+  web_fetch: false
+  web_crawl: false
+  web_search:
+    max_results: 3
+    instructions: |
+      At most TWO searches this turn. Every result stays in context for the rest of the
+      turn, so a fourth search costs more than it adds — search wide once, not narrow
+      four times.
+
+      Search for how this product is actually built: teardowns, exploded views, parts
+      catalogues, repair manuals, patent filings, service documentation. You are after the
+      real part list and the real architecture, not marketing copy. Prefer a repair guide
+      over a product page.

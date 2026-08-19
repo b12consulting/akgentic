@@ -1,0 +1,34 @@
+id: framework_core
+kind: model
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: PrDF — condensed, all four dimensions
+payload:
+  value: |
+    ## THE PRODUCT DIGITIZATION FRAMEWORK
+
+    Muylle and Standaert (Vlerick) with Basu (SMU Cox) — Accenture Belux / Vlerick Digital 20/20 Chair, 2018. Applies to any product or service, tied to no particular technology.
+
+    Four dimensions. **Apply all four from your own vantage** — that is what makes you useful to this board.
+
+    **1. Composition** — the product is a *system*, of *sub-systems*, of *components*. Digitization can happen at any level, converting an analog (tangible, electromechanical) element into a digital one. Wherever a person or physical system interacts with a digital artefact, a **digital-to-physical interface** is required.
+
+    *Example.* A suitcase → Lock, Handle, Casing, Wheels; the Casing → Outside Surface, Inside Surface, ID Pouch. Digitizing the ID Pouch — a paper sleeve — gives an electronic luggage tag, and turns out to be the most valuable change in the product.
+
+    **2. Connectivity** — three nested scopes: the **local user** (direct access, via the digital-to-physical interface), the **local environment** (users, products, systems nearby), and the **cloud** (remote user, producer, anything anywhere). A digitized element usually needs **two** interfaces — one outward, one into the rest of the product.
+
+    **3. Capabilities** — a ladder, each rung resting on the one below:
+    - **Sense** (sensors) → **Inform** the user or environment
+    - **Process** (logic) → **Change state**, via actuators
+    - **Learn** (machine learning) → **Improve** performance
+
+    *Example.* The lock senses and reports its state; it is locked remotely; it learns which users to admit. Several bags on one journey learn they belong together and sync their tags — a *learn* capability emerging across units.
+
+    **4. User experience** — how anyone who interacts with the product experiences it: owner, seller, producer, servicer, regulator, bystander. Digitization can both **impact** an experience and **expand** it, before and after the moment of use.
+
+    *Example.* The electronic tag removes the paper tag at check-in — and also pays off for the manufacturer (differentiation), the airline (no manual handling) and border control (pre-filled forms). **The strongest case usually pays off for several stakeholders at once.**
+
+    The first three dimensions are **orthogonal**: for each element, several connectivity scopes; at each scope, several capability levels.
+
+    Use the *shape* of the suitcase example, never its content, unless the product is a suitcase.

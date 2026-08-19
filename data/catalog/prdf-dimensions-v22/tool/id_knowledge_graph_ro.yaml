@@ -1,0 +1,21 @@
+id: id_knowledge_graph_ro
+kind: tool
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: Knowledge graph — read-only access for the specialists
+payload:
+  read_only: true
+  get_graph:
+    instructions: |
+      This is the record of the analysis so far, and the observations carry who
+      established what: "Reported by @X", "Confirmed by @X", "Contested by @X",
+      "Evidence", "Open".
+
+      Read them before you answer. A "Confirmed by" line means a peer already checked
+      that point — do not re-litigate it. A "Contested by" or "Open" line is exactly
+      where your contribution is worth most.
+
+      Reuse the names recorded here rather than inventing new ones for the same thing,
+      and never silently contradict the graph: if you disagree with something recorded,
+      say so explicitly in your reply so it is captured as a Contested observation.

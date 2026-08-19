@@ -1,0 +1,15 @@
+id: id_run_limits_member
+kind: model
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: 'Per-run brake for a member, sized from measurement. Worst clean run
+  observed: 46,774 tokens / 704 output / 7 requests / 8 tool calls. These are roughly
+  2.5-3x that. output_tokens_limit is a runaway guard, NOT a word-count enforcer —
+  exceeding it errors the turn and deadlocks the gather, so it is set well clear of
+  a long legitimate answer.'
+payload:
+  run_request_limit: 20
+  tool_calls_limit: 20
+  total_tokens_limit: 120000
+  output_tokens_limit: 3000

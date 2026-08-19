@@ -1,0 +1,18 @@
+id: id_planning
+kind: tool
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.tool.planning.PlanningTool
+description: Task board — the Product Manager's dispatch and gather ledger
+payload:
+  update_planning:
+    instructions: |
+      This board is how you know whether you are still waiting.
+
+      Create ONE task per specialist request the moment you dispatch it, with that
+      specialist as the owner and the question as the description. Mark it done the moment
+      that specialist replies.
+
+      Before you send anything to @Human, read the board. If any task is still open, you
+      are waiting: send nothing and stop. Only when every task is done do you integrate
+      the replies and answer the user.

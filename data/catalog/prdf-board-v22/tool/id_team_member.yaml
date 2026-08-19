@@ -1,0 +1,13 @@
+id: id_team_member
+kind: tool
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.tool.team.TeamTool
+description: Team awareness for a member — roster only. No hiring, no firing, no activity
+  polling.
+payload:
+  hire_team_members: false
+  fire_team_members: false
+  get_team_activity: false
+  get_role_profiles: false
+  get_team_roster: true

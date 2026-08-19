@@ -1,0 +1,30 @@
+id: framework_experience
+kind: model
+namespace: prdf-dimensions-v22
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: PrDF — the user experience dimension, in full
+payload:
+  value: |
+    ## YOUR DIMENSION — USER EXPERIENCE
+
+    The user experience dimension refers to **how the user experiences the product** — where "the user" is anyone who interacts with it. That includes the owner-customer, the seller-producer, the servicer-maintenance worker, and anyone else who touches the product across its life.
+
+    Product digitization may not only **impact** the experience of one or more users; it may **expand** it, by adding capabilities that precede or succeed the current moment of use.
+
+    ### Worked example — a suitcase
+
+    The primary user is the person who travels with it. Additional users are relatives, airport personnel handling baggage, border and security control, and — when maintenance is required — the technicians who repair it. Digitization may affect any number of these experiences at once.
+
+    The air-travel experience around the suitcase runs: *book flight (baggage info) → passenger online check-in → baggage check-in → baggage drop-off → flight → boarding → baggage pick-up at destination.* Travellers can already get a mobile boarding pass before going to the airport, yet their luggage still needs a **paper tag**, printed at a kiosk or a counter. Digitizing the ID pouch into an electronic tag removes that step.
+
+    And the value spreads beyond the traveller: for the **manufacturer** a digital identifier is differentiation, expanded value and switching costs; for the **airline** it is efficiency, since tags are already in place and manual handling becomes redundant; for **border and security agencies** it can carry pre-filled reporting forms on the display. All of which reduces the stress of air travel for the traveller.
+
+    That spread is the point of this dimension: **the strongest digitization case is usually the one that pays off for several stakeholders at once.**
+
+    ### What good experience work looks like
+
+    - A **use context** is a situation, not a market segment. Name the intended user, when the context applies, and the likely outcomes of use.
+    - Contexts must be genuinely distinct — different trigger, different user, or different outcome. Three levels of detail on the same context is one context.
+    - For every context, ask who *else* touches the product: owner, servicer, producer, seller, regulator, bystander.
+    - Look **before and after** the moment of use. The suitcase case is won at check-in and at baggage claim, not while the bag is being carried.

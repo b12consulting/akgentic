@@ -1,0 +1,11 @@
+id: id_agent_limits_chair
+kind: model
+namespace: prdf-board-v22
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: 'Lifetime budget for the coordinator: 60 runs, 600k tokens. A full 4-turn
+  session used ~100k over 8 runs, so this covers a long demo with headroom while still
+  bounding a catastrophe.'
+payload:
+  agent_request_limit: 60
+  total_tokens_limit: 600000
