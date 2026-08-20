@@ -1,0 +1,27 @@
+id: id_search_researcher
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.search.SearchTool
+description: Full web access — search, fetch and crawl. The researcher's instrument.
+payload:
+  web_search:
+    max_results: 5
+    instructions: |
+      Search first, fetch rarely. Snippets answer most questions.
+
+      Prefer primary sources - the paper, the documentation, the filing, the official page
+      - over someone's summary. When results disagree, that IS the finding: report the
+      disagreement rather than picking the tidiest answer.
+  web_fetch:
+    instructions: |
+      A fetched page is roughly 24k tokens and stays in your context for the rest of the
+      turn. Fetch when the snippet is ambiguous, when a number must be exactly right, or
+      when the source deserves reading properly.
+
+      TWO fetches in a turn is a lot. FOUR is a problem - you will run out of budget before
+      you have answered.
+  web_crawl:
+    instructions: |
+      Crawling is a last resort - it costs more than several fetches. Use it only when the
+      answer is genuinely spread across a site and no single page carries it.

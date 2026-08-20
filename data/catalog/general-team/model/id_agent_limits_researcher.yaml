@@ -1,0 +1,9 @@
+id: id_agent_limits_researcher
+kind: model
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: Lifetime budget for the researcher, raised for the same reason.
+payload:
+  agent_request_limit: 40
+  total_tokens_limit: 500000

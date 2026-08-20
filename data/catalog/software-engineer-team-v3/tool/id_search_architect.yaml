@@ -1,0 +1,18 @@
+id: id_search_architect
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.search.SearchTool
+description: Web search — libraries, patterns and known pitfalls for the architect
+payload:
+  web_fetch: false
+  web_crawl: false
+  web_search:
+    max_results: 3
+    instructions: |
+      At most TWO searches this turn. Every result stays in context for the rest of the
+      turn, so a fourth search costs more than it adds.
+
+      Search only for an unfamiliar library, protocol or a known pitfall in one. Prefer
+      official documentation and issue trackers over blog posts. What this codebase already
+      does is a better guide than anything you will find on the web - read it first.

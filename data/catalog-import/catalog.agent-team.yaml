@@ -138,7 +138,7 @@ entries:
             role: manager
             instructions: Coordinate the team effectively to achieve goals.
         model_cfg:
-          __ref__: global.id_gpt_54
+          __ref__: global.id_gpt_52
         tools:
         - __ref__: global.id_vector_store
         - __ref__: global.id_web_search
@@ -223,10 +223,10 @@ entries:
       model: gpt-4.1
       temperature: 0.3
 
-  global.id_gpt_54:
+  global.id_gpt_52:
     kind: model
     model_type: akgentic.llm.ModelConfig
-    description: GPT-5.4 via OpenAI — shared model configuration
+    description: GPT-5.2 via OpenAI — shared model configuration
     payload:
       provider: openai
-      model: gpt-5.4
+      model: gpt-5.2

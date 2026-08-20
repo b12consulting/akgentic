@@ -1,0 +1,13 @@
+id: id_knowledge_graph_ro
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: The session record — read-only for specialists
+payload:
+  read_only: true
+  get_graph:
+    instructions: |
+      What the team has established so far, and who established it. A "Confirmed by" line
+      means someone already checked that point - do not redo it. A "Contested" or "Open"
+      line is where your contribution is worth most.

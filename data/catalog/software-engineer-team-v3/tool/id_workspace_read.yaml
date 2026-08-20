@@ -1,0 +1,20 @@
+id: id_workspace_read
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: Read-only codebase access with glob and grep — for analyst, architect
+  and reviewer
+payload:
+  read_only: true
+  workspace_view: false
+  workspace_grep:
+    instructions: |
+      Grep is how you find what already exists. Before asserting that something is absent,
+      search for it - a request that looks new is often already half-implemented under a
+      different name. When reviewing, grep for the CALLERS of anything that changed: most
+      real bugs are at the boundary, not inside the diff.
+  workspace_read:
+    instructions: |
+      Read a file before making a claim about it. Cite file:line when you do - a statement
+      someone else can check is worth several they cannot.

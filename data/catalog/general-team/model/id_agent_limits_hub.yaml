@@ -1,0 +1,9 @@
+id: id_agent_limits_hub
+kind: model
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: Lifetime budget for the generalist across a long conversation.
+payload:
+  agent_request_limit: 80
+  total_tokens_limit: 800000

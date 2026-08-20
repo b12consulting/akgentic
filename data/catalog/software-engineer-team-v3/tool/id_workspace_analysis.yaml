@@ -1,0 +1,33 @@
+id: id_workspace_analysis
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: Codebase reading plus a place to write your own analysis. Read anything;
+  write only your own analysis/<task-id>-<role>.md.
+payload:
+  workspace_delete: false
+  workspace_patch: false
+  workspace_multi_edit: false
+  workspace_view: false
+  workspace_write:
+    instructions: |-
+      You write ONE path and one only: analysis/<task-id>-<role>.md, the file your dispatch names.
+
+      Never write source code, never write backlog.md or report.md, and never write another
+      specialist's analysis file. workspace_write OVERWRITES - writing someone else's path
+      destroys their work silently, with no error and no way to recover it.
+
+      Put your full reasoning here. This file is where depth belongs: your reply to @Manager is a
+      summary and a path, and the manager reads the file when it needs the detail.
+  workspace_grep:
+    instructions: |-
+      Grep is how you find what already exists. Before asserting something is absent, search for
+      it. When reviewing, grep for the CALLERS of anything that changed: most real bugs are at
+      the boundary, not inside the diff.
+  workspace_read:
+    instructions: |-
+      Read a file before making a claim about it, and cite file:line when you do.
+
+      If the code you are asked about does not exist yet, two or three probes are enough to
+      establish that. Say so and reason from the request instead of hunting further.

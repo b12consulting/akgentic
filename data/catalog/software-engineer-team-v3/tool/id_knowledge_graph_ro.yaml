@@ -1,0 +1,19 @@
+id: id_knowledge_graph_ro
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: The delivery record — read-only for specialists
+payload:
+  read_only: true
+  get_graph:
+    instructions: |
+      This is the record of the work so far, and the observations say who established what.
+
+      Read them before you answer. A "Confirmed by" line means a peer already checked that
+      point - do not re-litigate it. A "Contested by" or "Open" line is exactly where your
+      contribution is worth most.
+
+      Reuse the names recorded here rather than inventing new ones for the same component,
+      and never silently contradict the graph: if you disagree with something recorded, say
+      so in your reply so it is captured as a Contested observation.

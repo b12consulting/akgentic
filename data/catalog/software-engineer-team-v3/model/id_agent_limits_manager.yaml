@@ -1,0 +1,10 @@
+id: id_agent_limits_manager
+kind: model
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: Lifetime budget for the manager. An agent-tier breach is terminal, so
+  this is set well clear of a long session.
+payload:
+  agent_request_limit: 60
+  total_tokens_limit: 600000

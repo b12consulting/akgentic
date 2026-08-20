@@ -1,0 +1,50 @@
+id: team
+kind: team
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.team.TeamCard
+description: A generalist with four instrument-bearing specialists, no enforced workflow
+payload:
+  welcome_message: |
+    ## **General Team** — a mind with instruments
+
+    Ask anything. Genuinely anything — *why do cats purr*, *is it cheaper to buy or rent*, *what would break first if the moon were twice as close*, *is this argument any good*.
+
+    **@Generalist** answers you. Most of the time that is all that happens, and that is the point — you should not have to convene a committee to learn the capital of Peru.
+
+    When a question needs something it does not have, it calls on someone who does:
+
+    | | holds | good for |
+    |---|---|---|
+    | **@Researcher** | the live web, and can read whole pages | what is true *now*, with sources |
+    | **@Quant** | a Python sandbox | actual numbers, estimates with their assumptions shown |
+    | **@Skeptic** | an adversarial stance | breaking the answer before you rely on it |
+    | **@Explorer** | a mandate to look sideways | the question behind your question |
+
+    **There is no workflow here.** No stages, no gates, no order. The specialists also talk to *each other* — @Quant can ask @Researcher for a figure, @Skeptic can pick a fight with anyone.
+
+    They are specialists in **method, not subject**. There is no historian and no biologist, because a generalist has no reason to delegate to one — it already knows what they know. It genuinely cannot search the web or run Python.
+
+    So: what are you curious about?
+  entry_point:
+    card:
+      __ref__: human_proxy
+  members:
+  - card:
+      __ref__: generalist
+    members:
+    - card:
+        __ref__: researcher
+    - card:
+        __ref__: quant
+    - card:
+        __ref__: skeptic
+    - card:
+        __ref__: explorer
+  message_types:
+  - __type__: akgentic.agent.messages.AgentMessage
+  agent_profiles:
+  - __ref__: researcher
+  - __ref__: quant
+  - __ref__: skeptic
+  - __ref__: explorer

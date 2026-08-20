@@ -1,0 +1,8 @@
+id: id_team_hub
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.team.TeamTool
+description: Team management for the generalist — roster, role profiles, hire/fire,
+  activity
+payload: {}

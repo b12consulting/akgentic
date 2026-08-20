@@ -1,0 +1,40 @@
+id: manager
+kind: agent
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Owns the delivery workflow, the stage gates and the work item, and holds
+  none of the technical content.
+payload:
+  description: Owns the delivery workflow, the stage gates and the work item, and
+    holds none of the technical content. Reads and writes the workspace including
+    work-items/, keeps the plan and the knowledge graph, and can hire. Has NO shell
+    — cannot run git, tests or any command.
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - workflow
+  - stage-gates
+  - work-item-authoring
+  - planning
+  - knowledge-graph
+  - workspace-read
+  - workspace-write
+  - hiring
+  - no-shell
+  config:
+    name: '@Manager'
+    role: Manager
+    prompt:
+      __ref__: id_manager_prompt
+    model_cfg:
+      __ref__: global.id_gpt_54
+    run_usage_limits:
+      __ref__: id_run_limits_manager
+    agent_usage_limits:
+      __ref__: id_agent_limits_manager
+    tools:
+    - __ref__: id_workspace_manager
+    - __ref__: id_planning
+    - __ref__: id_knowledge_graph
+    - __ref__: id_team_manager
+    - __ref__: id_vector_store

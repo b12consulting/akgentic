@@ -1,0 +1,43 @@
+id: graph_schemas
+kind: model
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: A deliberately loose graph schema for open-ended questions
+payload:
+  value: |
+    === START SCHEMA =====================================================
+
+    A modest record of what the team has established — around 20 nodes. This team answers
+    open questions, so the schema is deliberately loose: record what is worth carrying
+    across the conversation, not everything said.
+
+    Every node needs a real `description` (2-3 sentences, never a restatement of its name)
+    and observations saying who established it:
+
+    "Reported by @X: ..."    what that specialist established. ALWAYS present.
+    "Confirmed by @X: ..."   someone checked it and it held
+    "Contested by @X: ..."   someone disagreed - record it, never drop the losing side
+    "Evidence: ..."          a source, a computed figure, a citation
+    "Assumption: ..."        something taken as given that could be wrong
+    "Open: ..."              what is still unknown
+
+    ## Entities
+
+    (:Topic)     - what the conversation is about. Usually one or two.
+    (:Claim)     - something asserted, with its support or lack of it.
+                   Observations: "Status_Solid"|"Status_Contested"|"Status_Unsupported"
+    (:Figure)    - a number that was computed or found, with its units and assumptions.
+    (:Source)    - something that was actually read, with its URL.
+    (:Question)  - an open question worth returning to.
+
+    ## Relationships — give each a one-line description
+
+    (:Topic)-[:RAISES]->(:Claim)
+    (:Topic)-[:RAISES]->(:Question)
+    (:Claim)-[:SUPPORTED_BY]->(:Source)
+    (:Claim)-[:SUPPORTED_BY]->(:Figure)
+    (:Claim)-[:CHALLENGED_BY]->(:Claim)
+    (:Figure)-[:ASSUMES]->(:Claim)
+
+    === END SCHEMA ========================================================

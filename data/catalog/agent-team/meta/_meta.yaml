@@ -5,7 +5,7 @@ user_id: anonymous
 model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
 description: Manager coordinating Assistant, Expert and Support Human agents team!
 payload:
-  name: Agent Team
+  name: Agent Team V1
   description: Manager coordinating Assistant, Expert and Support Human agents team!
   properties: {}
   shareable: false

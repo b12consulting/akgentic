@@ -1,0 +1,11 @@
+id: id_explorer_model
+kind: model
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.llm.ModelConfig
+description: GPT-5.2 at a higher temperature — for the Explorer, where divergence
+  is the point
+payload:
+  provider: openai
+  model: gpt-5.2
+  temperature: 1.0

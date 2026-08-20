@@ -136,6 +136,30 @@ entries:
       provider: openai
       model: gpt-5.4
 
+  id_gpt_56_sol:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-5.5 Sol via OpenAI — shared model configuration
+    payload:
+      provider: openai
+      model: gpt-5.5-sol
+
+  id_gpt_56_terra:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-5.5 Terra via OpenAI — shared model configuration, the team default
+    payload:
+      provider: openai
+      model: gpt-5.5-terra
+
+  id_gpt_56_luna:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-5.5 Luna via OpenAI — shared model configuration
+    payload:
+      provider: openai
+      model: gpt-5.5-luna
+
   id_gpt_56:
     kind: model
     model_type: akgentic.llm.ModelConfig

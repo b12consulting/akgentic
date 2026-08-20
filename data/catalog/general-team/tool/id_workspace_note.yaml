@@ -1,0 +1,24 @@
+id: id_workspace_note
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: A specialist's own note — write your own file under notes/, read anyone's
+payload:
+  workspace_delete: false
+  workspace_patch: false
+  workspace_multi_edit: false
+  workspace_view: false
+  workspace_glob: false
+  workspace_write:
+    instructions: |
+      You write ONE file: notes/<topic>-<your-role>.md. That is where your detail belongs -
+      your message to @Generalist is a summary and a path.
+
+      Never write notes/notebook.md, and never write another specialist's file.
+      workspace_write OVERWRITES: writing someone else's path destroys their work silently,
+      with no error and no way to recover it.
+  workspace_read:
+    instructions: |
+      Read notes/notebook.md for what the team has already established, and a colleague's
+      note when you need the detail behind something they summarised.

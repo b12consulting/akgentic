@@ -1,0 +1,90 @@
+id: _meta
+kind: meta
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
+description: A generalist who answers most things directly, and four specialists defined
+  by how they find out rather than what they know — a researcher with the web, a quant
+  who can actually compute, a skeptic who tries to break the answer, and an explorer
+  who finds the question behind the question. No workflow. They talk to each other
+  freely.
+payload:
+  name: General Team — a mind with instruments
+  description: A generalist who answers most things directly, and four specialists
+    defined by how they find out rather than what they know — a researcher with the
+    web, a quant who can actually compute, a skeptic who tries to break the answer,
+    and an explorer who finds the question behind the question. No workflow. They
+    talk to each other freely.
+  properties:
+    overview: |
+      A general-purpose team for broad questions - anything from "why is the sky blue" to
+      "should we buy or rent" to "what would happen if the moon were twice as close".
+
+      @Generalist is the entry point and answers most things itself. The four specialists exist
+      because each holds an INSTRUMENT the generalist does not: the live web, a Python
+      interpreter, an adversarial stance, and a mandate to look sideways.
+
+      There is deliberately NO workflow. No stages, no gates, no required order. The generalist
+      decides what a question needs, and the specialists talk to each other directly whenever
+      it helps.
+    design_note_why_not_topic_experts: |
+      The specialists are defined by METHOD, not by subject. There is no @Biologist and no
+      @Historian, and that is the whole design.
+
+      A topic expert is fake asymmetry: the same model knows biology and history equally well,
+      so a generalist asked a biology question has no reason to delegate - it would only add
+      latency. Teams built that way collapse into one agent wearing five hats, which is the
+      single most common failure in this framework.
+
+      An instrument is real asymmetry. @Generalist genuinely cannot search the live web, cannot
+      execute Python, and cannot hold an adversarial stance against its own answer. Those gaps
+      are what make delegation rational rather than performative.
+    cast: |
+      @Generalist  the hub. Broad knowledge, good judgement, answers directly. Owns the notebook
+                   and the knowledge graph. Its skill is knowing when it is out of its depth.
+      @Researcher  the live web. What is actually true NOW, with sources. The only agent that
+                   can fetch a page.
+      @Quant       a Python sandbox. Computes, estimates, simulates, checks the arithmetic.
+                   Turns "roughly?" into a number with its assumptions on the table.
+      @Skeptic     the adversary. Tries to break the answer - counter-examples, hidden
+                   assumptions, "that statistic is doing a lot of work here".
+      @Explorer    the sideways look. The question behind the question, the analogy from another
+                   field, the option nobody listed.
+    flow: |
+      @Human <-> @Generalist, and @Generalist to whichever specialists the question needs.
+      Specialists may address EACH OTHER freely - @Quant can ask @Researcher for a figure, and
+      @Skeptic can challenge anyone. Nobody but @Generalist addresses @Human.
+
+      There is no workflow to follow and no stage to complete. What keeps it terminating is a
+      single rule: when a peer asks you something, answer it and stop. One hop, never a chain.
+    the_answer_alone_rule: |
+      Unlike the framework's other teams, answering alone is CORRECT here and is the common case.
+      Convening the team for "what is the capital of Peru" wastes the user's time and looks
+      ridiculous. @Generalist's prompt says so explicitly, and gives it four concrete triggers
+      for when to reach for a specialist instead.
+    tools: |
+      WorkspaceTool - @Generalist read/write (owns notes/ and the notebook). Specialists write
+        only their own note under notes/, never each other's: workspace_write OVERWRITES.
+      SearchTool - @Researcher gets web_search AND web_fetch. This is the one deliberate
+        exception to the house rule that members do not get fetch: reading an actual page is
+        the whole of the researcher's value. Its token budget is raised to match, because one
+        fetch is ~24k tokens and stays in context all turn. @Skeptic gets search (to refute)
+        with fetch OFF. @Explorer and @Quant get none.
+      ExecTool - @Quant only. Sandboxed Python: the difference between "roughly a few million"
+        and an actual number with assumptions attached.
+      KnowledgeGraphTool - read/write for @Generalist, read-only for the rest.
+      TeamTool - explicit per-tier cards, never the auto-injected default. Everyone sees the
+        role list, so everyone knows who holds which instrument; only @Generalist can hire.
+    limits: |
+      Both tiers on every agent.
+        generalist   run 15 req / 12 tool calls / 120k tokens / 6k output ; life 60 runs / 600k
+        specialist   run 20 req / 20 tool calls / 120k tokens / 4k output ; life 40 runs / 300k
+        @Researcher  run 20 req / 20 tool calls / 200k tokens / 4k output ; life 40 runs / 500k
+      @Researcher is raised because web_fetch legitimately costs ~24k tokens per call. The
+      per-run total_tokens_limit is the only limit that actually bounds cost.
+    lineage: |
+      New. Shares no lineage with agent-team; built on the design findings from the PrDF and
+      software-engineering teams - instrument-based asymmetry, depth-1 peer capping, restricted
+      TeamTool, both limit tiers, one writer per path.
+  shareable: false
+  public: true

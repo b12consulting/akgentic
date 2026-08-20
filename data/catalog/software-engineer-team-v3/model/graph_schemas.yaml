@@ -1,0 +1,60 @@
+id: graph_schemas
+kind: model
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.catalog.NativeValue
+description: Knowledge graph schema for the software delivery record
+payload:
+  value: |
+    === START SCHEMA =====================================================
+
+    This graph is the RECORD OF THE WORK. Work at 20-30 nodes. Every node carries a
+    substantive `description` (2-3 sentences, never a restatement of the name) and
+    `observations` that hold the discussion.
+
+    ## Observation vocabulary — use these prefixes
+
+    "Reported by @X: ..."    what that specialist established. ALWAYS present.
+    "Confirmed by @X: ..."   a peer checked it and it held (the output of a consultation)
+    "Contested by @X: ..."   a peer disagreed, unresolved — record it, never drop it
+    "Revised: ..."           what changed after a consultation, and why
+    "Evidence: ..."          something grounded: a file:line, a test result, a benchmark
+    "Open: ..."              what is still unknown, and who would settle it
+
+    ## Core Entities
+
+    (:WorkItem) - A unit of delivery, matching a file in work-items/.
+    - name, description (what is being changed and why)
+    - Observations: "Status: analysing|designing|planning|implementing|reviewing|done|blocked"
+
+    (:Requirement) - An acceptance criterion. One node per AC worth tracking.
+    - name (e.g. "AC2 reject negative quantity"), description (the criterion, testably stated)
+    - Observations: "Met"|"NotMet"|"NotVerifiable", + vocabulary above
+
+    (:Component) - A part of the system the change touches.
+    - name (the real module/package name), description (what it does, and how it is affected)
+    - Observations: "Changed"|"Unchanged"|"New", + vocabulary above
+
+    (:Decision) - A design choice that was actually decided, with its alternative.
+    - name, description (what was chosen, what was rejected, and why)
+    - Observations: "Rejected: <the alternative>", + vocabulary above
+
+    (:Risk) - Something that could go wrong, and what would make it real.
+    - name, description
+    - Observations: "Trigger: <what would make it real>", "Mitigation: <...>"
+
+    (:TestResult) - Evidence that something works or does not.
+    - name (the command or the test), description (what it proves)
+    - Observations: "Passed"|"Failed"|"NotRun", "Evidence: <output>"
+
+    ## Relationships — give each a one-line description of what the link means
+
+    (:WorkItem)-[:REQUIRES]->(:Requirement)
+    (:WorkItem)-[:TOUCHES]->(:Component)
+    (:WorkItem)-[:DECIDED]->(:Decision)
+    (:Decision)-[:AFFECTS]->(:Component)
+    (:Decision)-[:CARRIES]->(:Risk)
+    (:Requirement)-[:VERIFIED_BY]->(:TestResult)
+    (:Component)-[:DEPENDS_ON]->(:Component)
+
+    === END SCHEMA ========================================================

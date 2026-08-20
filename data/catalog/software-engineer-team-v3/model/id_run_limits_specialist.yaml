@@ -1,0 +1,13 @@
+id: id_run_limits_specialist
+kind: model
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: Per-run brake for a specialist. tool_calls_limit is 30 because reading
+  a codebase is genuinely tool-heavy - a measured analyst turn used 21 and a reviewer
+  12. output_tokens_limit is a runaway guard, NOT a length enforcer.
+payload:
+  run_request_limit: 20
+  tool_calls_limit: 30
+  total_tokens_limit: 120000
+  output_tokens_limit: 4000

@@ -1,0 +1,21 @@
+id: id_workspace_dev
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: Full read/write workspace for the developer and QA
+payload:
+  workspace_view: false
+  workspace_edit:
+    instructions: |
+      Read the whole file before you edit it, and match the conventions you find there -
+      naming, error handling, test layout - rather than the ones you prefer.
+
+      One task at a time. Do not batch unrelated changes into a single edit: a reviewer
+      reading the File List has to be able to tell which change served which acceptance
+      criterion.
+  workspace_write:
+    instructions: |
+      Prefer editing an existing file over writing a new one. Every file you add or change
+      must appear in your File List - a file changed and not listed is a file the reviewer
+      will not read.

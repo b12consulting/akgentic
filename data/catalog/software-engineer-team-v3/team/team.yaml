@@ -1,0 +1,55 @@
+id: team
+kind: team
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.team.TeamCard
+description: Managing engineer running a gated analyse/design/plan/implement/review
+  flow
+payload:
+  welcome_message: |
+    ## Software Engineering Team — **v2**
+
+    A managing engineer who owns the **workflow**, and four specialists who own the work.
+
+    | Agent | Owns | Answers |
+    |---|---|---|
+    | **@Analyst** | analysis | what is actually being asked, and what "done" means |
+    | **@Architect** | design | how it should be built, and what was rejected |
+    | **@Developer** | implementation | the code, the tests, the file list |
+    | **@Reviewer** | review | whether it is right, cited at `file:line` |
+
+    **@Manager** holds the stages and the gates, not the answers.
+
+    **How it works**
+
+    - **Stages are gated**, in order: *analyse → design → plan → implement → review*. A stage cannot start until its predecessor's output is written into the work item.
+    - **The work item carries the context.** `work-items/<id>.md` holds the acceptance criteria, the design decision, the numbered tasks, the file list and the review verdict — so the developer never hunts for context and every handoff is a document.
+    - **Specialists consult each other directly.** Each must check with a named peer before certain claims: an analyst cannot judge feasibility, an architect cannot assume the codebase, a developer cannot silently change a design, a reviewer cannot reject against a requirement nobody wrote.
+    - **It asks before it starts.** Expect a couple of short questions: what you want changed, in which codebase, and how far you want it taken.
+
+    **@QA** is available but not hired — ask for it when you want tests written and proven rather than reviewed.
+
+    Tell me what you want built or changed.
+  entry_point:
+    card:
+      __ref__: human_proxy
+  members:
+  - card:
+      __ref__: manager
+    members:
+    - card:
+        __ref__: analyst
+    - card:
+        __ref__: architect
+    - card:
+        __ref__: developer
+    - card:
+        __ref__: reviewer
+  message_types:
+  - __type__: akgentic.agent.messages.AgentMessage
+  agent_profiles:
+  - __ref__: analyst
+  - __ref__: architect
+  - __ref__: developer
+  - __ref__: reviewer
+  - __ref__: qa_engineer

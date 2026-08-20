@@ -1,0 +1,28 @@
+id: id_workspace_quant
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: Full working directory for the quant — write, edit and discover files.
+  Shares the same directory as ExecTool, so a script written here is runnable there.
+payload:
+  workspace_delete: false
+  workspace_view: false
+  workspace_write:
+    instructions: |-
+      This is how you create files. Write your script here, then run it with exec_command -
+      both tools see the SAME directory, so `calc.py` written here is `python calc.py` there.
+
+      Do NOT create files through the shell. Redirection, heredocs and `python -c` that writes
+      a file all depend on the sandbox backend and will not reliably land where you expect;
+      some backends run under filesystem isolation. Writing through this tool always works.
+
+      Put the analysis itself in notes/<topic>-quant.md. Scripts can live anywhere; keep them
+      named for what they compute.
+  workspace_edit:
+    instructions: |-
+      Iterate on a script here rather than rewriting it whole - change the assumption, re-run,
+      compare. That loop is the point of having a sandbox.
+  workspace_grep:
+    instructions: Find a figure or an assumption you used earlier in the session without
+      re-deriving it.

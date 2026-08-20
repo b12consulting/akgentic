@@ -1,0 +1,22 @@
+id: id_knowledge_graph
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: The session record — read/write for the generalist
+payload:
+  update_graph:
+    instructions: |
+      A modest record of what is worth carrying across the conversation - around 20 nodes.
+      Not a transcript.
+
+      Record a claim, a figure or a source when it might matter later in the session. Give
+      every node a real description and an observation naming who established it:
+      "Reported by @Researcher: ...", "Contested by @Skeptic: ...", "Evidence: ...".
+
+      A disagreement is worth more than a consensus here - record both sides, never just
+      the winning one.
+  get_graph:
+    instructions: |
+      What the team has established so far this session. Use it rather than re-asking a
+      specialist something already recorded.

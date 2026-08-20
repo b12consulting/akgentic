@@ -1,0 +1,37 @@
+id: researcher
+kind: agent
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Holds the live web — searches and can read whole pages. Answers what
+  is true NOW, with sources, and says plainly when the record is thin or contested.
+  The only agent that can fetch a page. No shell.
+payload:
+  description: Holds the live web — searches and can read whole pages. Answers what
+    is true NOW, with sources, and says plainly when the record is thin or contested.
+    The only agent that can fetch a page. No shell.
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - web-search
+  - web-fetch
+  - sourcing
+  - currency
+  - writes-own-note
+  - no-shell
+  config:
+    name: '@Researcher'
+    role: Researcher
+    prompt:
+      __ref__: id_researcher_prompt
+    model_cfg:
+      __ref__: global.id_gpt_52
+    run_usage_limits:
+      __ref__: id_run_limits_researcher
+    agent_usage_limits:
+      __ref__: id_agent_limits_researcher
+    tools:
+    - __ref__: id_search_researcher
+    - __ref__: id_workspace_note
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_team_member
+    - __ref__: id_vector_store

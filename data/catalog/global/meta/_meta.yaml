@@ -3,7 +3,8 @@ kind: meta
 namespace: global
 user_id: anonymous
 model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
-description: ''
+description: Shared model configs and tool definitions referenced cross-namespace
+  via global.id_xxx
 payload:
   name: Global Library
   description: Shared model configs and tool definitions referenced cross-namespace

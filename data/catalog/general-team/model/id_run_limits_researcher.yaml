@@ -1,0 +1,13 @@
+id: id_run_limits_researcher
+kind: model
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: Per-run brake for the researcher, raised because web_fetch legitimately
+  costs ~24k tokens per call and it is the one agent that has it. Two or three fetches
+  plus the reasoning around them must fit.
+payload:
+  run_request_limit: 20
+  tool_calls_limit: 20
+  total_tokens_limit: 200000
+  output_tokens_limit: 4000

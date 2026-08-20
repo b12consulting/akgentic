@@ -1,0 +1,7 @@
+id: id_team_manager
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.team.TeamTool
+description: Team management for the manager — hire/fire, roster, profiles, activity
+payload: {}

@@ -1,0 +1,37 @@
+id: explorer
+kind: agent
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Holds the sideways look — finds the question behind the question, the
+  analogy from another field, the option nobody listed. Works from what it knows;
+  has no web and no shell, on purpose.
+payload:
+  description: Holds the sideways look — finds the question behind the question, the
+    analogy from another field, the option nobody listed. Works from what it knows;
+    has no web and no shell, on purpose.
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - lateral-thinking
+  - reframing
+  - analogy
+  - option-generation
+  - writes-own-note
+  - no-web
+  - no-shell
+  config:
+    name: '@Explorer'
+    role: Explorer
+    prompt:
+      __ref__: id_explorer_prompt
+    model_cfg:
+      __ref__: id_explorer_model
+    run_usage_limits:
+      __ref__: id_run_limits_member
+    agent_usage_limits:
+      __ref__: id_agent_limits_member
+    tools:
+    - __ref__: id_workspace_note
+    - __ref__: id_knowledge_graph_ro
+    - __ref__: id_team_member
+    - __ref__: id_vector_store

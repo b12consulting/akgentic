@@ -1,0 +1,13 @@
+id: id_team_member
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.team.TeamTool
+description: Team awareness for a specialist — roster and role profiles, so everyone
+  knows who holds which instrument
+payload:
+  hire_team_members: false
+  fire_team_members: false
+  get_team_activity: false
+  get_role_profiles: true
+  get_team_roster: true

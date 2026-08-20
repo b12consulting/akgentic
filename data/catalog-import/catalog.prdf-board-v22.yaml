@@ -293,7 +293,7 @@ entries:
         prompt:
           __ref__: id_challenger_prompt
         model_cfg:
-          __ref__: global.id_gpt_54
+          __ref__: global.id_gpt_52
         run_usage_limits:
           __ref__: id_run_limits_member
         agent_usage_limits:
@@ -1302,3 +1302,17 @@ entries:
       properties: *id001
       shareable: false
       public: true
+  global.id_gpt_54:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-5.4 via OpenAI — shared model configuration
+    payload:
+      provider: openai
+      model: gpt-5.4
+  global.id_gpt_52:
+    kind: model
+    model_type: akgentic.llm.ModelConfig
+    description: GPT-5.2 via OpenAI — shared model configuration
+    payload:
+      provider: openai
+      model: gpt-5.2

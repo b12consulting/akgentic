@@ -1,0 +1,26 @@
+id: id_workspace_hub
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: The generalist's notebook — owns notes/notebook.md, reads everyone else's
+  notes
+payload:
+  workspace_delete: false
+  workspace_patch: false
+  workspace_multi_edit: false
+  workspace_view: false
+  workspace_write:
+    instructions: |
+      You own notes/notebook.md. Append to it when the team establishes something worth
+      keeping - a figure with its assumptions, a source, a conclusion, a disagreement that
+      was not resolved. Not every exchange; a notebook of everything is a notebook of
+      nothing.
+
+      The specialists write their own files under notes/. READ theirs; never write to
+      them. workspace_write OVERWRITES, so writing someone else's path destroys their work
+      silently, with no error.
+  workspace_read:
+    instructions: |
+      Read a specialist's note when you need the detail behind their summary - they put
+      the depth in the file and send you the path.

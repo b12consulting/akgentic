@@ -1,0 +1,26 @@
+id: id_planning_member
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.planning.PlanningTool
+description: The team backlog, read-only — a specialist sees the tasks assigned to
+  it.
+payload:
+  update_planning: false
+  get_planning:
+    filter_by_agent: true
+    instructions: |-
+      The tasks shown here are yours. They are the backlog @Manager wrote, and they are the
+      authority on what you are being asked for - your dispatch message carries the workflow, the
+      board carries the commitment.
+
+      You cannot change the board. If a task is wrong, mis-scoped or blocked, say so in your reply
+      and @Manager will change it.
+  get_planning_task:
+    instructions: |-
+      Look up a task by id when your dispatch references one you cannot see - usually a dependency
+      someone else owns, whose result yours builds on.
+  search_planning:
+    instructions: |-
+      Use this to find what the rest of the team is doing on this piece of work before you
+      duplicate it, or to find the task whose output you depend on.

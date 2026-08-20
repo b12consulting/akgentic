@@ -1,0 +1,18 @@
+id: id_search_analyst
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.search.SearchTool
+description: Web search — domain and product context for the analyst
+payload:
+  web_fetch: false
+  web_crawl: false
+  web_search:
+    max_results: 3
+    instructions: |
+      At most TWO searches this turn. Every result stays in context for the rest of the
+      turn, so a fourth search costs more than it adds.
+
+      Search only when the request turns on a domain fact, standard or regulation you do
+      not know. You are not researching how to build it - that is @Architect's question.
+      The codebase, not the web, is where most of your answers are.

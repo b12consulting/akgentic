@@ -1,0 +1,12 @@
+id: id_run_limits_hub
+kind: model
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: Per-run brake for the generalist. It has no web and no shell, so its
+  turns are short; this is generous headroom over a measured coordinator turn.
+payload:
+  run_request_limit: 15
+  tool_calls_limit: 12
+  total_tokens_limit: 120000
+  output_tokens_limit: 6000

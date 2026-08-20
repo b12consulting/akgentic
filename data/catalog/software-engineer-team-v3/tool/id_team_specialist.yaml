@@ -1,0 +1,13 @@
+id: id_team_specialist
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.team.TeamTool
+description: Team awareness for a specialist — roster and role profiles, so everyone
+  knows who holds which tools. No hiring, no firing, no activity polling.
+payload:
+  hire_team_members: false
+  fire_team_members: false
+  get_team_activity: false
+  get_role_profiles: true
+  get_team_roster: true

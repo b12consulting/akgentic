@@ -1,0 +1,10 @@
+id: id_agent_limits_specialist
+kind: model
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: Lifetime budget for a specialist, bounding a whole session even when
+  every individual run stays under its own cap.
+payload:
+  agent_request_limit: 40
+  total_tokens_limit: 300000

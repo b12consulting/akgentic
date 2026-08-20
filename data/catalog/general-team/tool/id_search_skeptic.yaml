@@ -1,0 +1,18 @@
+id: id_search_skeptic
+kind: tool
+namespace: general-team
+user_id: anonymous
+model_type: akgentic.tool.search.SearchTool
+description: Search only, no fetch — for checking whether a claim survives the record
+payload:
+  web_fetch: false
+  web_crawl: false
+  web_search:
+    max_results: 3
+    instructions: |
+      At most TWO searches. You are checking whether a claim survives contact with the
+      record, not doing the research - if a page needs reading properly, ask @Researcher.
+
+      Search for what would REFUTE the claim: the counter-example, the failed prior
+      attempt, the contradicting study, the product that already does this. A concrete
+      counter-example beats a general worry every time.

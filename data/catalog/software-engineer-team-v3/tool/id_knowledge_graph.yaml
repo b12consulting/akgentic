@@ -1,0 +1,28 @@
+id: id_knowledge_graph
+kind: tool
+namespace: software-engineer-team-v3
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: The delivery record — read/write for the manager
+payload:
+  update_graph:
+    instructions: |
+      This graph is the record of the work, and the user watches it while you work. A node
+      whose description repeats its own name is worthless - put the substance in.
+
+      Work at 20-30 nodes. Do NOT prune early. Past ~30, prefer merging two thin nodes into
+      one substantive node over deleting a real finding, and copy anything you do remove
+      into the work item first.
+
+      Every node needs a 2-3 sentence description and observations prefixed:
+        "Reported by @X: ..."   what that specialist established (ALWAYS present)
+        "Confirmed by @X: ..."  a peer checked it and it held
+        "Contested by @X: ..."  a peer disagreed, unresolved - record it, never drop it
+        "Revised: ..."          what changed after a consultation and why
+        "Evidence: ..."         a file:line, a test result, a benchmark
+        "Open: ..."             what is unknown, and who would settle it
+
+      After every peer consultation between two specialists, record its outcome. That
+      exchange is the most valuable thing the team produces; losing it wastes the
+      consultation. Grow nodes with update_entities + add_observations rather than
+      replacing them.
