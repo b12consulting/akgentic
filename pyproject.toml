@@ -12,7 +12,7 @@
 # them, or the umbrella will claim a set the packages do not agree with.
 [project]
 name = "akgentic-framework"
-version = "2.12.0"
+version = "2.12.1"
 description = "Meta-distribution pinning a coherent akgentic release set."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -56,7 +56,7 @@ agent = [
     "akgentic-core==1.5.8",
     "akgentic-llm==2.0.2",
     "akgentic-tool==1.6.5",
-    "akgentic-agent==1.6.7",
+    "akgentic-agent==1.6.8",
 ]
 catalog = [
     "akgentic-core==1.5.8",
@@ -72,7 +72,7 @@ infra = [
     "akgentic-core==1.5.8",
     "akgentic-llm==2.0.2",
     "akgentic-tool==1.6.5",
-    "akgentic-agent==1.6.7",
+    "akgentic-agent==1.6.8",
     "akgentic-catalog==2.2.4",
     "akgentic-team==1.5.6",
     "akgentic-infra==1.9.2",
@@ -82,7 +82,7 @@ all = [
     "akgentic-core==1.5.8",
     "akgentic-llm==2.0.2",
     "akgentic-tool==1.6.5",
-    "akgentic-agent==1.6.7",
+    "akgentic-agent==1.6.8",
     "akgentic-catalog==2.2.4",
     "akgentic-team==1.5.6",
     "akgentic-infra==1.9.2",
@@ -94,7 +94,7 @@ all-extras = [
     "akgentic-core==1.5.8",
     "akgentic-llm==2.0.2",
     "akgentic-tool[docs,vector-search,vision,weaviate]==1.6.5",
-    "akgentic-agent==1.6.7",
+    "akgentic-agent==1.6.8",
     "akgentic-catalog[api,cli,mongo]==2.2.4",
     "akgentic-team[cli,mongo]==1.5.6",
     "akgentic-infra==1.9.2",
