@@ -22,6 +22,8 @@ payload:
         __ref__: human_support
   message_types:
   - __type__: akgentic.agent.messages.AgentMessage
+  metadata_type:
+    __type__: akgentic.team.reference_metadata.ReferenceTeamMetadata
   agent_profiles:
   - __ref__: expert
   - __ref__: assistant
