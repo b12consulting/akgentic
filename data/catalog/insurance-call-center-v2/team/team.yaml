@@ -1,0 +1,38 @@
+id: team
+kind: team
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.team.TeamCard
+description: Call Center Manager coordinating the insurance support team
+payload:
+  welcome_message: |
+    Welcome to the Insurance Call Center! I'm here to help you with your pension, life insurance, and disability coverage inquiries.
+    To ensure I can assist you properly and maintain security, I'll need to verify your identity first.
+
+    Please provide:
+    - Your full name (as registered with our company)
+    - Your date of birth
+    - Your National Registry Number or Policy ID
+
+    How may I assist you today?
+  entry_point:
+    card:
+      __ref__: human_proxy
+  members:
+  - card:
+      __ref__: manager
+    members:
+    - card:
+        __ref__: client_identification_specialist
+    - card:
+        __ref__: contract_identification_specialist
+    - card:
+        __ref__: pension_claims_specialist
+    - card:
+        __ref__: life_insurance_claims_specialist
+    - card:
+        __ref__: disability_claims_specialist
+    - card:
+        __ref__: human_support
+  message_types:
+  - __type__: akgentic.agent.messages.AgentMessage

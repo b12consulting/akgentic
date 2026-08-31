@@ -1,0 +1,15 @@
+id: id_team_disabled
+kind: tool
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.tool.team.TeamTool
+description: Fully-disabled TeamTool, shared by every agent on this team — there is
+  no dynamic hiring anywhere in this design; the roster is fixed and fully spelled
+  out in each prompt's Communication rules section, so no agent needs hire, fire,
+  roster, activity polling or role profiles.
+payload:
+  hire_team_members: false
+  fire_team_members: false
+  get_role_profiles: false
+  get_team_roster: false
+  get_team_activity: false

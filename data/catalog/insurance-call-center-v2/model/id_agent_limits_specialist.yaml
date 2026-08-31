@@ -1,0 +1,9 @@
+id: id_agent_limits_specialist
+kind: model
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: Lifetime budget shared by every specialist across one call-center session.
+payload:
+  agent_request_limit: 60
+  total_tokens_limit: 250000

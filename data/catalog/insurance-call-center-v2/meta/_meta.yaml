@@ -1,0 +1,175 @@
+id: _meta
+kind: meta
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.catalog.models.namespace_meta.NamespaceMeta
+description: Call Center Manager relaying verified callers through identification,
+  contract lookup and pension/life/disability claims specialists
+payload:
+  name: Insurance Call Center
+  description: Call Center Manager relaying verified callers through identification,
+    contract lookup and pension/life/disability claims specialists
+  properties:
+    user_name: Geoff
+    overview: |
+      A three-gate phone-support relay for an insurance call center: identity verification,
+      contract lookup, then a claims specialist matched to the caller's policy type (pension,
+      life insurance, disability). @Manager is the caller's only point of contact; every other
+      agent talks only to @Manager, never to the caller. Rebuilds `insurance-call-center` to
+      fix a reproduced failure: the manager never actually dispatched to its specialists - it
+      narrated the pipeline back to the caller instead ("please continue with
+      @ClientIdentificationSpecialist"), so no specialist ran even once across two tested
+      turns.
+    principles: |
+      Delegation is the `recipient` field on a message, not something the caller does. The
+      original prompt told the caller to go address a specialist by name; nothing in this
+      version's workflow points at the user - every dispatch instruction names the internal
+      agent @Manager sends a `request` to, and says explicitly that @Manager performs that
+      send, never the caller.
+
+      Hub-and-spoke for the caller-facing path, one bounded peer edge underneath it. Every
+      specialist reports to @Manager and only @Manager, except a real dependency: a claims
+      specialist cannot honestly state a caller's own figures (coverage amount, current
+      value, payout amount, waiting period) without them, and only
+      @ContractIdentificationSpecialist holds that data. Each claims specialist has exactly
+      one named peer, consults it at most once per case, and sends @Manager a
+      `notification` (never a position) while it waits; @ContractIdentificationSpecialist
+      answers a peer request and stops - it never consults anyone else, so the exchange
+      cannot loop. The FINAL handoff to a claims specialist stays @Manager's call; the peer
+      edge exists only for a figure, never for routing.
+
+      Each gate holds only the data its job needs. @ClientIdentificationSpecialist held the
+      full policy database in the original prompt despite never using product data; it now
+      holds only the client identity table, and @ContractIdentificationSpecialist holds
+      only the policy table. This is now a workspace boundary, not just a prompt
+      instruction: the two tables live in separate WorkspaceTool workspaces, one per role,
+      so neither specialist's tool card can even reach the other's file. The three claims
+      specialists hold no database at all, matching the original.
+
+      Bookkeeping is invisible and never a trigger. The manager keeps a case record
+      (graph) and a case report (workspace) up to date as things happen, but neither
+      action is ever mentioned to the caller and neither is ever, by itself, a reason
+      to send the caller a message - the manager speaks to @Human only in answer to
+      something @Human sent this call.
+    flow: |
+      @Human -> @Manager -> @ClientIdentificationSpecialist -> @Manager ->
+      @ContractIdentificationSpecialist -> @Manager -> {Pension|LifeInsurance|Disability}
+      ClaimsSpecialist -> @Manager -> @Human. Strictly sequential, one gate open at a time -
+      no fan-out, so no planning-board ledger is wired; the "wait for a response, never a
+      notification, before replying to @Human" rule is stated directly in @Manager's
+      workflow instead. One bounded peer edge underneath: a claims specialist may consult
+      @ContractIdentificationSpecialist directly for a figure, sending @Manager a
+      notification while it waits - invisible to @Manager beyond that, and never reaching
+      @Human. @HumanSupport is manager-only, for escalation after two failed verification
+      attempts or a gate reporting it cannot proceed.
+    tools: |
+      TeamTool - every agent gets one explicit, fully-disabled card
+      (hire/fire/roster/activity/role-profiles all false). This is a fixed six-agent roster
+      with no dynamic hiring anywhere in the design, so there is no legitimate call to
+      hire_member on this team; leaving TeamTool auto-injected (as the original did - it had
+      ZERO tool cards anywhere in the bundle) gave every specialist hire_member/fire_member/
+      team_activity for no reason, compounding the agent_profiles defect below.
+
+      WorkspaceTool (client/policy databases) - read-only, role-scoped, replacing the inline
+      CSV blocks the first version of this rewrite still carried in-prompt.
+      @ClientIdentificationSpecialist and @ContractIdentificationSpecialist each get ONE
+      card pointed at a workspace_id unique to that role
+      (insurance-call-center-client-identity-db / insurance-call-center-policy-db),
+      read_only: true, and every capability but workspace_read disabled. The file is seeded
+      via `resources` at wiring time rather than written into the prompt, so it costs
+      nothing on a turn that doesn't need it, and the two specialists cannot reach each
+      other's data even by accident - the workspace boundary enforces the client/policy
+      separation the prompts already state.
+
+      WorkspaceTool (manager) - full read/write, no workspace_id set so it defaults to the
+      team id: one directory per call, distinct from the two shared databases above and
+      unreachable by any other agent. Holds case-report.md (see graph below).
+
+      KnowledgeGraphTool - manager only, read/write, vector_store: false (keyword-only
+      search - the graph stays a handful of nodes per call, so semantic search buys nothing
+      and this drops the VectorStoreTool dependency and embedding calls entirely).
+      Specialists get no graph access at all; they report their outcome in their `response`
+      and the manager is the only one who persists it.
+
+      No SearchTool or PlanningTool - no fan-out on this team, so nothing needs a search
+      surface or a gather ledger.
+
+      SkillTool (manager only) - three hidden, harmless easter eggs (a joke, a fortune,
+      the phrase "the secret word"), never advertised to the caller. Each skill's
+      description is keyed on the act ("only when the caller explicitly asks"), never the
+      topic, so it fires on the specific trigger and not on ordinary business - the
+      MENU_HEADER's "even when you already know how" is what makes a capable model still
+      open the skill instead of winging the joke itself. The menu (header + 3 short
+      description lines) sits in the frozen prefix on every turn; that small, permanent
+      cost is the deliberate trade for the bodies costing nothing until a caller actually
+      triggers one.
+    graph: |
+      A RECORD of the call, not a view - schema lives in the manager prompt's §9. One
+      (:Caller) created immediately, as soon as identity is first attempted, named exactly
+      as the caller stated it and never renamed - verification state travels as a swapped
+      Status observation instead (pending/verified/failed). One (:Policy) per contract
+      located, one (:Case) per distinct need the caller raises. Small by construction (a
+      handful of nodes per call, one call per team), so no pruning policy is needed.
+      Written incrementally, never batched, and never mentioned to the caller: it is
+      bookkeeping for whoever reads the case afterward, read back via get_graph to build
+      case-report.md (see tools).
+    limits: |
+      Both tiers on every agent (neither was set in the original - the framework's only
+      stock brake is pydantic-ai's run_request_limit=50, a loop guard, not a budget).
+      TeamTool is fully disabled everywhere. Two specialists make one workspace_read each;
+      the manager's busiest turn (a claims specialist's response) can do update_graph +
+      get_graph + workspace_write before replying, so its ceiling is sized well above that:
+        manager     run 15 req / 6 tool calls / 100k tokens / 3k output ; life 100 runs / 700k
+        specialist  run  8 req / 2 tool calls /  40k tokens / 1.2k output ; life  60 runs / 250k
+      Not yet measured against a live run at time of writing - tighten/loosen after reading
+      the delegation-check event trace for this namespace's first real test.
+    lineage: |
+      Successor to `insurance-call-center`. Fixes three defects found by testing that version
+      live: (1) the manager told the caller to address specialists directly instead of
+      dispatching internally - zero `request` messages reached any specialist across two
+      tested turns; (2) all five specialists were listed in both `members` (live) and
+      `agent_profiles` (hireable-by-role), the exact "agent_profiles must not list
+      instantiated members" trap; (3) every agent silently held the full auto-injected
+      TeamTool (hire/fire/team_activity) because the bundle had no tool cards at all.
+
+      Revised within v2, same namespace: the client and policy databases moved out of the
+      prompt template and into two read-only, role-scoped WorkspaceTool workspaces seeded
+      via `resources`. The first working version of this namespace still had both tables
+      inline in the prompt text (a straight carry-over from the original); moving them to a
+      tool call is closer to how a real system-of-record lookup behaves, and turns the
+      client/policy data split from a prompt instruction into an actual access boundary.
+
+      Revised again within v2: the manager gained a case-record KnowledgeGraphTool and a
+      full-access, team-scoped WorkspaceTool for a `case-report.md` written from the graph
+      whenever a case closes. Both are strictly internal - the manager's scope explicitly
+      forbids mentioning them to the caller, and forbids treating a graph or report write
+      as a reason to message @Human on its own. Nothing before this revision persisted a
+      case record at all; it lived only in the message history.
+
+      Revised again within v2: the (:Caller) entity was first created only after
+      verification succeeded - wrong, because `update_entities` cannot rename an entity,
+      and a live test surfaced the actual failure mode: an entity briefly created under a
+      placeholder name stayed stuck at that name after the caller was verified. Fixed by
+      creating (:Caller) once, immediately, named exactly as the caller stated it, and
+      tracking verification as a swapped Status observation instead of ever renaming
+      anything.
+
+      Also added: a bounded peer-consultation edge from each claims specialist to
+      @ContractIdentificationSpecialist for a Details-column figure the specialist was
+      never given and had no way to obtain - the gap a review surfaced alongside the
+      (:Caller) fix. Bounded the same way the framework's own peer-consultation pattern
+      prescribes: one named peer, at most one consultation per case, a `notification` to
+      @Manager while waiting, and the peer answers and stops rather than consulting anyone
+      else in turn.
+
+      Added within v2: three easter-egg skills on the manager (a joke, a fortune, "the
+      secret word"), manager-only, act-keyed so they fire on an explicit ask and nothing
+      else, never logged as a case.
+
+      Added within v2: the manager was otherwise unconstrained on off-topic messages and
+      would answer general knowledge from its own training (e.g. "what's the color of the
+      sky?") - nothing in scope excluded it. Fixed with an explicit workflow gate: decline
+      and redirect, even when the answer is trivially easy, unless the message is
+      insurance business or one of the three skills above.
+  shareable: false
+  public: true

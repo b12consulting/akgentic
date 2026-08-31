@@ -1,0 +1,26 @@
+id: client_identification_specialist
+kind: agent
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Securely verifies client identity before any service is provided
+payload:
+  description: Securely verifies client identity before any service is provided
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - identity-verification
+  - security
+  config:
+    name: '@ClientIdentificationSpecialist'
+    role: Client Identification Specialist
+    prompt:
+      __ref__: id_client_identification_prompt
+    model_cfg:
+      __ref__: global.id_gpt_54
+    run_usage_limits:
+      __ref__: id_run_limits_specialist
+    agent_usage_limits:
+      __ref__: id_agent_limits_specialist
+    tools:
+    - __ref__: id_team_disabled
+    - __ref__: id_workspace_client_db

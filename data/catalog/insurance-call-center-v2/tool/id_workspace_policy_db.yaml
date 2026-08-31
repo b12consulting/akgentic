@@ -1,0 +1,34 @@
+id: id_workspace_policy_db
+kind: tool
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: Read-only policy database, role-scoped to @ContractIdentificationSpecialist.
+  Different workspace_id than the client identity database, so this role cannot see
+  client PII and the identity role cannot see policy data.
+payload:
+  workspace_id: insurance-call-center-policy-db
+  read_only: true
+  workspace_view: false
+  workspace_list: false
+  workspace_glob: false
+  workspace_grep: false
+  expand_media_refs: false
+  workspace_read:
+    instructions: |
+      The only file here is policies.csv. Read it once.
+  resources:
+  - file_name: policies.csv
+    content: |
+      Policy ID,ClientID,Client Full Name,Product Type,Status,Start Date,Monthly Contribution (€),Details
+      LIFE-750412,1,Jean-Luc Dubois,Life Insurance,Active,2015-09-01,50,Coverage: €250000; Beneficiary: Sophie Dubois
+      DIS-750412,1,Jean-Luc Dubois,Disability Insurance,Active,2018-06-15,40,Monthly Payout: €2500; Waiting Period: 90 days
+      LIFE-880923,2,Annelies Peeters,Life Insurance,Active,2020-01-10,35,Coverage: €150000; Beneficiary: Dirk Peeters
+      DIS-920130,3,Céline Martin,Disability Insurance,Active,2021-03-01,38.5,Monthly Payout: €2200; Waiting Period: 60 days
+      PEN-811105,4,Kenji Tanaka,Pension Plan,Active,2010-11-05,150,Current Value: €45200; Payout Start: 2046
+      DIS-950719,5,Fatima Benali,Disability Insurance,Active,2023-08-20,33,Monthly Payout: €2000; Waiting Period: 90 days
+      PEN-680322,6,Olivier Janssen,Pension Plan,Active,2005-01-01,200,Current Value: €155800; Payout Start: 2033
+      LIFE-010608,7,Sofia Rossi,Life Insurance,Active,2024-09-01,25,Coverage: €100000; Beneficiary: Marco Rossi
+      PEN-590527,9,Marie-Claire Lambert,Pension Plan,Active,1998-07-20,250,Payout starts: 2025-10-01; Value: €280000
+      LIFE-590527,9,Marie-Claire Lambert,Life Insurance,Expired,2000-01-01,60,Term ended: 2025-01-01
+      LIFE-840816,10,Tom Willems,Life Insurance,Active,2019-07-01,45,Coverage: €200000; Beneficiary: Lotte Willems

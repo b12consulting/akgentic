@@ -1,0 +1,14 @@
+id: id_workspace_manager
+kind: tool
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.tool.workspace.WorkspaceTool
+description: The manager's own workspace, full read/write — no workspace_id is set,
+  so it defaults to the team id and is scoped to this call. Nothing else on the team
+  is wired to it.
+payload:
+  workspace_write:
+    instructions: |
+      You own case-report.md — see §10 of your prompt. Rewrite it in full, from the
+      graph (get_graph), whenever a case closes. Never mention this file to the
+      caller; writing it is never itself a reason to send them a message.

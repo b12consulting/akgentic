@@ -1,0 +1,10 @@
+id: id_agent_limits_manager
+kind: model
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.llm.AgentUsageLimits
+description: Lifetime budget for the manager across one call-center session (many
+  short turns, each now carrying graph and report tool calls).
+payload:
+  agent_request_limit: 100
+  total_tokens_limit: 700000
