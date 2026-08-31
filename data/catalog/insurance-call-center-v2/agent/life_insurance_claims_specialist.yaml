@@ -1,0 +1,24 @@
+id: life_insurance_claims_specialist
+kind: agent
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.core.AgentCard
+description: Handles death benefit claims and life insurance policy inquiries
+payload:
+  description: Handles death benefit claims and life insurance policy inquiries
+  agent_class: akgentic.agent.BaseAgent
+  skills:
+  - life-insurance-claims
+  config:
+    name: '@LifeInsuranceClaimsSpecialist'
+    role: Life Insurance Claims Specialist
+    prompt:
+      __ref__: id_life_insurance_claims_prompt
+    model_cfg:
+      __ref__: global.id_gpt_54
+    run_usage_limits:
+      __ref__: id_run_limits_specialist
+    agent_usage_limits:
+      __ref__: id_agent_limits_specialist
+    tools:
+    - __ref__: id_team_disabled

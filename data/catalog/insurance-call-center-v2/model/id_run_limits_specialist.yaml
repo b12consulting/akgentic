@@ -1,0 +1,14 @@
+id: id_run_limits_specialist
+kind: model
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: Per-run brake shared by every specialist. TeamTool is fully disabled
+  for all five; ClientIdentificationSpecialist and ContractIdentificationSpecialist
+  additionally make one read-only workspace_read call each. Each specialist sends
+  exactly one `response` per request.
+payload:
+  run_request_limit: 8
+  tool_calls_limit: 2
+  total_tokens_limit: 40000
+  output_tokens_limit: 1200

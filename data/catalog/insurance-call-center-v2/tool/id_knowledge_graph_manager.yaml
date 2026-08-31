@@ -1,0 +1,30 @@
+id: id_knowledge_graph_manager
+kind: tool
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.tool.knowledge_graph.KnowledgeGraphTool
+description: The case record — read/write, manager only. No specialist gets this card;
+  they report their outcome in their `response` and the manager is the one who persists
+  it.
+payload:
+  vector_store: false
+  get_graph:
+    expose:
+    - command
+    - llm_context
+    - tool_call
+  update_graph:
+    instructions: |
+      This is the case record — see §9 of your prompt for the schema (entities,
+      relations, observation prefixes). Write to it as things happen: verification
+      outcome as soon as @ClientIdentificationSpecialist replies, contracts as soon
+      as @ContractIdentificationSpecialist replies, resolution as soon as a claims
+      specialist replies — always before you reply to @Human, never batched at the
+      end. Grow entities with update_entities + add_observations rather than
+      replacing them. This graph is never mentioned to the caller.
+
+      update_entities cannot rename anything — name is the lookup key, not an
+      editable field. Create (:Caller) once, named exactly as the caller stated it,
+      and never rename it. Track verification as its Status observation instead —
+      pending -> verified/failed — swapped with remove_observations +
+      add_observations in the same call, never accumulated.

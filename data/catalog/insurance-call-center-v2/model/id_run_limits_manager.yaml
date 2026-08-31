@@ -1,0 +1,13 @@
+id: id_run_limits_manager
+kind: model
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.llm.RunUsageLimits
+description: Per-run brake for the manager. TeamTool is fully disabled, but the busiest
+  turn (a claims specialist's response) can do update_graph + get_graph + workspace_write
+  in one run before replying — sized at roughly 2x that, not measured yet.
+payload:
+  run_request_limit: 15
+  tool_calls_limit: 6
+  total_tokens_limit: 100000
+  output_tokens_limit: 3000

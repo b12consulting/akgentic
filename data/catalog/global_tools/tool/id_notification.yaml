@@ -1,9 +1,0 @@
-id: id_notification
-kind: tool
-namespace: global_tools
-user_id: anonymous
-model_type: akgentic.tool.notification.NotificationTool
-description: Notification tool — schedule a delayed message to yourself (all defaults)
-payload:
-  message_class: akgentic.agent.messages.AgentMessage
-  max_delay_seconds: 300

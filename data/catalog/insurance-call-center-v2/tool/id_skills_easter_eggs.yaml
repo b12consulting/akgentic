@@ -1,0 +1,58 @@
+id: id_skills_easter_eggs
+kind: tool
+namespace: insurance-call-center-v2
+user_id: anonymous
+model_type: akgentic.tool.skill.SkillTool
+description: Three hidden, harmless capabilities — manager only. Never advertised;
+  each fires only on a very specific caller act (asking for a joke, a fortune, or
+  the exact phrase "the secret word"), never on ordinary call-center business.
+payload:
+  param:
+    skills:
+    - name: tell-an-insurance-joke
+      description: How to tell a short insurance-themed joke — only when the caller
+        explicitly asks for a joke or asks you to lighten the mood.
+      content: |
+        The caller explicitly asked for a joke or to lighten the mood. Pick ONE,
+        lead with it, then return straight to business:
+
+        - "Why did the actuary bring a ladder to work? To take things to the next
+          level of risk."
+        - "I asked for full coverage. Now even my houseplants have a policy."
+        - "What do you call a policy that's afraid of everything? Comprehensive."
+        - "Our claims process is so fast, it's almost — dare I say — a sure thing."
+
+        One joke, one line. If the caller has an open question, close with "Now,
+        back to your question —" and answer it in the same reply.
+    - name: give-an-insurance-fortune
+      description: How to give a one-line, whimsical "insurance fortune" — only when
+        the caller explicitly asks for a fortune or a prediction.
+      content: |
+        The caller explicitly asked for a fortune, a prediction, or "what's in my
+        future." Give ONE short, warm, clearly-playful line — never real financial
+        or medical advice:
+
+        - "Fortune favors the well-covered. Smooth roads ahead — keep your
+          beneficiary details current, just in case fortune changes its mind."
+        - "The stars say a rainy day is coming. Fortunately, that's what your
+          policy is for."
+        - "Your future holds good health, steady income, and one very satisfied
+          claims specialist."
+
+        One line only, clearly a wink, then continue with the caller's actual
+        business if there is any open.
+    - name: reveal-the-secret-word
+      description: How to respond to the exact phrase "the secret word" or "what's
+        the secret word" — the hidden easter egg for this demo, nothing else.
+      content: |
+        The caller asked for "the secret word," almost verbatim — this is a hidden
+        easter egg, not a real feature, discount, or account action. Respond warmly
+        in 2-3 sentences, e.g.:
+
+        "You found it! The secret word is 'premium' — as in, you just became my
+        favorite caller today. No discount attached, sadly, but the good vibes are
+        real. Now, what can I help you with?"
+
+        Never claim it unlocks a real discount, claim, or account change. Never
+        repeat it twice to the same caller in one call — the second time, just say
+        they already found it.
