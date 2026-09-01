@@ -1,0 +1,21 @@
+{
+  "//": [
+    "Version manifest for the docker-compose stack's web UI. This is NOT an",
+    "installable npm package and `npm install` here will fail: akgentic-frontend",
+    "is not published to the npm registry. Its only published artifact is the",
+    "web-root tarball attached to each GitHub release.",
+    "",
+    "docker/frontend.Dockerfile reads dependencies.akgentic-frontend below and",
+    "fetches the matching release. Bump the version HERE — this file is the",
+    "single source of truth. FRONTEND_VERSION in .env overrides it for a one-off",
+    "test without editing a tracked file.",
+    "",
+    "Releases: https://github.com/b12consulting/akgentic-frontend/releases"
+  ],
+  "name": "akgentic-stack",
+  "private": true,
+  "description": "Pins the akgentic-frontend release served by docker-compose.yml.",
+  "dependencies": {
+    "akgentic-frontend": "1.12.0"
+  }
+}
