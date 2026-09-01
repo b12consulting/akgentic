@@ -19,7 +19,7 @@ A comprehensive framework for building intelligent multi-agent systems with LLM 
 | [akgentic-infra](https://github.com/b12consulting/akgentic-infra) <br> Infrastructure backend — protocol abstractions, community/department/enterprise tiers | [![CI](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/gpiroux/73f98d6bf131b998029a9d28a0007614/raw/coverage.json)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | core, llm, tool, agent, catalog, team |
 | [akgentic-frontend](https://github.com/b12consulting/akgentic-frontend) <br> Angular-based web UI | — | — | — |
 
-## What is Akgentic?
+## What is the Akgentic Framework?
 
 Most agent frameworks give you a **pipeline**: a chain or graph you draw in
 advance, where control flows from step to step. That works until the problem
@@ -27,18 +27,19 @@ stops being a pipeline — until one agent needs to ask another a question, wait
 for an answer, and carry on; until a coordinator needs to bring in a specialist
 it did not know it would need.
 
-Akgentic gives you a **team** instead. Each agent runs on its own thread with
-its own mailbox, its own context and its own LLM. They send each other typed
-messages, work in parallel, and are hired and fired while the system is
-running. You describe *who is on the team and how each one should behave* —
-not the order things happen in.
+The Akgentic Framework gives you a **team** instead. Each agent runs on its
+own thread with its own mailbox, its own context and its own LLM. They send
+each other typed messages, work in parallel, and are hired and fired while the
+system is running. You describe *who is on the team and how each one should
+behave* — not the order things happen in.
 
 ### Agents are actors
 
-Akgentic is built on the [actor model](https://en.wikipedia.org/wiki/Actor_model)
-(via [Pykka](https://pykka.readthedocs.io/)), which has run telecoms and
-messaging systems for decades. One rule makes it work: **actors share nothing
-and communicate only by messages.**
+The Akgentic Framework is built on the
+[actor model](https://en.wikipedia.org/wiki/Actor_model) (via
+[Pykka](https://pykka.readthedocs.io/)), which has run telecoms and messaging
+systems for decades. One rule makes it work: **actors share nothing and
+communicate only by messages.**
 
 That rule buys four things that agentic systems need badly:
 
@@ -54,7 +55,7 @@ orchestrator watching every message go by:
 
 ```mermaid
 flowchart TD
-    H["Human"] <--> M["@Manager"]
+    H["@Human"] <--> M["@Manager"]
     H <--> A["@Assistant"]
     H <--> E["@Expert"]
     M <--> A
@@ -121,9 +122,10 @@ and loaded from a **catalog** — same objects, no code.
 
 ### From component library to enterprise infrastructure
 
-Akgentic is a stack of small packages, each published on its own. Take the one
-layer you need, or the whole platform — **nothing above forces anything below**,
-and `akgentic-core` has zero infrastructure dependencies.
+The Akgentic Framework is a stack of small packages, each published on its
+own. Take the one layer you need, or the whole platform — **nothing above
+forces anything below**, and `akgentic-core` has zero infrastructure
+dependencies.
 
 | Layer | Package | Reach for it when you want… |
 |---|---|---|
