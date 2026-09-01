@@ -1,0 +1,119 @@
+# docker-compose.yml — the akgentic community stack: backend server + web UI.
+#
+#   cp .env.example .env      # then fill in OPENAI_API_KEY
+#   docker compose up -d --build
+#
+#   Web UI    http://localhost:4200
+#   API docs  http://localhost:8000/docs
+#
+# Both images build from the repository ROOT as their context so that the one
+# root .dockerignore governs both — see docker/server.Dockerfile and
+# docker/frontend.Dockerfile for why that matters for the frontend.
+#
+# PORTS. The container ports are fixed (server 8000, nginx 4200) and only the
+# published host ports are configurable, via SERVER_PORT / FRONTEND_PORT. That
+# keeps the healthchecks and the internal service URL constant no matter how
+# the host ports are remapped. They default to the same numbers, so the stack
+# lands on the ports the README documents for a non-Docker run — meaning you
+# cannot run both at once without remapping one of them.
+#
+# API_URL is the one setting that is easy to get wrong. The frontend is a
+# browser app: the call to the backend leaves the user's browser, not the
+# nginx container, so API_URL must be a HOST-visible URL and must agree with
+# SERVER_PORT. `http://server:8000` would resolve only inside the compose
+# network and the UI would fail to load any team.
+#
+# No top-level `version:` key — Compose v2 ignores it and warns.
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+      args:
+        # wheel (default) installs akgentic-* from PyPI at the pins in
+        # pyproject.toml / uv.lock — no submodule checkout needed. Switch to
+        # `source` to run against the local packages/akgentic-* sources,
+        # installed editable — the same wheel/source split the frontend makes
+        # with FRONTEND_SOURCE. See docker/server.Dockerfile.
+        BUILD_SOURCE: ${BUILD_SOURCE:-wheel}
+    image: akgentic-server:latest
+    ports:
+      - "${SERVER_PORT:-8000}:8000"
+    environment:
+      # Vendor keys are read unprefixed, directly by akgentic-llm / akgentic-tool.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      # Everything the server itself reads is AKGENTIC_-prefixed
+      # (ServerSettings / CommunitySettings, env_prefix="AKGENTIC_").
+      AKGENTIC_HOST: 0.0.0.0
+      AKGENTIC_PORT: 8000
+      AKGENTIC_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Permissive by default: the browser calls the API cross-origin, from
+      # FRONTEND_PORT to SERVER_PORT. Narrow this to the real origin before
+      # exposing the stack beyond localhost. JSON list, not a bare string.
+      AKGENTIC_CORS_ORIGINS: ${CORS_ORIGINS:-["*"]}
+      # In-container paths; these are the mount points declared below.
+      AKGENTIC_CATALOG_PATH: /app/data/catalog
+      AKGENTIC_EVENT_STORE_PATH: /app/data/event_store
+      AKGENTIC_WORKSPACES_ROOT: /app/workspaces
+    volumes:
+      # Bind mounts, not named volumes, on purpose: ./data holds the team
+      # catalog you edit from the host and want to keep under version control,
+      # and ./workspaces holds the files agents produce, which are the point of
+      # a run. Both stay readable on the host after `docker compose down`.
+      - ./data:/app/data
+      - ./workspaces:/app/workspaces
+    healthcheck:
+      # /readiness is the one route exempt from auth, so this works whatever
+      # auth strategy is wired. curl is installed by docker/server.Dockerfile
+      # for exactly this. -f makes any 4xx/5xx a failed check rather than a
+      # successfully-fetched error page; --max-time keeps a hung server from
+      # leaning on the `timeout` below. Exec form, so no shell is involved.
+      test: ["CMD", "curl", "-fsS", "--max-time", "3", "http://localhost:8000/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        # release (default) downloads the prebuilt bundle from the
+        # akgentic-frontend GitHub release — no Node build, and no need for the
+        # packages/akgentic-frontend submodule to be initialised at all. Switch
+        # to `source` to build the submodule instead. See
+        # docker/frontend.Dockerfile.
+        FRONTEND_SOURCE: ${FRONTEND_SOURCE:-release}
+        # Which release to fetch is pinned in ./package.json
+        # (dependencies.akgentic-frontend). This passes through empty unless
+        # FRONTEND_VERSION is set in .env, in which case it overrides the pin.
+        FRONTEND_VERSION: ${FRONTEND_VERSION:-}
+        # Read by the `source` stage only; the release ships production.
+        BUILD_MODE: ${BUILD_MODE:-production}
+    image: akgentic-frontend:latest
+    ports:
+      - "${FRONTEND_PORT:-4200}:4200"
+    environment:
+      API_URL: ${API_URL:-http://localhost:8000}
+    # config.json is fetched by ConfigService at startup and merged OVER the
+    # values compiled into environment.ts, whose `api` is hardcoded to
+    # localhost:8000. Writing it here is what repoints the built bundle at
+    # SERVER_PORT without rebuilding the image.
+    #
+    # `$$API_URL` escapes Compose's own interpolation so the container shell
+    # expands it. nginx:alpine's ENTRYPOINT still runs first (this replaces
+    # only its CMD), so /docker-entrypoint.d/ behaves as usual.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf '{"api": "%s"}\n' "$$API_URL" > /usr/share/nginx/html/config.json
+        exec nginx -g 'daemon off;'
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped

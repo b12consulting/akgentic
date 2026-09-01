@@ -1,0 +1,56 @@
+# Build context trimming for docker-compose.yml.
+#
+# Both images (docker/server.Dockerfile, docker/frontend.Dockerfile) build from
+# the repository ROOT as their context, so this one file governs both. Keep the
+# exclusions here rather than inside packages/akgentic-frontend — that is a
+# submodule with its own repo, and this stack must not write into it.
+#
+# The frontend build needs these to survive: packages/akgentic-frontend/{src,
+# public,angular.json,tsconfig*.json,package*.json,nginx.conf}.
+
+# Version control
+.git
+.gitmodules
+packages/*/.git
+packages/*/.github
+.github
+
+# Python virtualenvs, caches and build output.
+# These MUST be `**/`-rooted, not bare: BUILD_SOURCE=workspace copies whole
+# submodule trees, and a bare `.venv` matches only the top-level one. A stray
+# packages/akgentic-catalog/.venv is 261 MB that would land in the image.
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage
+**/dist
+**/build
+**/*.egg-info
+**/.logfire
+
+# Node — 580 MB of node_modules and a 23 MB Angular build cache
+**/node_modules
+packages/akgentic-frontend/.angular
+packages/akgentic-frontend/dist
+
+# Runtime state: bind-mounted by docker-compose.yml, never baked into an image
+data
+workspaces
+.logfire
+
+# Secrets — never send a real .env into a build context
+.env
+
+# Editors / OS
+.vscode
+.idea
+.DS_Store
+
+# Not needed by either image
+docs
+assets
+_bmad
+_bmad-output
