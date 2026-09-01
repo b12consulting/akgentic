@@ -62,7 +62,8 @@ flowchart TD
     M <--> E
     A <--> E
     O["Orchestrator<br/><i>tracks the team, streams events</i>"]
-    O -.observes.- M
+    O -.observes.- H
+    O -.- M
     O -.- A
     O -.- E
 ```
