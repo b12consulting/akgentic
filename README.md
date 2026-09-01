@@ -48,7 +48,7 @@ That rule buys four things that agentic systems need badly:
 | **Isolation** | An agent's conversation, context and memory are its own. No shared mutable state, so no locks and no cross-talk between agents. |
 | **Concurrency for free** | Three agents thinking at once is the default, not an optimisation. A slow tool call blocks one mailbox, not the team. |
 | **Failure containment** | An agent that crashes or loops is one actor. The orchestrator sees it and the rest of the team keeps working. |
-| **Live membership** | Actors are created and stopped at runtime, so a manager can hire a specialist mid-conversation. |
+| **Live membership** | Actors are created and stopped at runtime, so a manager can hire a specialist during the process. |
 
 A team looks like this — a human talking to a manager that delegates, with an
 orchestrator watching every message go by:
