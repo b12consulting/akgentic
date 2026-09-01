@@ -27,10 +27,10 @@ not need to read the others.
 | I want to… | Path | Needs |
 |---|---|---|
 | **Try it, fastest** | [Run with Docker Compose](docs/run-docker.md) | Docker |
+| **Drive a team from the terminal** | [Run the CLI](docs/run-cli.md) | Python 3.12+ |
+| **Use it as a library** | [Installation](docs/installation.md) | Python 3.12+ |
 | **Run the server and UI as processes** | [Run locally](docs/run-local.md) | Python 3.12+ |
 | **Change framework code** | [Run from source](docs/run-from-source.md) | Python 3.12+, Node, submodules |
-| **Use it as a library** | [Installation](docs/installation.md) | Python 3.12+ |
-| **Drive a team from the terminal** | [Run the CLI](docs/run-cli.md) | Python 3.12+ |
 
 Two commands, if you just want to see it work:
 
@@ -70,10 +70,10 @@ mode, mounts them as submodules under `packages/`.
 packages/                 (submodules — empty until `git submodule update --init`)
   akgentic-core/        → Zero-dependency actor framework (Pykka, messaging, orchestrator)
   akgentic-llm/         → LLM integration layer (pydantic-ai, multi-provider, REACT pattern)
+  akgentic-team/        → Team lifecycle management (create/resume/stop/delete, event sourcing)
   akgentic-tool/        → Tool abstractions (ToolCard, ToolFactory, workspace, planning, search, KG, MCP)
   akgentic-agent/       → Collaborative agent patterns (BaseAgent, typed message protocol, HumanProxy)
   akgentic-catalog/     → Configuration registry (YAML-driven CRUD catalogs)
-  akgentic-team/        → Team lifecycle management (create/resume/stop/delete, event sourcing)
   akgentic-infra/       → Infrastructure backend (three-tier: community, department, enterprise)
   akgentic-frontend/    → Angular web UI (REST + WebSocket client for akgentic-infra)
 ```
@@ -81,14 +81,14 @@ packages/                 (submodules — empty until `git submodule update --in
 **Dependency graph** (lower layers have no upward dependencies):
 
 ```
-akgentic-frontend ──depends on──>  akgentic-infra (REST + WebSocket API)
-akgentic-infra    ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool + akgentic-agent + akgentic-catalog + akgentic-team
-akgentic-catalog  ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool + akgentic-team
-akgentic-team     ──depends on──>  akgentic-core (only)
-akgentic-agent    ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool
-akgentic-tool     ──depends on──>  akgentic-core + (pydantic, pydantic-ai, tavily-python, httpx)
-akgentic-llm      ──depends on──>  (pydantic-ai, httpx, tenacity)
 akgentic-core     ──depends on──>  (pydantic, pykka)  ← zero infrastructure deps
+akgentic-llm      ──depends on──>  (pydantic-ai, httpx, tenacity)
+akgentic-team     ──depends on──>  akgentic-core (only)
+akgentic-tool     ──depends on──>  akgentic-core + (pydantic, pydantic-ai, tavily-python, httpx)
+akgentic-agent    ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool
+akgentic-catalog  ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool + akgentic-team
+akgentic-infra    ──depends on──>  akgentic-core + akgentic-llm + akgentic-tool + akgentic-agent + akgentic-catalog + akgentic-team
+akgentic-frontend ──depends on──>  akgentic-infra (REST + WebSocket API)
 ```
 
 ### akgentic-core
