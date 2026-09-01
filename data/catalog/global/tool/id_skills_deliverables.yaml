@@ -1,0 +1,101 @@
+id: id_skills_deliverables
+kind: tool
+namespace: global
+user_id: anonymous
+model_type: akgentic.tool.skill.SkillTool
+description: Skill library — producing written deliverables (reports, reviews, source
+  summaries)
+payload:
+  param:
+    skills:
+    - name: write-report
+      description: How to structure a report so the reader gets the answer before
+        the method.
+      content: |
+        A report is read by someone deciding whether to act. Structure it for that reader, not
+        for the order in which you did the work.
+
+        **Lead with the answer.** The first paragraph states what you found and what it means.
+        A reader who stops there should still have the conclusion. Building to a conclusion in
+        the final paragraph is the single most common structural error, and it costs the reader
+        the whole document to recover one sentence.
+
+        **Then the support, strongest first.** Each section makes one claim and gives the
+        evidence for it. If a section does not change what the reader should do, cut it —
+        including work you are proud of.
+
+        **Separate what you know from what you infer.** Mark inference as inference. A reader who
+        cannot tell measurement from estimate will either trust both or neither, and both are
+        wrong.
+
+        **State the limits explicitly.** What you did not check, what data was missing, where the
+        result would change. A report with no stated limits reads as either naive or evasive, and
+        the reader will assume whichever is worse.
+
+        On length: cut every sentence that describes the process rather than the finding.
+        "We analysed the data and found that X" is "X". Numbers belong in tables, not in prose —
+        a sentence with four figures in it is unreadable, and the same four in a table are
+        scannable.
+
+        Finish by re-reading only the opening paragraph. If it does not survive on its own, the
+        report is not done.
+    - name: review-document
+      description: How to review someone else's document so the feedback is actionable
+        rather than a list of reactions.
+      content: |
+        Review in two passes. Mixing them produces a list of typos that misses a wrong argument.
+
+        **First pass — is it right?** Read for the claim and the evidence. Ignore wording
+        entirely. Ask: does the conclusion follow? Is anything asserted that is not supported? Is
+        there a claim that would change the reader's decision if it were wrong, and is that claim
+        adequately supported? Is anything important missing — an alternative not considered, a
+        risk not named, a limit not stated?
+
+        **Second pass — is it clear?** Only once the substance holds. Structure, order,
+        redundancy, wording. There is no point polishing a paragraph that should be deleted.
+
+        **Write findings so they can be acted on.** Each one names the location, states the
+        problem, and says what would resolve it. "This section is confusing" is not actionable;
+        "this section states the conclusion before defining the term it depends on — define it
+        first, or move the definition up" is.
+
+        **Separate severity honestly.** Distinguish what is wrong, what is unclear, and what you
+        would have done differently. The third category is preference, and should be labelled as
+        preference — mixing it with the first two makes a reviewer's whole list easy to dismiss.
+
+        **Say what works, briefly and specifically.** Not to soften the review, but because the
+        author needs to know what not to change while fixing everything else.
+
+        If you find nothing substantive, say so plainly. Manufacturing findings to look thorough
+        wastes the author's time and devalues your real findings on the next review.
+    - name: summarize-source
+      description: How to compress a long source without losing what makes it usable
+        later.
+      content: |
+        A summary is written for a reader who will not open the source. What survives compression
+        determines whether it is useful or merely short.
+
+        **Keep, always:**
+
+        - The claims, with their strength preserved. If the source says "may indicate", do not
+          write "shows". Silently upgrading hedged claims into confident ones is the most common
+          and most damaging summarisation error.
+        - Numbers, with their units and their basis. A figure without its denominator is noise.
+        - Definitions the source relies on, especially where it uses a common word in a narrow
+          way.
+        - Anything that contradicts the source's own conclusion. It is the first thing a careless
+          summary drops and the first thing a careful reader wants.
+
+        **Drop:** worked examples, restatements, throat-clearing, and the source's own summary of
+        itself — which is usually written to persuade rather than to inform.
+
+        **Preserve structure where structure carries meaning.** If the source argues in steps, a
+        summary that reorders them into topics loses the argument. If it is a list of independent
+        findings, the order is free.
+
+        **Record what you dropped, in one line.** "Omits the methodology section and three worked
+        examples." A reader who knows what is missing can decide whether to open the source; one
+        who does not will assume the summary is complete.
+
+        Never resolve an ambiguity on the author's behalf. If the source is unclear on a point
+        that matters, say that it is unclear — that fact is part of what you were asked to report.

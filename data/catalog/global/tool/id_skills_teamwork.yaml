@@ -1,0 +1,121 @@
+id: id_skills_teamwork
+kind: tool
+namespace: global
+user_id: anonymous
+model_type: akgentic.tool.skill.SkillTool
+description: Skill library — working inside a multi-agent team (delegation, handover,
+  escalation)
+payload:
+  param:
+    skills:
+    - name: delegate-work
+      description: How to hand a task to a teammate so they can act on it without
+        asking you three questions first.
+      content: |
+        Delegating well is mostly about removing the need for a follow-up round trip.
+
+        Before you send anything, decide whether you should delegate at all. Delegate when the
+        work needs a capability you do not have, or when it can proceed in parallel with what you
+        are doing. Do not delegate work you could finish in the time it takes to describe it, and
+        do not delegate a task you cannot judge the result of — you will not be able to tell a
+        good answer from a confident wrong one.
+
+        A delegated task carries four things:
+
+        1. **The goal, not the steps.** Say what "done" looks like. A teammate who knows the goal
+           can recover when the steps turn out to be wrong; one who only has steps cannot.
+        2. **The inputs.** Name the files, the identifiers, the prior decisions. If you are
+           holding context they do not have, include it — they cannot see your conversation.
+        3. **The boundary.** What is explicitly out of scope, and what they must not change.
+           This is the single most common omission, and the one that produces work you have to
+           throw away.
+        4. **The form of the answer.** A number, a file, a recommendation with a rationale, a
+           yes/no. Say which.
+
+        Send one task per message. Two tasks in one message reliably produce one answer.
+
+        When the result comes back, check it against the goal you stated rather than against what
+        you would have done. If it is wrong, say what is wrong and what "right" would look like —
+        "please redo this" without a diagnosis produces a different wrong answer.
+    - name: hand-over
+      description: What a handover must contain when you stop working on something
+        and someone else picks it up.
+      content: |
+        A handover fails when the person picking up has to reconstruct what you already knew. It
+        is not a summary of what you did; it is what they need to continue.
+
+        Write these five, in this order:
+
+        1. **State.** What is true right now. Not the history — the current position. "The
+           migration script runs and processes 40 000 of 52 000 rows before failing."
+        2. **The immediate next action.** The one thing you would do if you had another ten
+           minutes. Be specific enough that they can start without deciding anything.
+        3. **What you ruled out, and why.** This is the part that saves the most time and is
+           skipped the most often. Someone who does not know what you eliminated will eliminate
+           it again.
+        4. **Open questions.** Things you could not resolve, and who or what could resolve them.
+           Mark any question that blocks progress as blocking.
+        5. **Traps.** Anything that looks wrong but is deliberate, and anything that looks fine
+           but is not. If you leave one thing behind, leave this.
+
+        Two rules about tone. Do not describe your own effort — how long something took does not
+        help the next person. And do not soften a dead end: "this approach does not work, here is
+        the evidence" is more useful than "this approach may need more investigation".
+    - name: escalate-to-human
+      description: When to stop and ask a person, and what the escalation message
+        must contain.
+      content: |
+        Escalate when continuing would mean guessing at something only a person can decide. That
+        is a narrow set, and it is worth being precise about, because escalating too often is as
+        costly as never escalating — a team that raises everything trains its humans to skim.
+
+        **Escalate when:**
+
+        - The action is hard to reverse and you were not clearly asked for it — deleting data,
+          sending something outside the organisation, spending money.
+        - Two instructions genuinely conflict and no reading satisfies both.
+        - You have found something that changes the premise of the task — the request assumes
+          something that is not true.
+        - You are blocked on access, permission, or a credential.
+
+        **Do not escalate** to confirm a judgment you are equipped to make, to report progress,
+        or because a task is merely difficult. Make the call, state the assumption you made, and
+        continue.
+
+        **An escalation message contains, in this order:**
+
+        1. **The decision needed**, phrased as a question with the options you see. Not "what
+           should I do?" — "should I X or Y? I recommend X because …".
+        2. **What is blocked** by not answering, and what is not. If most of the work can
+           continue, say so; the person can then answer at their own pace.
+        3. **The evidence** — enough for them to check your reasoning, and no more.
+        4. **What you have already tried**, so they do not suggest it.
+
+        While you wait, finish everything that does not depend on the answer. Arriving with the
+        question *and* the rest of the work done is the difference between an escalation that
+        helps and one that stalls a team.
+    - name: resolve-disagreement
+      description: What to do when a teammate's answer contradicts yours or your own
+        evidence.
+      content: |
+        A contradiction between two agents is information, not an obstacle. The wrong responses
+        are to defer automatically to the other agent, and to restate your position louder.
+
+        Work through it in this order:
+
+        1. **Check that you disagree about the same thing.** Most apparent conflicts are two
+           correct answers to two different questions — different time ranges, different
+           definitions, different scopes. State the question precisely and see whether the
+           disagreement survives.
+        2. **Compare evidence, not conclusions.** Ask what the other answer is based on. If one
+           side has a source and the other has an inference, the source wins. If both have
+           sources that disagree, the disagreement is real and worth surfacing.
+        3. **Try to falsify your own answer first.** It is the cheaper test, because you know
+           where your own reasoning is thin.
+        4. **If it does not resolve, escalate the disagreement itself** — not your side of it.
+           Present both positions and the evidence for each, and say which you find more likely
+           and why. A human resolving a fairly-presented conflict is fast; one refereeing two
+           advocates is slow.
+
+        Do not split the difference. An average of two incompatible answers is usually wrong in a
+        way that neither original answer was, and it hides the fact that a question is still open.
