@@ -61,11 +61,11 @@ flowchart TD
     M <--> A
     M <--> E
     A <--> E
-    O["Orchestrator<br/><i>tracks the team, streams events</i>"]
-    O -.observes.- H
-    O -.- M
-    O -.- A
-    O -.- E
+    O["Orchestrator<br/>tracks the team, streams events"]
+    O -. observes .-> H
+    O -.-> M
+    O -.-> A
+    O -.-> E
 ```
 
 **Every line is two-way, and the graph is complete on purpose.** The runtime
@@ -398,7 +398,7 @@ All packages maintain:
 - [Run with Docker Compose](docs/run-docker.md) — the whole stack in containers
 - [Run locally](docs/run-local.md) — server and UI as local processes
 - [Run from source](docs/run-from-source.md) — working on framework code
-- [Run the CLI](docs/run-cli.md) — scripted teams, `ak-infra`, `ak-catalog`
+- [Run the CLIs](docs/run-cli.md) — scripted teams, `ak-infra`, `ak-catalog`
 - [Development](docs/development.md) — repository layout, cutting a release
 
 **Packages**
