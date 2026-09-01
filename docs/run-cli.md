@@ -47,8 +47,8 @@ knowledge and technical guidance...
 @Human, here is @Expert's response regarding his role: ...
 ```
 
-What it demonstrates: `AgentCard` role definitions with `routes_to`
-restrictions, `BaseAgent` and the typed `AgentMessage` protocol,
+What it demonstrates: `AgentCard` role definitions, `BaseAgent` and the typed
+`AgentMessage` protocol,
 `register_agent_profiles()`, `EventSubscriber.on_message()` for live message
 flow, and dynamic hiring at runtime. See the
 [akgentic-agent README](https://github.com/b12consulting/akgentic-agent/blob/master/README.md).
@@ -117,3 +117,9 @@ See the
 
 `ak-team` is also installed, for team-store inspection — see the
 [akgentic-team README](https://github.com/b12consulting/akgentic-team/blob/master/README.md).
+
+## Next
+
+- [Run with Docker Compose](run-docker.md) — a server to point `ak-infra` at
+- [Run locally](run-local.md) — the same server as a local process
+- [Run from source](run-from-source.md) — change the framework itself

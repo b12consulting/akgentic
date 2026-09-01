@@ -107,4 +107,8 @@ uv run ruff check src/
 > picks up the root `pyproject.toml`, which describes no package — that both
 > invents errors and hides real ones.
 
-More on the release workflow in [Development](development.md).
+## Next
+
+- [Development](development.md) — repository layout, cutting a release
+- [Run with Docker Compose](run-docker.md) — the same sources, containerised
+- [Run the CLIs](run-cli.md) — drive the team you just changed

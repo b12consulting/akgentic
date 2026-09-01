@@ -127,3 +127,9 @@ docker compose exec server curl -fsS http://localhost:8000/readiness
 
 **A `source` build fails on a missing path.** The submodules are not
 initialised — `git submodule update --init`.
+
+## Next
+
+- [Run the CLIs](run-cli.md) — drive a team on this server from the terminal
+- [Run from source](run-from-source.md) — build the images from local code
+- [Installation](installation.md) — use the packages as a library

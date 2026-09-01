@@ -1,9 +1,9 @@
 # Installation
 
-Akgentic is on PyPI. `akgentic-framework` is a **meta-distribution**: it
-contains no code of its own, only a pinned set of requirements, so an extra
-installs the exact subpackage versions that were built and tested together for
-that release.
+The Akgentic Framework is on PyPI. `akgentic-framework` is a
+**meta-distribution**: it contains no code of its own, only a pinned set of
+requirements, so an extra installs the exact subpackage versions that were
+built and tested together for that release.
 
 ```bash
 pip install "akgentic-framework[all]"
@@ -93,4 +93,4 @@ The Docker stack reads these from a `.env` file instead — see
 | Run the whole stack in containers | [Run with Docker Compose](run-docker.md) |
 | Run the server and UI as local processes | [Run locally](run-local.md) |
 | Change framework code | [Run from source](run-from-source.md) |
-| Drive a team from the terminal | [Run the CLI](run-cli.md) |
+| Drive a team from the terminal | [Run the CLIs](run-cli.md) |

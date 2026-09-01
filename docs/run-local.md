@@ -105,5 +105,5 @@ the browser calls.
 
 ## Next
 
-- [Run the CLI](run-cli.md) — drive this server from the terminal
+- [Run the CLIs](run-cli.md) — drive this server from the terminal
 - [Run with Docker Compose](run-docker.md) — the same two pieces, containerised

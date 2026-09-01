@@ -77,3 +77,8 @@ package.
 The version this stack serves is pinned in [`package.json`](../package.json)
 (`dependencies.akgentic-frontend`). Bump it there when adopting a new UI
 release.
+
+## Next
+
+- [Run from source](run-from-source.md) — set the checkout up for local work
+- [Run with Docker Compose](run-docker.md) — exercise a change in the stack
