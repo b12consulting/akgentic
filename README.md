@@ -28,9 +28,10 @@ for an answer, and carry on; until a coordinator needs to bring in a specialist
 it did not know it would need.
 
 Akgentic gives you a **team** instead. Each agent runs on its own thread with
-its own mailbox, its own context and its own LLM. They send each other typed messages, work
-in parallel, and are hired and fired while the system is running. You describe
-*who is on the team and who may talk to whom* — not the order things happen in.
+its own mailbox, its own context and its own LLM. They send each other typed
+messages, work in parallel, and are hired and fired while the system is
+running. You describe *who is on the team and how each one should behave* —
+not the order things happen in.
 
 ### Agents are actors
 
@@ -52,26 +53,32 @@ A team looks like this — a human talking to a manager that delegates, with an
 orchestrator watching every message go by:
 
 ```mermaid
-flowchart LR
-    H["Human"] -->|request| M["@Manager"]
-    M -->|request| A["@Assistant"]
-    M -->|request| E["@Expert"]
-    A -->|response| M
-    E -->|response| M
-    M -->|response| H
-    O["Orchestrator<br/><i>tracks the team, streams events</i>"] -.- M
+flowchart TD
+    H["Human"] <--> M["@Manager"]
+    H <--> A["@Assistant"]
+    H <--> E["@Expert"]
+    M <--> A
+    M <--> E
+    A <--> E
+    O["Orchestrator<br/><i>tracks the team, streams events</i>"]
+    O -.observes.- M
     O -.- A
     O -.- E
 ```
 
-Every arrow is a validated Pydantic model, not a dict — so a malformed message
-fails where it is sent, not three hops later.
+**Every line is two-way, and the graph is complete on purpose.** The runtime
+imposes no topology: any actor can send to any other, and the human can address
+any agent directly. What makes a team behave like a team — the manager
+delegating rather than answering everything itself — is written in the agents'
+prompts, not enforced by the plumbing.
+
+Every arrow is a validated Pydantic model, not a dict, so a malformed message
+fails where it is sent rather than three hops later.
 
 ### A team is declared, not wired
 
 An agent is an **`AgentCard`**: who it is, what it is good at, which model it
-runs on, which tools it may call, and — importantly — who it is allowed to talk
-to.
+runs on, and which tools it may call.
 
 ```python
 manager = AgentCard(
@@ -81,17 +88,25 @@ manager = AgentCard(
     config=AgentConfig(
         name="@Manager",
         role="Manager",
-        prompt=PromptTemplate(template="You are a helpful manager."),
+        prompt=PromptTemplate(
+            template=(
+                "You are a helpful manager. Delegate specialised questions to "
+                "@Expert and research to @Assistant, then report back."
+            ),
+        ),
         model_cfg=ModelConfig(provider="openai", model="gpt-5.2"),
         tools=tools,
     ),
-    routes_to=["Assistant", "Expert"],   # who this agent may reach
 )
 ```
 
-`routes_to` is the team's declared topology — the roles this agent is given as
-its routing options, and what keeps a coordinator delegating instead of doing
-everything itself. Leave it empty and the agent may address anyone.
+**The prompt is where collaboration rules live.** Who to delegate to, when to
+answer directly, when to come back to the human — that is prose in the system
+prompt, which is what makes it something you can iterate on rather than a
+topology you have to redeclare. The model does not have to be told who exists:
+the live team roster reaches it as context, so it can address a colleague hired
+after the prompt was written.
+
 Registering a card with the orchestrator makes that role *available* to the
 team, which hires from it on demand rather than starting every agent up front.
 
