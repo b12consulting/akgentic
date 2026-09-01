@@ -19,273 +19,46 @@ A comprehensive framework for building intelligent multi-agent systems with LLM 
 | [akgentic-infra](https://github.com/b12consulting/akgentic-infra) <br> Infrastructure backend — protocol abstractions, community/department/enterprise tiers | [![CI](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/gpiroux/73f98d6bf131b998029a9d28a0007614/raw/coverage.json)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | core, llm, tool, agent, catalog, team |
 | [akgentic-frontend](https://github.com/b12consulting/akgentic-frontend) <br> Angular-based web UI | — | — | — |
 
-## Quick Start
+## Get started
 
-This root package serves as the **quick-start entry point** for the Akgentic framework, providing complete examples that demonstrate the full capabilities of multi-agent team coordination.
+Pick the path that matches what you are doing. Each is self-contained — you do
+not need to read the others.
 
-### Installation
+| I want to… | Path | Needs |
+|---|---|---|
+| **Try it, fastest** | [Run with Docker Compose](docs/run-docker.md) | Docker |
+| **Run the server and UI as processes** | [Run locally](docs/run-local.md) | Python 3.12+ |
+| **Change framework code** | [Run from source](docs/run-from-source.md) | Python 3.12+, Node, submodules |
+| **Use it as a library** | [Installation](docs/installation.md) | Python 3.12+ |
+| **Drive a team from the terminal** | [Run the CLI](docs/run-cli.md) | Python 3.12+ |
 
-Akgentic is on PyPI. To install the whole framework:
-
-```bash
-pip install "akgentic-framework[all]"
-```
-
-Add the optional backends and heavier tool extras (Mongo persistence, vector
-search, document parsing, …):
-
-```bash
-pip install "akgentic-framework[all-extras]"
-```
-
-`akgentic-framework` is a meta-distribution: it contains no code of its own,
-only a pinned set of requirements, so an extra installs the exact subpackage
-versions that were built and tested together for that release.
-
-#### À la carte
-
-Extras compose, and each one pins its **whole** akgentic dependency closure at
-the versions of this release — so `[agent]` fixes `akgentic-llm` and
-`akgentic-tool` too, rather than letting them resolve to whatever is newest.
-
-| Extra | Installs |
-|---|---|
-| `core` | `akgentic-core` |
-| `llm` | `akgentic-llm` |
-| `tool` | `akgentic-tool` + `akgentic-core` |
-| `agent` | `akgentic-agent` + `akgentic-llm`, `akgentic-tool`, `akgentic-core` |
-| `team` | `akgentic-team` + `akgentic-core` |
-| `catalog` | `akgentic-catalog` + `akgentic-team`, `akgentic-tool`, `akgentic-core` |
-| `infra` | `akgentic-infra` + the whole set |
-| `postgres` | `akgentic-catalog[postgres]`, `akgentic-team[postgres]` + their closure |
+Two commands, if you just want to see it work:
 
 ```bash
-pip install "akgentic-framework[agent,catalog]"
+cp .env.example .env      # then fill in OPENAI_API_KEY
+docker compose up -d --build
 ```
 
-`mongo` and `postgres` are mutually exclusive persistence backends, so
-`[all-extras]` ships the Mongo flavour. Compose the other one explicitly:
-
-```bash
-pip install "akgentic-framework[all,postgres]"
-```
-
-The base install is the actor framework alone (`akgentic.core`), so it stays a
-usable minimal floor:
-
-```bash
-pip install akgentic-framework
-```
-
-Subpackages can also be installed directly — `pip install akgentic-agent` —
-which is the right choice when you depend on one part and do not want a
-release-wide pin.
-
-#### Running from a clone
-
-Cloning this repository and syncing installs the release set from PyPI — no
-submodules needed. This is what you want to try the examples below:
-
-```bash
-git clone https://github.com/b12consulting/akgentic-framework.git
-cd akgentic-framework
-uv sync
-source .venv/bin/activate
-```
-
-`uv sync` installs every subpackage with its optional extras, so the demos run
-immediately. (Published metadata stays lean: `pip install akgentic-framework`
-still gets `akgentic.core` alone. The full set comes from a uv dependency group,
-which pip ignores.)
-
-#### Working on the sources
-
-To change subpackage code rather than just use it, switch the same checkout into
-source mode. **Initialise the submodules first** — uv reports a confusing error
-if a workspace member directory is missing:
-
-```bash
-# 1. Fetch the sources, pinned at the release tags this version pins
-git submodule update --init
-
-# 2. Uncomment the two blocks under "SOURCE MODE" in pyproject.toml
-
-# 3. Re-sync; akgentic-* now resolve to the local sources, editable
-uv sync
-```
-
-The submodules are pinned at the exact commits their release tags point to, so
-what you get is the code this release was built from — `uv run python
-scripts/verify_submodules.py` checks it. Because every package's own CI resolves
-its dependencies from PyPI, this is the only place unreleased cross-package
-changes are exercised together.
-
-Two things to expect:
-
-- `uv.lock` is rewritten when you switch modes. That diff is expected; don't
-  commit it — `git checkout uv.lock` when you're done.
-- The `==` pins still apply to the local sources. Bump a submodule's version and
-  `uv sync` fails until you regenerate the pins with `scripts/sync_versions.py`.
-  That's deliberate: the pin table *is* the declared release set.
-
-To check how the published metadata resolves without re-commenting anything, use
-`uv sync --no-sources`.
-
-### Running the Server and Frontend
-
-After installation, open two terminals to launch the backend and the web UI:
-
-**Terminal 1 — Start the backend server:**
-
-```bash
-source .venv/bin/activate
-
-# Set your API keys (get them from https://platform.openai.com/api-keys and https://app.tavily.com/)
-export OPENAI_API_KEY="your-openai-api-key"
-export TAVILY_API_KEY="your-tavily-api-key"
-
-# Launch the server (param --logfire enables structured logging, https://logfire-eu.pydantic.dev/)
-python src/infra_server.py
-```
-
-**Terminal 2 — Start the web UI:**
-
-The frontend is an Angular app published from its own repository, and it is not
-part of the Python install — fetch its sources before the first run:
-
-```bash
-git submodule update --init packages/akgentic-frontend
-cd packages/akgentic-frontend
-npm install
-npm start
-```
-
-Once both are running:
-
-- **Web UI** — [http://localhost:4200](http://localhost:4200) — create and interact with agent teams visually
-- **API docs** — [http://localhost:8000/docs](http://localhost:8000/docs) — interactive OpenAPI (Swagger) interface to explore and test all REST endpoints
-
-By default, the server stores team catalogs in `./data/catalog/` and the event store in `./data/event_store/`. These paths are configurable via the `CommunitySettings` class or environment variables prefixed with `AKGENTIC_`.
+Web UI on <http://localhost:4200>, API docs on <http://localhost:8000/docs>.
 
 ![Akgentic Frontend](assets/akgentic_frontend.png)
 ![Akgentic OpenAPI](assets/akgentic_openapi.png)
 
+### Where things come from
 
+Every path offers the same choice: **published artifacts** (the default —
+nothing to build, no submodules) or **local sources** (for changing framework
+code). The naming is deliberately the same on both sides.
 
-### Command line Agent Team Example
+| | Published (default) | Local sources |
+|---|---|---|
+| Python packages | PyPI wheels, pinned as a release set | `packages/akgentic-*`, editable |
+| Web UI | prebuilt bundle from its GitHub release | Angular build from `packages/akgentic-frontend` |
+| In Docker | `BUILD_SOURCE=wheel`, `FRONTEND_SOURCE=release` | `BUILD_SOURCE=source`, `FRONTEND_SOURCE=source` |
 
-The [src/agent_team/main.py](src/agent_team/main.py) example demonstrates a complete multi-agent team system from a simple python script without the full infrastructure.
-
-**What it demonstrates:**
-
-- Building a team with Manager, Assistant, and Expert roles using `AgentCard`
-- Interactive chat loop with `@mention` routing (e.g., `@Expert help me`)
-- `HumanProxy` for human-to-agent communication
-- `EventSubscriber` for real-time message flow visibility
-- Dynamic team composition (Manager can hire Assistant/Expert on demand)
-- Slash commands: `/team`, `/roles`, `/planning`, `/hire <role>`, `/fire <name>`
-
-**Team Structure:**
-
-- **Manager**: Coordinates team, can hire Assistant and Expert roles
-- **Assistant**: Provides support and research
-- **Expert**: Provides specialized knowledge
-- **HumanProxy**: Routes human input to Manager
-
-**Key Concepts:**
-
-- `AgentCard` — Defines agent roles with skills, prompts, and `routes_to` restrictions
-- `BaseAgent` — LLM-powered agent with typed `AgentMessage` protocol
-- `register_agent_profiles()` — Registers `AgentCard` catalog with orchestrator
-- `EventSubscriber.on_message()` — Event-driven message monitoring
-- `HumanProxy.send()` — Sends `AgentMessage` from human to agents
-- `cmd_get_team_roster()` — Retrieves current team roster programmatically
-
-**Run the example:**
-
-```bash
-# Set your OpenAI and TAVILY API key
-export OPENAI_API_KEY="your-openai-api-key" # https://platform.openai.com/api-keys
-export TAVILY_API_KEY="your-tavily-api-key" # https://app.tavily.com/
-
-# Activate the environment
-source .venv/bin/activate
-
-# Run the team example
-python src/agent_team/main.py
-```
-
-**Interactive Features:**
-
-In this example, as a human user, we instruct the manager to ask the expert (`@Expert`) about his role in the team. The manager routes an `AgentMessage(request)` to the expert, who replies with `AgentMessage(response)`. The manager then relays the answer back to the human.
-
-By default messages are addressed to the Manager, but you can route them to specific agents using `@AgentName` prefix — e.g., `@Expert what is your role?` sends directly to the Expert. Use `/help` to see all available slash commands.
-
-```
-Team members:
-  - @Human (Human)
-  - @Manager (Manager)
-  - @Assistant (Assistant)
-  - @Expert (Expert)
-
-Type your message (start the message with @{agent_name} to route to specific agent, 'exit' to quit or '/help' for help):
-----------------------------------------------------------------------------------------------------
-Ask @Expert what is his role in the team
-
-----------------------------------------------------------------------------------------------------
-[@Manager] -> AgentMessage(request) [@Expert]:
-You received a request from @Manager:
-
-Could you please describe your role and main responsibilities within the team?
-
-----------------------------------------------------------------------------------------------------
-[@Manager] -> AgentMessage(response) [@Human]:
-I'll reach out to @Expert to clarify his role in the team.
-
-----------------------------------------------------------------------------------------------------
-[@Expert] -> AgentMessage(response) [@Manager]:
-You received a response from @Expert:
-
-Certainly, @Manager. As the Expert within the team, my primary role is to provide deep, specialized knowledge and technical guidance. My responsibilities include:
-
-1. Offering in-depth analysis and solutions for complex problems...
-
-----------------------------------------------------------------------------------------------------
-[@Manager] -> AgentMessage(response) [@Human]:
-@Human, here is @Expert's response regarding his role:
-
-As the Expert, his primary role is to provide deep, specialized knowledge and technical guidance. His responsibilities include:
-
-1. Offering in-depth analysis and solutions for complex problems...
-
-
-exit
-
-Exiting chat loop.
-```
-
-This example showcases the **akgentic-agent** package capabilities. For LLM-driven agent patterns and the typed message protocol, see [the akgentic-agent README](https://github.com/b12consulting/akgentic-agent/blob/master/README.md).
-
-### Catalog-Driven Agent Teams
-
-The same multi-agent team can be assembled entirely from YAML — prompt templates, tools, agents, and team structure — via the **akgentic-catalog** package. This repository ships that data in two forms:
-
-- [`data/catalog/`](data/catalog/) — file-per-entry namespaces (`agent-team`, `digital-product-team`, `global`, `global_tools`), the layout the server reads directly;
-- [`data/catalog-import/`](data/catalog-import/) — one bundle YAML per namespace, the import/export form for seeding a fresh deployment.
-
-Instead of defining `AgentCard` objects in Python, entries are declared in a namespace and resolved at runtime through the unified `Catalog`. The `ak-catalog` CLI works against the bundled data directly:
-
-```bash
-# Strict-validate a namespace, resolve the team into a runnable TeamCard
-ak-catalog --root data/catalog validate --namespace agent-team
-ak-catalog --root data/catalog load-team --namespace agent-team
-
-# Round-trip a namespace as a single bundle document
-ak-catalog --root data/catalog export --namespace agent-team
-ak-catalog --root data/catalog validate data/catalog-import/catalog.agent-team.yaml
-```
-
-See [the akgentic-catalog README](https://github.com/b12consulting/akgentic-catalog/blob/master/README.md) for catalog documentation.
+`akgentic-framework` is a meta-distribution: no code of its own, only a pinned
+set of requirements, so an extra installs the exact subpackage versions built
+and tested together for that release.
 
 ## Architecture
 
@@ -467,74 +240,6 @@ Angular single-page application providing real-time visualization and management
 
 See [the akgentic-frontend README](https://github.com/b12consulting/akgentic-frontend/blob/master/README.md) for setup and development instructions.
 
-## 🛠️ Development
-
-### Where the work happens
-
-Each package is its own repository, with its own CI, lint rules and coverage
-gate. Changes to a package are made, reviewed and released **there** — this
-repository holds no subpackage code.
-
-What it does hold is the release set, and the one place unreleased packages are
-exercised together. Every package's CI resolves its dependencies from PyPI, so
-no package's own pipeline ever sees an unreleased sibling. Source mode here is
-where that combination gets tried:
-
-```bash
-git submodule update --init
-# uncomment the two blocks under "SOURCE MODE" in pyproject.toml
-uv sync
-```
-
-Each submodule is a normal checkout of its repository, so branch and commit in
-it as usual — and open the PR against that repository, not this one. The
-submodules are pinned at release tags, so you start from exactly the code this
-release was built from:
-
-```bash
-uv run python scripts/verify_submodules.py
-```
-
-Run a package's own tests and checks from its directory, under its own
-configuration:
-
-```bash
-cd packages/akgentic-core
-uv run pytest tests/
-uv run mypy src/
-uv run ruff check src/
-```
-
-This repository's own gates cover `scripts/` and `src/` only — it has no test
-suite, and deliberately does not collect the submodules'.
-
-### Cutting a release
-
-The umbrella's version is a release-set counter: it is bumped by hand when a set
-of package versions is worth publishing together. The pins are not — they are
-generated from the submodules.
-
-```bash
-# 1. Move the submodules to the release tags you want in the set
-git submodule update --init
-git -C packages/akgentic-core checkout v1.6.0
-
-# 2. Regenerate the pins and extras from those submodules
-uv run python scripts/sync_versions.py
-
-# 3. Bump [project].version by hand, then open a PR with both changes
-```
-
-Once merged, and once every package version in the set is on PyPI, dispatch
-**Release** (tags the commit, attaches the umbrella wheel and sdist to a GitHub
-Release) and then **Publish to PyPI** from the Actions tab. Both refuse to run
-if a pinned version is missing from the index, if a submodule is not sitting on
-its release tag, or if the committed pins disagree with the submodules.
-
-The PyPI project page shows the description of the *latest* release, baked into
-that release's metadata. It cannot be edited in place — a README fix reaches
-PyPI only on the next version bump.
-
 ## Design Principles
 
 1. **Zero infrastructure dependencies** in core
@@ -554,6 +259,17 @@ All packages maintain:
 
 ## Documentation
 
+**Guides**
+
+- [Installation](docs/installation.md) — PyPI, extras, from a clone
+- [Run with Docker Compose](docs/run-docker.md) — the whole stack in containers
+- [Run locally](docs/run-local.md) — server and UI as local processes
+- [Run from source](docs/run-from-source.md) — working on framework code
+- [Run the CLI](docs/run-cli.md) — scripted teams, `ak-infra`, `ak-catalog`
+- [Development](docs/development.md) — repository layout, cutting a release
+
+**Packages**
+
 - [akgentic-core README](https://github.com/b12consulting/akgentic-core/blob/master/README.md) - Core framework documentation
 - [akgentic-core examples](https://github.com/b12consulting/akgentic-core/tree/master/examples) - Hands-on tutorials
 - [akgentic-llm README](https://github.com/b12consulting/akgentic-llm/blob/master/README.md) - LLM integration and multi-provider support
@@ -562,7 +278,6 @@ All packages maintain:
 - [akgentic-catalog README](https://github.com/b12consulting/akgentic-catalog/blob/master/README.md) - Configuration registry
 - [akgentic-team README](https://github.com/b12consulting/akgentic-team/blob/master/README.md) - Team lifecycle management
 - [akgentic-infra README](https://github.com/b12consulting/akgentic-infra/blob/master/README.md) - Infrastructure backend plugins
-- [System Architecture](_bmad-output/system/architecture.md) - Module dependency graph, boundaries, and cross-cutting patterns
 
 ## Contributing
 
@@ -573,4 +288,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines, branch naming
 This project is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
 > **Dual licensing & CLA** — Akgentic is available under the AGPL-3.0 open-source license. A commercial license is also planned for organizations that require alternative terms. Contact [Yuma](https://www.weareyuma.com/en/contact) for more information. External contributions will be accepted once a Contributor License Agreement (CLA) is in place. Until then, please hold off on submitting pull requests.
-
