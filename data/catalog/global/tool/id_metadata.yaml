@@ -1,0 +1,18 @@
+id: id_metadata
+kind: tool
+namespace: global
+user_id: anonymous
+model_type: akgentic.tool.metadata.MetadataTool
+description: Team metadata — renders the team's business context into every agent's
+  frozen system prompt, once, from one operator-written template
+payload:
+  render_metadata:
+    header: Team context
+    template: |-
+      Tenant: {tenant}
+      Case reference: {case_ref}
+      Service tier: {tier}
+      Note: {note}
+    expose:
+    - command
+    - system_prompt
