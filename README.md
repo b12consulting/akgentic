@@ -19,6 +19,121 @@ A comprehensive framework for building intelligent multi-agent systems with LLM 
 | [akgentic-infra](https://github.com/b12consulting/akgentic-infra) <br> Infrastructure backend — protocol abstractions, community/department/enterprise tiers | [![CI](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/gpiroux/73f98d6bf131b998029a9d28a0007614/raw/coverage.json)](https://github.com/b12consulting/akgentic-infra/actions/workflows/ci.yml) | core, llm, tool, agent, catalog, team |
 | [akgentic-frontend](https://github.com/b12consulting/akgentic-frontend) <br> Angular-based web UI | — | — | — |
 
+## What is Akgentic?
+
+Most agent frameworks give you a **pipeline**: a chain or graph you draw in
+advance, where control flows from step to step. That works until the problem
+stops being a pipeline — until one agent needs to ask another a question, wait
+for an answer, and carry on; until a coordinator needs to bring in a specialist
+it did not know it would need.
+
+Akgentic gives you a **team** instead. Each agent runs on its own thread with
+its own mailbox, its own context and its own LLM. They send each other typed messages, work
+in parallel, and are hired and fired while the system is running. You describe
+*who is on the team and who may talk to whom* — not the order things happen in.
+
+### Agents are actors
+
+Akgentic is built on the [actor model](https://en.wikipedia.org/wiki/Actor_model)
+(via [Pykka](https://pykka.readthedocs.io/)), which has run telecoms and
+messaging systems for decades. One rule makes it work: **actors share nothing
+and communicate only by messages.**
+
+That rule buys four things that agentic systems need badly:
+
+| | |
+|---|---|
+| **Isolation** | An agent's conversation, context and memory are its own. No shared mutable state, so no locks and no cross-talk between agents. |
+| **Concurrency for free** | Three agents thinking at once is the default, not an optimisation. A slow tool call blocks one mailbox, not the team. |
+| **Failure containment** | An agent that crashes or loops is one actor. The orchestrator sees it and the rest of the team keeps working. |
+| **Live membership** | Actors are created and stopped at runtime, so a manager can hire a specialist mid-conversation. |
+
+A team looks like this — a human talking to a manager that delegates, with an
+orchestrator watching every message go by:
+
+```mermaid
+flowchart LR
+    H["Human"] -->|request| M["@Manager"]
+    M -->|request| A["@Assistant"]
+    M -->|request| E["@Expert"]
+    A -->|response| M
+    E -->|response| M
+    M -->|response| H
+    O["Orchestrator<br/><i>tracks the team, streams events</i>"] -.- M
+    O -.- A
+    O -.- E
+```
+
+Every arrow is a validated Pydantic model, not a dict — so a malformed message
+fails where it is sent, not three hops later.
+
+### A team is declared, not wired
+
+An agent is an **`AgentCard`**: who it is, what it is good at, which model it
+runs on, which tools it may call, and — importantly — who it is allowed to talk
+to.
+
+```python
+manager = AgentCard(
+    description="Coordinates the team",
+    skills=["coordination", "delegation"],
+    agent_class="akgentic.agent.BaseAgent",
+    config=AgentConfig(
+        name="@Manager",
+        role="Manager",
+        prompt=PromptTemplate(template="You are a helpful manager."),
+        model_cfg=ModelConfig(provider="openai", model="gpt-5.2"),
+        tools=tools,
+    ),
+    routes_to=["Assistant", "Expert"],   # who this agent may reach
+)
+```
+
+`routes_to` is the team's declared topology — the roles this agent is given as
+its routing options, and what keeps a coordinator delegating instead of doing
+everything itself. Leave it empty and the agent may address anyone.
+Registering a card with the orchestrator makes that role *available* to the
+team, which hires from it on demand rather than starting every agent up front.
+
+Routing then happens two ways, and both end up as the same message send:
+
+- **You address an agent** — `@Expert what is your role?` from the human;
+- **An agent addresses another** — it returns a `StructuredOutput` containing
+  requests, and `BaseAgent` delivers them.
+
+The same team can be written in Python, as above, or declared entirely in YAML
+and loaded from a **catalog** — same objects, no code.
+
+### From component library to enterprise infrastructure
+
+Akgentic is a stack of small packages, each published on its own. Take the one
+layer you need, or the whole platform — **nothing above forces anything below**,
+and `akgentic-core` has zero infrastructure dependencies.
+
+| Layer | Package | Reach for it when you want… |
+|---|---|---|
+| **Actors** | `akgentic-core` | the actor runtime, messaging and orchestrator — no LLM, no server |
+| **Models** | `akgentic-llm` | one API over OpenAI, Anthropic, Google, Mistral, Azure… with cost limits |
+| **Tools** | `akgentic-tool` | to give agents capabilities: workspace, search, planning, MCP |
+| **Agents** | `akgentic-agent` | LLM-backed agents with the typed message protocol and human proxy |
+| **Teams** | `akgentic-team` | lifecycle and event sourcing: create, resume, stop, replay |
+| **Catalog** | `akgentic-catalog` | to declare agents, tools and teams in YAML instead of code |
+| **Platform** | `akgentic-infra` + `akgentic-frontend` | a REST/WebSocket server and a web UI to run teams from |
+
+The top layer also scales *outwards*. The same server code runs in three
+deployment tiers, chosen by configuration rather than a rewrite:
+
+| Tier | Shape | For |
+|---|---|---|
+| **Community** | single process, files on disk | development, demos, one team at a time — **this bundle** |
+| **Department** | Docker Compose, Mongo + Redis, several workers | a team of people sharing one host |
+| **Enterprise** | Kubernetes/Dapr, SSO and RBAC | production, many tenants |
+
+Community is what ships here and what the guides below run. Department and
+enterprise implement the same protocols in the sibling
+`akgentic-infra-department` and `akgentic-infra-enterprise` packages, so moving
+up a tier changes deployment, not your agents.
+
 ## Get started
 
 Pick the path that matches what you are doing. Each is self-contained — you do
@@ -26,11 +141,11 @@ not need to read the others.
 
 | I want to… | Path | Needs |
 |---|---|---|
-| **Try it, fastest** | [Run with Docker Compose](docs/run-docker.md) | Docker |
-| **Drive a team from the terminal** | [Run the CLI](docs/run-cli.md) | Python 3.12+ |
 | **Use it as a library** | [Installation](docs/installation.md) | Python 3.12+ |
-| **Run the server and UI as processes** | [Run locally](docs/run-local.md) | Python 3.12+ |
-| **Change framework code** | [Run from source](docs/run-from-source.md) | Python 3.12+, Node, submodules |
+| **Try it, fastest** | [Run with Docker Compose](docs/run-docker.md) | Docker |
+| **Drive a simple team from the terminal** | [Run the CLIs](docs/run-cli.md) | Python 3.12+ |
+| **Run the server and UI from terminal** | [Run locally](docs/run-local.md) | Python 3.12+ |
+| **Want to run from source code?** | [Run from source](docs/run-from-source.md) | Python 3.12+, Node, submodules |
 
 Two commands, if you just want to see it work:
 
